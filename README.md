@@ -1,0 +1,227 @@
+# ghidra-mcp
+
+[![CI](https://github.com/imjustprism/ghidra-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/imjustprism/ghidra-mcp/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/rust-1.85%2B-orange.svg)](rust-toolchain.toml)
+[![Ghidra](https://img.shields.io/badge/ghidra-12.0.1-red.svg)](https://ghidra-sre.org/)
+[![JDK](https://img.shields.io/badge/jdk-21-green.svg)](https://adoptium.net/)
+
+MCP server for Ghidra. Rust bridge + Ghidra Java plugin. Wires any MCP client (Claude Desktop, etc.) straight into a live Ghidra session.
+
+> [!NOTE]
+> Loopback-only by default. Never bind the plugin to a public interface.
+
+## Quick start
+
+| step | command |
+| --- | --- |
+| build bridge | `cargo build --release` |
+| stage ghidra jars | `cd plugin && .\setup-libs.ps1` |
+| build plugin | `mvn clean package` |
+| install plugin | drag `plugin/target/ghidra-mcp-plugin-1.0.zip` into **File → Install Extensions** |
+| enable plugin | **File → Configure → Developer → ghidra-mcp-plugin** |
+| point client | set command to `target/release/ghidra-mcp.exe` |
+
+## Client config
+
+`%APPDATA%\Claude\claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "ghidra": {
+      "command": "C:/path/to/ghidra-mcp.exe",
+      "args": ["--ghidra-server", "http://127.0.0.1:8080/"]
+    }
+  }
+}
+```
+
+## Flags
+
+| flag | env | default |
+| --- | --- | --- |
+| `--ghidra-server` | `GHIDRA_SERVER` | `http://127.0.0.1:8080/` |
+| `--timeout-secs` | `GHIDRA_TIMEOUT_SECS` | `10` |
+
+`RUST_LOG=ghidra_mcp=debug` for verbose logs.
+
+## Plugin options
+
+**Edit → Tool Options → Ghidra MCP HTTP Server**
+
+| option | default |
+| --- | --- |
+| Server Port | `8080` |
+| Bind Address | `127.0.0.1` |
+
+## Tools
+
+89 tools total.
+
+<details>
+<summary><b>Listing / metadata</b> (17)</summary>
+
+| tool | purpose |
+| --- | --- |
+| `list_methods` | all functions |
+| `list_classes` | namespace classes |
+| `list_functions` | functions with addresses |
+| `list_segments` | memory segments |
+| `list_sections_detailed` | sections + RWX + entropy |
+| `list_imports` | imported symbols |
+| `list_exports` | exported symbols |
+| `list_namespaces` | namespaces |
+| `list_data_items` | defined data |
+| `list_entry_points` | entry points |
+| `list_strings` | defined strings |
+| `search_functions_by_name` | substring match |
+| `get_current_address` | cursor address |
+| `get_current_function` | cursor function |
+| `get_function_by_address` | resolve by address |
+| `program_info` | language, arch, base, sha256 |
+| `function_stack_frame` | stack vars for a fn |
+
+</details>
+
+<details>
+<summary><b>Decompile / disasm</b> (6)</summary>
+
+| tool | purpose |
+| --- | --- |
+| `decompile_function` | C pseudocode by name |
+| `decompile_function_by_address` | C pseudocode by address |
+| `decompile_minimal` | pseudocode, cosmetic noise stripped |
+| `disassemble_function` | raw asm |
+| `instruction_at` | single insn |
+| `pcode_function` | raw p-code per insn |
+
+</details>
+
+<details>
+<summary><b>Xrefs / CFG</b> (8)</summary>
+
+| tool | purpose |
+| --- | --- |
+| `get_xrefs_to` | callers / readers |
+| `get_xrefs_from` | targets of a ref |
+| `get_function_xrefs` | full refs for a fn |
+| `list_callers` | direct callers |
+| `list_callees` | direct callees |
+| `basic_blocks` | CFG blocks |
+| `function_string_refs` | strings referenced |
+| `callgraph_dot` | Graphviz DOT call graph |
+
+</details>
+
+<details>
+<summary><b>Bytes / patching</b> (10)</summary>
+
+| tool | purpose |
+| --- | --- |
+| `read_bytes` | raw hex |
+| `hex_dump` | formatted dump |
+| `search_bytes` | pattern search |
+| `find_string` | literal search |
+| `patch_bytes` | write hex |
+| `nop_range` | patch NOPs |
+| `create_label` | add label |
+| `xor_decrypt` | XOR a range |
+| `import_memory_dump` | load bytes from file |
+| `export_binary` | dump program |
+
+</details>
+
+<details>
+<summary><b>Rename / types</b> (14)</summary>
+
+| tool | purpose |
+| --- | --- |
+| `rename_function` | by name |
+| `rename_function_by_address` | by address |
+| `rename_data` | data symbol |
+| `rename_variable` | local var |
+| `set_decompiler_comment` | PRE comment |
+| `set_disassembly_comment` | EOL comment |
+| `set_function_prototype` | full prototype |
+| `set_local_variable_type` | retype local |
+| `create_struct` | new StructureDataType |
+| `create_union` | new UnionDataType |
+| `create_enum` | new EnumDataType |
+| `import_c_header` | parse C header into types |
+| `demangle_symbol` | demangle one C++ symbol |
+| `demangle_all` | demangle + rename all |
+
+</details>
+
+<details>
+<summary><b>Signatures / pattern scanning</b> (4)</summary>
+
+| tool | purpose |
+| --- | --- |
+| `make_signature` | unique wildcarded AOB sig for an address |
+| `find_signature` | scan memory for a pattern (IDA/x64dbg/CE/code+mask) |
+| `resolve_relative` | resolve call/jmp/RIP-relative operand targets |
+| `find_function_by_string` | string xref to function entry + signature |
+
+</details>
+
+<details>
+<summary><b>Malware triage / analysis</b> (13)</summary>
+
+| tool | purpose |
+| --- | --- |
+| `find_anti_debug` | known anti-dbg APIs |
+| `neutralize_anti_debug` | patch anti-dbg calls to return 0 |
+| `find_api_hashes` | resolve hashed imports |
+| `find_encoded_strings` | xor-encoded blobs |
+| `find_stack_strings` | stack-built strings |
+| `high_entropy_regions` | packed/encrypted zones |
+| `emulate` | pcode emulation |
+| `find_check_function` | crackme check-fn locator |
+| `extract_constraints` | cmp/branch constraints |
+| `find_magic_constants` | magic immediate operands |
+| `find_orphan_gaps` | code outside any function |
+| `vtable_scan` | heuristic vtable finder |
+| `idiom_simplifier` | annotate arithmetic idioms |
+
+</details>
+
+<details>
+<summary><b>Debugger</b> (16)</summary>
+
+| tool | purpose |
+| --- | --- |
+| `debugger_status` | trace/target state |
+| `debugger_list_targets` | debug targets |
+| `debugger_list_modules` | loaded modules |
+| `debugger_threads` | live threads |
+| `debugger_stack_trace` | call stack of a thread |
+| `debugger_registers` | frame registers |
+| `debugger_read_memory` | live target memory |
+| `debugger_list_breakpoints` | logical breakpoints |
+| `debugger_set_breakpoint` | set breakpoint |
+| `debugger_remove_breakpoint` | remove breakpoint |
+| `debugger_continue` | resume target |
+| `debugger_step_into` | step into |
+| `debugger_step_over` | step over |
+| `debugger_break` | interrupt target |
+| `debugger_translate_static_to_dynamic` | static addr to live |
+| `debugger_translate_dynamic_to_static` | live addr to static |
+
+</details>
+
+Also: `save_program`.
+
+## Troubleshooting
+
+| symptom | fix |
+| --- | --- |
+| bridge error `error sending request` | Ghidra not running, plugin not enabled, or wrong port |
+| plugin absent from Configure dialog | check under **Developer** category, not default |
+| port 8080 busy | change in Tool Options, match `--ghidra-server` |
+| zip won't install | JDK21 required, Ghidra 12.0.1 required |
+
+## License
+
+Apache-2.0. See [LICENSE](LICENSE).

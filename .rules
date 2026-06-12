@@ -1,0 +1,191 @@
+title: Ghidra MCP Development Rules
+
+rules:
+  critical:
+    - push back when user idea is wrong, user NOT always right
+    - NEVER assume APIs/module shapes/Ghidra signatures you dont know, verify via docs or inspection
+    - smallest possible change, no refactoring unless asked
+    - ALWAYS explore existing src/ BEFORE writing anything, reuse helpers, NEVER reimplement
+    - if a helper/pattern exists elsewhere, import/extract it, NEVER copy-paste or recreate
+    - run `cargo clippy -- -D warnings` + `cargo fmt --check` + `cargo test` after every Rust change
+    - run `mvn -q compile` after every Java change, `mvn -q package` before shipping the zip
+    - NEVER commit/push without explicit user instruction
+    - NEVER commit design specs/plans/notes to the repo
+    - NEVER edit .env, never log secrets, cookies, tokens
+  code:
+    - DELETE dead code, never comment it out
+    - ZERO comments — no //, no ///, no //!, no /* */, no Javadoc — names must carry intent
+    - exception for comments only non-obvious invariants, cross-language constraints, WHY not WHAT
+    - less code = smarter code, same functionality fewer lines always wins
+    - if it can be simpler, make it simpler, no clever, no cute, just clear
+    - NEVER overengineer, NEVER speculative abstractions, NEVER anticipate imaginary requirements
+    - NEVER wrapper functions that add nothing, NEVER helpers for one-time operations
+    - NEVER backwards-compat shims, feature flags, or dead-code fallbacks — just change the code
+    - NEVER add error handling/validation for scenarios that cannot happen (trust internal callers)
+    - validate ONLY at system boundaries (HTTP input, CLI args, env vars)
+    - inline single-use vars, hoist statics out of loops
+    - no magic numbers, unused imports, dead functions, unused types
+    - DRY — if a pattern repeats 2+ times, extract it
+    - deduplicate ruthlessly, prefer importing over reimplementing
+    - KISS, flat over nested, early returns, guard clauses at top, max 3 nesting levels
+    - every code path returns a value, no empty catch/match arms
+    - never trust snapshots across .await / across HTTP boundary, re-query state
+  rust:
+    critical:
+      - edition 2024, latest stable toolchain
+      - NEVER .unwrap() / .expect() in library code, all fallible ops return Result
+      - NEVER anyhow in library crates, typed errors via thiserror
+      - NEVER println!/eprintln!, use tracing (info!/warn!/error!/debug!/trace!)
+      - NEVER sleep loops, use tokio::time::interval
+      - `cargo clippy -- -D warnings` must pass with zero warnings
+      - `cargo fmt` enforced, never reformat unrelated code
+    style:
+      - let-else for early unwrap, never `if let Some(x) = ... { long-block } else { bail }`
+      - `#[must_use]` on builders, constructors, pure functions returning values worth checking
+      - `#[non_exhaustive]` on all public enums/structs (forward compat without SemVer break)
+      - `#[default]` on enums with an obvious default variant
+      - precise captures `use<>` syntax on async returns when needed
+      - prefer `&str` over `String` in function params, `Cow<'_, str>` when ownership is conditional
+      - `impl Trait` in arg position for one-shot callbacks, generics only when reused
+      - never `.clone()` where `&`/`Arc`/move suffices, clippy::redundant_clone catches most
+      - derive `Clone, Debug, PartialEq, Eq, Hash` only when actually needed, not reflexively
+      - newtype IDs via `define_id!` macro or tuple struct, never raw String/u64 for identifiers
+      - `#[serde(skip_serializing_if = "Option::is_none")]` on optional request fields
+      - `#[serde(flatten)] extra: serde_json::Map<String, Value>` on response structs for forward compat
+      - `Other(String)` variant on enums parsing upstream values to survive unknown additions
+    perf:
+      - zero-copy streaming, `Pin<Box<dyn Stream>>`, `Bytes` over `Vec<u8>`
+      - shared `reqwest::Client` with pool, never new client per request
+      - `SmallVec<[T; N]>` for hot paths with known-small size
+      - `Arc<str>` over `Arc<String>`, `Box<str>` over `String` when immutable
+      - `hashbrown::HashMap` or `ahash` for non-crypto maps (std HashMap is SipHash, slow)
+      - `OnceCell`/`LazyLock` for init-once globals, never Mutex-guarded init
+      - release profile: lto=true, codegen-units=1, strip=true, panic=abort, opt-level=3
+      - profile before optimizing, never guess, use `cargo flamegraph` or `samply`
+      - avoid `format!` in hot paths, use `write!` into reused buffer
+      - iterator chains compile to tight loops, prefer them over explicit for when readable
+    async:
+      - `#[tokio::main(flavor = "multi_thread")]` for servers, `current_thread` for CLIs
+      - never block in async fn, offload to `spawn_blocking`
+      - `select!` with `biased;` when ordering matters, else default for fairness
+      - cancellation via `tokio_util::sync::CancellationToken`, never ad-hoc AtomicBool
+      - bounded channels (`mpsc::channel(N)`) over unbounded, backpressure matters
+      - never hold `Mutex` across `.await`, use `tokio::sync::Mutex` or restructure
+    errors:
+      - typed errors per crate with `thiserror::Error`
+      - `#[from]` for transparent conversion, `#[source]` for wrapping
+      - library errors never panic, application `main` may `.context()` and print
+      - propagate with `?`, never .unwrap() the Err branch
+    patterns:
+      - builder pattern for requests with 3+ optional fields, `#[must_use]` on each setter
+      - enum-based state machines over boolean flags
+      - typestate pattern where compile-time state matters
+  java:
+    critical:
+      - target JDK 21, no older syntax, compile with --release 21
+      - Msg.info/warn/error (Ghidra logger) or SLF4J, NEVER System.out/err, NEVER printStackTrace
+      - NEVER checked exceptions in public API, wrap into RuntimeException at boundary
+      - every HTTP handler wraps in try/catch and returns a meaningful status
+      - no mutable static state, use final fields + constructor injection
+    style:
+      - records for request/response DTOs, never getter/setter POJOs
+      - sealed interfaces for closed hierarchies (result types, command variants)
+      - pattern matching in switch expressions for sum types
+      - `var` for locals where RHS is obvious, never `var` on API boundaries
+      - text blocks (`"""`) for multi-line strings
+      - Stream API for transforms, collectors over manual loops
+      - Optional for return types that may be empty, NEVER for fields or params
+      - Map.of / List.of / Set.of for small immutables, never new HashMap with .put chain
+    perf:
+      - fixed thread-pool executor sized `Math.max(4, availableProcessors())` for HTTP
+      - daemon threads only (`setDaemon(true)`) — never block JVM shutdown
+      - StringBuilder for concat in loops, never `+` in hot paths
+      - avoid autoboxing in tight loops, primitive collections if ever needed (Eclipse Collections / HPPC)
+      - `String.join` over manual delimiter handling
+      - pre-size `ArrayList`/`HashMap` when bounds known
+    ghidra:
+      - all Ghidra API access on appropriate thread, wrap mutations in `Program.startTransaction`/`endTransaction`
+      - commit transactions in finally, `program.endTransaction(tid, success)`
+      - obtain `DecompInterface` once per request, dispose after
+      - respect `TaskMonitor.isCancelled()` in long scans
+      - never cache `Program` across requests, fetch fresh via `ProgramManager`
+    errors:
+      - plain-text responses with HTTP status matching error class (400 input, 404 missing, 500 server)
+      - include enough detail to debug but NEVER stack traces in response body
+      - Msg.error with full exception for server-side logs
+  performance:
+    - blazing fast, lightweight, zero-cost abstractions, minimal allocations
+    - profile before optimizing, measure don't guess
+    - connection pooling shared across requests
+    - batch reads, batch writes, never interleave blocking calls
+    - cache computed values with known lifetime, evict eagerly
+    - no unbounded growth in long-lived processes, clear listeners/timers/handles
+  security:
+    - HTTP plugin binds to loopback by default, require explicit opt-in for wider bind
+    - no auth: never expose to untrusted networks
+    - validate addresses/names at handler entry, reject empty / malformed early
+    - URL-decode once, never twice (double-decode = smuggling risk)
+    - no string interpolation into shell commands, always parameterize
+    - no secrets in code/config/logs, env vars only
+    - no dynamic code execution from user input
+  architecture:
+    - two components: Rust `ghidra-mcp` binary (MCP stdio), Java plugin (Ghidra-embedded HTTP)
+    - Rust crate is independently usable as an MCP bridge for any GhidraMCP-compatible HTTP server
+    - shared contract: plain-text HTTP, newline-delimited records, form-encoded POST bodies
+    - Rust errors: `BridgeError` enum, mapped to `rmcp::ErrorData` at handler boundary
+    - Java errors: HTTP status + plain-text body, logged via Msg
+    - tools in Rust: `#[tool]` + typed `Parameters<T>` structs, never raw `Value`
+    - endpoints in Java: single router table, never inline duplicate offset/limit parsing
+  forbidden:
+    - empty catch blocks
+    - `println!`/`eprintln!` (use tracing) / `System.out.println` (use Msg)
+    - `.unwrap()`/`.expect()` in non-test code
+    - checked exceptions bubbling through public Java API
+    - commented-out code, TODO without a tracking issue
+    - single-use wrappers (1-3 lines called once, inline it)
+    - feature flags, backwards-compat shims, abstractions for one-time ops
+    - redundant type annotations the compiler already infers
+    - `var` in Rust where the type matters, `var` in Java on public API
+  antiPatterns:
+    rust:
+      - "match x { Some(y) => y, None => return }" > "let Some(y) = x else { return };"
+      - "if x.is_some() { x.unwrap() }" > "if let Some(v) = x"
+      - "String::from(s)" > "s.to_owned()" (when s is &str)
+      - "s.to_string()" > "s.into()" (when target is String and s is &str)
+      - "v.iter().map(...).collect::<Vec<_>>()" > "v.iter().map(...).collect()" (let inference work)
+      - "Vec::new(); for x in ... { v.push(x) }" > ".collect()" / iterator chain
+      - "Arc<Mutex<HashMap<K, V>>>" > "DashMap<K, V>" (concurrent maps)
+      - "format!(\"{}\", x)" > "x.to_string()" (single arg)
+    java:
+      - "value != null && !value.isEmpty()" > "value != null && !value.isBlank()"
+      - "new HashMap<>() { {{ put(...) }} }" > "Map.of(...)"
+      - "list.stream().filter(...).findFirst().get()" > "list.stream().filter(...).findFirst().orElse(null)"
+      - "Integer.parseInt(s)" > guarded `parseIntOrDefault` when input is untrusted
+      - "for (int i = 0; i < list.size(); i++)" > "for (var x : list)" (when index unused)
+  deps:
+    - minimize deps, prefer std over external
+    - every added dep must justify ≥20 LOC saved
+    - prefer rustls over native-tls (no OpenSSL), reqwest features minimal (rustls-tls + http2)
+    - JDK http server (com.sun.net.httpserver) is free, don't pull Jetty/Undertow
+    - audit transitive deps, `cargo audit` before release
+  git:
+    - NEVER commit or push without explicit user permission, always ask first
+    - format: `type: short imperative message`
+    - types: fix, feat, chore, refactor, perf, test, docs, build, ci
+    - subject ≤50 chars preferred, hard cap 72, no trailing period
+    - imperative mood: "add", "fix", "remove" — never "added", "adds", "adding"
+    - no body by default — skip when subject is self-explanatory
+    - body ONLY for: breaking changes, security fixes, data migrations, non-obvious WHY
+    - body wraps at 72 chars, bullets use `-` not `*`, WHY over WHAT
+    - NEVER "this commit does X", NEVER I/we/now/currently
+    - NEVER Co-Authored-By, NEVER Claude/AI attribution
+    - NEVER emoji in commits or code
+    - NEVER --amend a published commit, create a new commit
+    - NEVER --force push to shared branches
+    - group related files into one commit, don't split atomic changes
+  testing:
+    - unit tests alongside implementation in Rust (`#[cfg(test)] mod tests`)
+    - integration tests for HTTP contract in `tests/` dir
+    - test names describe behavior: `decompile_returns_error_when_function_missing`
+    - never test private implementation details, only public behavior
+    - fast tests only in default `cargo test`, slow/integration behind `--features integration`

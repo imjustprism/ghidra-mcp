@@ -1,0 +1,524 @@
+package io.github.imjustprism.ghidra.mcp.handlers;
+
+import ghidra.app.cmd.function.ApplyFunctionSignatureCmd;
+import ghidra.app.decompiler.DecompInterface;
+import ghidra.app.services.DataTypeManagerService;
+import ghidra.app.util.parser.FunctionSignatureParser;
+import ghidra.program.model.address.Address;
+import ghidra.program.model.data.CategoryPath;
+import ghidra.program.model.data.DataTypeConflictHandler;
+import ghidra.program.model.data.EnumDataType;
+import ghidra.program.model.data.FunctionDefinitionDataType;
+import ghidra.program.model.data.StructureDataType;
+import ghidra.program.model.data.UnionDataType;
+import ghidra.program.model.listing.CodeUnit;
+import ghidra.program.model.listing.Parameter;
+import ghidra.program.model.listing.Program;
+import ghidra.program.model.listing.VariableStorage;
+import ghidra.program.model.pcode.HighFunction;
+import ghidra.program.model.pcode.HighFunctionDBUtil;
+import ghidra.program.model.pcode.HighFunctionDBUtil.ReturnCommitOption;
+import ghidra.program.model.pcode.HighSymbol;
+import ghidra.program.model.pcode.LocalSymbolMap;
+import ghidra.program.model.symbol.SourceType;
+import ghidra.util.Msg;
+import ghidra.util.Swing;
+import ghidra.util.task.ConsoleTaskMonitor;
+import io.github.imjustprism.ghidra.mcp.http.Http;
+import io.github.imjustprism.ghidra.mcp.http.RouteTable;
+import io.github.imjustprism.ghidra.mcp.util.Addresses;
+import io.github.imjustprism.ghidra.mcp.util.DataTypes;
+import io.github.imjustprism.ghidra.mcp.util.Json;
+import io.github.imjustprism.ghidra.mcp.util.PluginContext;
+import io.github.imjustprism.ghidra.mcp.util.Programs;
+
+import java.nio.charset.StandardCharsets;
+import java.util.Map;
+
+public final class EditHandlers {
+
+    public sealed interface PrototypeResult {
+        record Ok(String warnings) implements PrototypeResult {}
+
+        record Failed(String message) implements PrototypeResult {}
+    }
+
+    private final PluginContext ctx;
+
+    public EditHandlers(PluginContext ctx) {
+        this.ctx = ctx;
+    }
+
+    public void register(RouteTable routes) {
+        routes.postForm("/renameFunction", p -> renameFunction(p.get("oldName"), p.get("newName")) ? "Renamed successfully" : "Rename failed");
+        routes.postForm("/renameData", p -> renameDataAt(p.get("address"), p.get("newName")));
+        routes.postForm("/renameVariable", p -> renameVariable(p.get("functionName"), p.get("oldName"), p.get("newName")));
+        routes.postForm("/set_decompiler_comment", p -> setComment(p.get("address"), p.get("comment"), CodeUnit.PRE_COMMENT, "Set decompiler comment") ? "Comment set successfully" : "Failed to set comment");
+        routes.postForm("/set_disassembly_comment", p -> setComment(p.get("address"), p.get("comment"), CodeUnit.EOL_COMMENT, "Set disassembly comment") ? "Comment set successfully" : "Failed to set comment");
+        routes.postForm("/rename_function_by_address", p -> renameFunctionAt(p.get("function_address"), p.get("new_name")) ? "Function renamed successfully" : "Failed to rename function");
+        routes.postForm("/set_function_prototype", p -> {
+            var r = setFunctionPrototype(p.get("function_address"), p.get("prototype"));
+            return switch (r) {
+                case EditHandlers.PrototypeResult.Ok(String warn) when warn.isEmpty() -> "Function prototype set successfully";
+                case EditHandlers.PrototypeResult.Ok(String warn) -> "Function prototype set successfully\n\nWarnings/Debug Info:\n" + warn;
+                case EditHandlers.PrototypeResult.Failed(String msg) -> "Failed to set function prototype: " + msg;
+            };
+        });
+        routes.postForm("/set_local_variable_type", p -> setLocalVariableType(p.get("function_address"), p.get("variable_name"), p.get("new_type")));
+        routes.postForm("/create_label", p -> createLabel(p.get("address"), p.get("name")) ? "Label created" : "Failed to create label");
+        routes.postForm("/import_c_header", p -> importCHeader(p.get("header"), p.getOrDefault("category", "")));
+        routes.postForm("/create_struct", p -> createStruct(p.get("name"), p.get("fields")));
+        routes.postForm("/create_union", p -> createUnion(p.get("name"), p.get("fields")));
+        routes.postForm("/create_enum", p -> createEnum(p.get("name"), Http.parseIntOrDefault(p.get("size"), 4), p.get("values")));
+    }
+
+    public boolean createLabel(String addr, String name) {
+        if (addr == null || name == null || name.isBlank()) return false;
+        var program = ctx.currentProgram();
+        if (program == null) return false;
+        return ctx.runOnSwingTx(program, "Create label", () -> {
+            try {
+                var a = program.getAddressFactory().getAddress(addr);
+                if (a == null) return false;
+                program.getSymbolTable().createLabel(a, name, SourceType.USER_DEFINED);
+                return true;
+            } catch (Exception e) {
+                Msg.error(ctx.logOwner(), "createLabel failed", e);
+                return false;
+            }
+        });
+    }
+
+    public boolean renameFunction(String oldName, String newName) {
+        if (oldName == null || newName == null) return false;
+        var program = ctx.currentProgram();
+        if (program == null) return false;
+        return ctx.runOnSwingTx(program, "Rename function via HTTP", () -> {
+            var func = Programs.findFunctionByName(program, oldName);
+            if (func == null) return false;
+            try {
+                func.setName(newName, SourceType.USER_DEFINED);
+                return true;
+            } catch (Exception e) {
+                Msg.error(ctx.logOwner(), "Error renaming function", e);
+                return false;
+            }
+        });
+    }
+
+    public String renameDataAt(String addrStr, String newName) {
+        if (addrStr == null || addrStr.isBlank() || newName == null || newName.isBlank()) {
+            return "address and newName are required";
+        }
+        var program = ctx.currentProgram();
+        if (program == null) return "No program loaded";
+        var result = new String[]{"Rename failed"};
+        ctx.runOnSwingTx(program, "Rename data", () -> {
+            try {
+                var addr = program.getAddressFactory().getAddress(addrStr);
+                if (addr == null) {
+                    result[0] = "Invalid address: " + addrStr;
+                    return false;
+                }
+                var table = program.getSymbolTable();
+                var sym = table.getPrimarySymbol(addr);
+                if (sym != null) {
+                    sym.setName(newName, SourceType.USER_DEFINED);
+                } else {
+                    table.createLabel(addr, newName, SourceType.USER_DEFINED);
+                }
+                result[0] = "Renamed " + addrStr + " to " + newName;
+                return true;
+            } catch (Exception e) {
+                Msg.error(ctx.logOwner(), "Rename data error", e);
+                result[0] = "Rename failed: " + e.getMessage();
+                return false;
+            }
+        });
+        return result[0];
+    }
+
+    public String renameVariable(String functionName, String oldVar, String newVar) {
+        if (functionName == null || oldVar == null || newVar == null) return "Missing parameters";
+        var program = ctx.currentProgram();
+        if (program == null) return "No program loaded";
+        var func = Programs.findFunctionByName(program, functionName);
+        if (func == null) return "Function not found";
+
+        var decomp = new DecompInterface();
+        try {
+            decomp.openProgram(program);
+            var results = decomp.decompileFunction(func, DecompileHandlers.DECOMPILE_TIMEOUT_SEC, new ConsoleTaskMonitor());
+            if (results == null || !results.decompileCompleted()) return "Decompilation failed";
+            var high = results.getHighFunction();
+            if (high == null) return "Decompilation failed (no high function)";
+            var map = high.getLocalSymbolMap();
+            if (map == null) return "Decompilation failed (no local symbol map)";
+
+            HighSymbol target = null;
+            for (var it = map.getSymbols(); it.hasNext(); ) {
+                var s = it.next();
+                if (s.getName().equals(newVar)) return "Error: variable '" + newVar + "' already exists";
+                if (s.getName().equals(oldVar)) target = s;
+            }
+            if (target == null) return "Variable not found";
+
+            var needsCommit = requiresFullCommit(target, high);
+            var symbol = target;
+            var ok = ctx.runOnSwingTx(program, "Rename variable", () -> {
+                try {
+                    if (needsCommit) {
+                        HighFunctionDBUtil.commitParamsToDatabase(high, false,
+                                ReturnCommitOption.NO_COMMIT, func.getSignatureSource());
+                    }
+                    HighFunctionDBUtil.updateDBVariable(symbol, newVar, null, SourceType.USER_DEFINED);
+                    return true;
+                } catch (Exception e) {
+                    Msg.error(ctx.logOwner(), "Failed to rename variable", e);
+                    return false;
+                }
+            });
+            return ok ? "Variable renamed" : "Failed to rename variable";
+        } finally {
+            decomp.dispose();
+        }
+    }
+
+    private static boolean requiresFullCommit(HighSymbol sym, HighFunction high) {
+        if (sym != null && !sym.isParameter()) return false;
+        var func = high.getFunction();
+        Parameter[] params = func.getParameters();
+        LocalSymbolMap map = high.getLocalSymbolMap();
+        if (map.getNumParams() != params.length) return true;
+        for (int i = 0; i < params.length; i++) {
+            var hp = map.getParamSymbol(i);
+            if (hp.getCategoryIndex() != i) return true;
+            VariableStorage storage = hp.getStorage();
+            if (storage.compareTo(params[i].getVariableStorage()) != 0) return true;
+        }
+        return false;
+    }
+
+    public boolean renameFunctionAt(String addr, String newName) {
+        if (addr == null || addr.isBlank() || newName == null || newName.isBlank()) return false;
+        var program = ctx.currentProgram();
+        if (program == null) return false;
+        return ctx.runOnSwingTx(program, "Rename function by address", () -> {
+            try {
+                var a = program.getAddressFactory().getAddress(addr);
+                var func = Addresses.functionAtOrContaining(program, a);
+                if (func == null) {
+                    Msg.error(ctx.logOwner(), "No function at: " + addr);
+                    return false;
+                }
+                func.setName(newName, SourceType.USER_DEFINED);
+                return true;
+            } catch (Exception e) {
+                Msg.error(ctx.logOwner(), "Error renaming function by address", e);
+                return false;
+            }
+        });
+    }
+
+    public boolean setComment(String addr, String comment, int type, String txName) {
+        if (addr == null || addr.isBlank() || comment == null) return false;
+        var program = ctx.currentProgram();
+        if (program == null) return false;
+        return ctx.runOnSwingTx(program, txName, () -> {
+            try {
+                var a = program.getAddressFactory().getAddress(addr);
+                program.getListing().setComment(a, type, comment);
+                return true;
+            } catch (Exception e) {
+                Msg.error(ctx.logOwner(), "Error in " + txName, e);
+                return false;
+            }
+        });
+    }
+
+    public PrototypeResult setFunctionPrototype(String addr, String prototype) {
+        if (addr == null || addr.isBlank()) return new PrototypeResult.Failed("Function address is required");
+        if (prototype == null || prototype.isBlank()) return new PrototypeResult.Failed("Function prototype is required");
+        var program = ctx.currentProgram();
+        if (program == null) return new PrototypeResult.Failed("No program loaded");
+
+        var errorBuf = new StringBuilder();
+        var ok = ctx.runOnSwing(() -> {
+            try {
+                var a = program.getAddressFactory().getAddress(addr);
+                var func = Addresses.functionAtOrContaining(program, a);
+                if (func == null) {
+                    errorBuf.append("Could not find function at address: ").append(addr);
+                    return false;
+                }
+                addPrototypeComment(program, func, prototype);
+                return applyPrototype(program, a, prototype, errorBuf);
+            } catch (Exception e) {
+                errorBuf.append("Error setting function prototype: ").append(e.getMessage());
+                Msg.error(ctx.logOwner(), "setFunctionPrototype failed", e);
+                return false;
+            }
+        });
+        return ok ? new PrototypeResult.Ok(errorBuf.toString())
+                  : new PrototypeResult.Failed(errorBuf.toString());
+    }
+
+    private void addPrototypeComment(Program program, ghidra.program.model.listing.Function func, String prototype) {
+        int tx = program.startTransaction("Add prototype comment");
+        boolean ok = false;
+        try {
+            program.getListing().setComment(func.getEntryPoint(), CodeUnit.PLATE_COMMENT,
+                    "Setting prototype: " + prototype);
+            ok = true;
+        } finally {
+            program.endTransaction(tx, ok);
+        }
+    }
+
+    private boolean applyPrototype(Program program, Address addr, String prototype, StringBuilder errorBuf) {
+        int tx = program.startTransaction("Set function prototype");
+        boolean ok = false;
+        try {
+            var dtm = program.getDataTypeManager();
+            var dtms = ctx.service(DataTypeManagerService.class);
+            var parser = new FunctionSignatureParser(dtm, dtms);
+            FunctionDefinitionDataType sig = parser.parse(null, prototype);
+            if (sig == null) {
+                errorBuf.append("Failed to parse function prototype");
+                return false;
+            }
+            var cmd = new ApplyFunctionSignatureCmd(addr, sig, SourceType.USER_DEFINED);
+            ok = cmd.applyTo(program, new ConsoleTaskMonitor());
+            if (!ok) errorBuf.append("Command failed: ").append(cmd.getStatusMsg());
+            return ok;
+        } catch (Exception e) {
+            errorBuf.append("Error applying signature: ").append(e.getMessage());
+            Msg.error(ctx.logOwner(), "applyPrototype failed", e);
+            return false;
+        } finally {
+            program.endTransaction(tx, ok);
+        }
+    }
+
+    public String setLocalVariableType(String addr, String variable, String newType) {
+        if (addr == null || addr.isBlank() || variable == null || variable.isBlank()
+                || newType == null || newType.isBlank()) {
+            return "function_address, variable_name, and new_type are required";
+        }
+        var program = ctx.currentProgram();
+        if (program == null) return "No program loaded";
+        return Swing.runNow(() -> {
+            try {
+                var a = program.getAddressFactory().getAddress(addr);
+                if (a == null) return "invalid address: " + addr;
+                var func = Addresses.functionAtOrContaining(program, a);
+                if (func == null) return "No function at " + addr;
+                var dataType = DataTypes.resolveDataType(program.getDataTypeManager(), newType);
+                if (dataType == null) return "Unknown type: " + newType;
+                var decomp = new DecompInterface();
+                try {
+                    decomp.openProgram(program);
+                    decomp.setSimplificationStyle("decompile");
+                    var results = decomp.decompileFunction(func, 60, new ConsoleTaskMonitor());
+                    if (!results.decompileCompleted()) return "Decompilation failed for " + func.getName();
+                    var high = results.getHighFunction();
+                    if (high == null) return "No high function for " + func.getName();
+                    var symbol = findHighSymbol(high, variable);
+                    if (symbol == null) {
+                        return "Variable '" + variable + "' not found. Use the exact decompiler name; "
+                                + "rename it first if it is an auto temp.";
+                    }
+                    int tx = program.startTransaction("Set variable type");
+                    boolean ok = false;
+                    try {
+                        HighFunctionDBUtil.updateDBVariable(symbol, symbol.getName(),
+                                dataType, SourceType.USER_DEFINED);
+                        ok = true;
+                        return "Variable type set successfully";
+                    } finally {
+                        program.endTransaction(tx, ok);
+                    }
+                } finally {
+                    decomp.dispose();
+                }
+            } catch (Exception e) {
+                Msg.error(ctx.logOwner(), "setLocalVariableType failed", e);
+                return "Failed: " + e.getClass().getSimpleName()
+                        + (e.getMessage() != null ? " - " + e.getMessage() : "");
+            }
+        });
+    }
+
+    private static HighSymbol findHighSymbol(HighFunction high, String name) {
+        for (var it = high.getLocalSymbolMap().getSymbols(); it.hasNext(); ) {
+            var s = it.next();
+            if (s.getName().equals(name)) return s;
+        }
+        return null;
+    }
+
+    public String importCHeader(String header, String category) {
+        if (header == null || header.isBlank()) throw new IllegalArgumentException("Header text is required");
+        var program = ctx.currentProgram();
+        if (program == null) return "No program loaded";
+        var result = new String[1];
+        var ok = ctx.runOnSwingTx(program, "Import C header", () -> {
+            try {
+                var dtm = program.getDataTypeManager();
+                var parser = new ghidra.app.util.cparser.C.CParser(dtm);
+                parser.parse(new java.io.ByteArrayInputStream(header.getBytes(StandardCharsets.UTF_8)));
+                var composites = parser.getComposites();
+                var enums = parser.getEnums();
+                var types = parser.getTypes();
+                CategoryPath cat = (category == null || category.isEmpty())
+                        ? CategoryPath.ROOT : new CategoryPath(category);
+                int added = 0;
+                for (var dt : composites.values()) {
+                    var copy = dt.copy(dtm);
+                    copy.setCategoryPath(cat);
+                    if (dtm.addDataType(copy, DataTypeConflictHandler.REPLACE_HANDLER) != null) added++;
+                }
+                for (var dt : enums.values()) {
+                    var copy = dt.copy(dtm);
+                    copy.setCategoryPath(cat);
+                    if (dtm.addDataType(copy, DataTypeConflictHandler.REPLACE_HANDLER) != null) added++;
+                }
+                for (var dt : types.values()) {
+                    var copy = dt.copy(dtm);
+                    copy.setCategoryPath(cat);
+                    if (dtm.addDataType(copy, DataTypeConflictHandler.REPLACE_HANDLER) != null) added++;
+                }
+                var msgs = parser.getParseMessages();
+                result[0] = "Added " + added + " types"
+                        + (msgs != null && !msgs.isEmpty() ? "\nparse_messages:\n" + msgs : "");
+                return true;
+            } catch (Exception e) {
+                result[0] = "Parse error: " + e.getClass().getSimpleName() + ": " + e.getMessage();
+                return false;
+            }
+        });
+        return ok ? result[0] : (result[0] != null ? result[0] : "Import failed");
+    }
+
+    public String createStruct(String name, String fieldsJson) {
+        if (name == null || name.isBlank()) throw new IllegalArgumentException("Name is required");
+        if (fieldsJson == null || fieldsJson.isBlank()) throw new IllegalArgumentException("Fields JSON is required");
+        var program = ctx.currentProgram();
+        if (program == null) return "No program loaded";
+        java.util.List<Map<String, String>> fields;
+        try {
+            fields = Json.parseObjectArray(fieldsJson);
+        } catch (Exception e) {
+            return "Invalid fields JSON: " + e.getMessage();
+        }
+        var out = new String[1];
+        var ok = ctx.runOnSwingTx(program, "Create struct", () -> {
+            try {
+                var dtm = program.getDataTypeManager();
+                var s = new StructureDataType(name, 0, dtm);
+                for (var f : fields) {
+                    var fname = f.get("name");
+                    var ftype = f.get("type");
+                    var offStr = f.get("offset");
+                    if (fname == null || ftype == null) {
+                        out[0] = "Each field needs name,type";
+                        return false;
+                    }
+                    var dt = DataTypes.resolveDataType(dtm, ftype);
+                    if (dt == null) { out[0] = "Unknown type: " + ftype; return false; }
+                    int len = dt.getLength() > 0 ? dt.getLength() : 1;
+                    if (offStr != null && !offStr.isEmpty()) {
+                        int off = Integer.parseInt(offStr);
+                        s.insertAtOffset(off, dt, len, fname, null);
+                    } else {
+                        s.add(dt, len, fname, null);
+                    }
+                }
+                dtm.addDataType(s, DataTypeConflictHandler.REPLACE_HANDLER);
+                out[0] = "Created struct " + name + " (size=" + s.getLength() + ")";
+                return true;
+            } catch (Exception e) {
+                out[0] = "Error: " + e.getClass().getSimpleName() + ": " + e.getMessage();
+                return false;
+            }
+        });
+        return ok ? out[0] : (out[0] != null ? out[0] : "Failed");
+    }
+
+    public String createUnion(String name, String fieldsJson) {
+        if (name == null || name.isBlank()) throw new IllegalArgumentException("Name is required");
+        if (fieldsJson == null || fieldsJson.isBlank()) throw new IllegalArgumentException("Fields JSON is required");
+        var program = ctx.currentProgram();
+        if (program == null) return "No program loaded";
+        java.util.List<Map<String, String>> fields;
+        try {
+            fields = Json.parseObjectArray(fieldsJson);
+        } catch (Exception e) {
+            return "Invalid fields JSON: " + e.getMessage();
+        }
+        var out = new String[1];
+        var ok = ctx.runOnSwingTx(program, "Create union", () -> {
+            try {
+                var dtm = program.getDataTypeManager();
+                var u = new UnionDataType(name);
+                for (var f : fields) {
+                    var fname = f.get("name");
+                    var ftype = f.get("type");
+                    if (fname == null || ftype == null) {
+                        out[0] = "Each field needs name,type";
+                        return false;
+                    }
+                    var dt = DataTypes.resolveDataType(dtm, ftype);
+                    if (dt == null) { out[0] = "Unknown type: " + ftype; return false; }
+                    int len = dt.getLength() > 0 ? dt.getLength() : 1;
+                    u.add(dt, len, fname, null);
+                }
+                dtm.addDataType(u, DataTypeConflictHandler.REPLACE_HANDLER);
+                out[0] = "Created union " + name + " (size=" + u.getLength() + ")";
+                return true;
+            } catch (Exception e) {
+                out[0] = "Error: " + e.getClass().getSimpleName() + ": " + e.getMessage();
+                return false;
+            }
+        });
+        return ok ? out[0] : (out[0] != null ? out[0] : "Failed");
+    }
+
+    public String createEnum(String name, int size, String valuesJson) {
+        if (name == null || name.isBlank()) throw new IllegalArgumentException("Name is required");
+        if (size != 1 && size != 2 && size != 4 && size != 8) throw new IllegalArgumentException("Size must be 1/2/4/8");
+        if (valuesJson == null || valuesJson.isBlank()) throw new IllegalArgumentException("Values JSON is required");
+        var program = ctx.currentProgram();
+        if (program == null) return "No program loaded";
+        java.util.List<Map<String, String>> values;
+        try {
+            values = Json.parseObjectArray(valuesJson);
+        } catch (Exception e) {
+            return "Invalid values JSON: " + e.getMessage();
+        }
+        var out = new String[1];
+        var ok = ctx.runOnSwingTx(program, "Create enum", () -> {
+            try {
+                var dtm = program.getDataTypeManager();
+                var e = new EnumDataType(name, size);
+                for (var v : values) {
+                    var vname = v.get("name");
+                    var vval = v.get("value");
+                    if (vname == null || vval == null) {
+                        out[0] = "Each entry needs name,value";
+                        return false;
+                    }
+                    long parsed = Long.decode(vval.trim());
+                    e.add(vname, parsed);
+                }
+                dtm.addDataType(e, DataTypeConflictHandler.REPLACE_HANDLER);
+                out[0] = "Created enum " + name + " (" + values.size() + " members)";
+                return true;
+            } catch (Exception ex) {
+                out[0] = "Error: " + ex.getClass().getSimpleName() + ": " + ex.getMessage();
+                return false;
+            }
+        });
+        return ok ? out[0] : (out[0] != null ? out[0] : "Failed");
+    }
+}
