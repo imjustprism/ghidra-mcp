@@ -21,6 +21,7 @@ import io.github.imjustprism.ghidra.mcp.analysis.Pcode;
 import io.github.imjustprism.ghidra.mcp.analysis.Signatures;
 import io.github.imjustprism.ghidra.mcp.analysis.StackStrings;
 import io.github.imjustprism.ghidra.mcp.analysis.StructDiagram;
+import io.github.imjustprism.ghidra.mcp.analysis.Syscalls;
 import io.github.imjustprism.ghidra.mcp.analysis.VTableScan;
 import io.github.imjustprism.ghidra.mcp.http.Http;
 import io.github.imjustprism.ghidra.mcp.http.Page;
@@ -75,6 +76,7 @@ public final class AnalysisHandlers {
         routes.getQuery("/function_completeness", q -> Completeness.single(ctx, q.get("address"), q));
         routes.getQuery("/find_undocumented", q -> Completeness.findUndocumented(ctx, Page.from(q), q));
         routes.getQuery("/find_crypto_constants", q -> CryptoConstants.find(ctx, Page.from(q), q));
+        routes.getQuery("/find_syscalls", q -> Syscalls.find(ctx, Page.from(q), q));
         routes.getQuery("/decompile_minimal", q -> DecompileMinimal.run(ctx, q.get("address")));
         routes.getPage("/find_magic_constants", (p, q) -> MagicConstants.find(ctx, p, q));
         routes.postForm("/neutralize_anti_debug", p -> NeutralizeAntiDebug.run(ctx, p));
