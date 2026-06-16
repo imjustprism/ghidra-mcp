@@ -10,6 +10,7 @@ import io.github.imjustprism.ghidra.mcp.analysis.CfgObfuscation;
 import io.github.imjustprism.ghidra.mcp.analysis.CheckFunction;
 import io.github.imjustprism.ghidra.mcp.analysis.Completeness;
 import io.github.imjustprism.ghidra.mcp.analysis.Constraints;
+import io.github.imjustprism.ghidra.mcp.analysis.DecodeStrings;
 import io.github.imjustprism.ghidra.mcp.analysis.CryptoConstants;
 import io.github.imjustprism.ghidra.mcp.analysis.DecompileMinimal;
 import io.github.imjustprism.ghidra.mcp.analysis.Emulator;
@@ -81,6 +82,10 @@ public final class AnalysisHandlers {
         routes.getQuery("/find_syscalls", q -> Syscalls.find(ctx, Page.from(q), q));
         routes.getQuery("/find_anti_vm", q -> AntiVm.find(ctx, Page.from(q), q));
         routes.getQuery("/cfg_obfuscation_score", q -> CfgObfuscation.score(ctx, q.get("address"), q));
+        routes.getQuery("/decode_strings_auto", q -> DecodeStrings.decode(ctx, q.get("address"),
+                Http.parseIntOrDefault(q.get("length"), 256),
+                Double.parseDouble(q.getOrDefault("min_printable", "0.85")),
+                Http.parseIntOrDefault(q.get("max"), 10), q));
         routes.getQuery("/decompile_minimal", q -> DecompileMinimal.run(ctx, q.get("address")));
         routes.getPage("/find_magic_constants", (p, q) -> MagicConstants.find(ctx, p, q));
         routes.postForm("/neutralize_anti_debug", p -> NeutralizeAntiDebug.run(ctx, p));

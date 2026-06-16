@@ -1113,6 +1113,37 @@ impl ToParams for StructDeleteField {
     }
 }
 
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct DecodeStringsAuto {
+    pub address: String,
+    #[serde(default = "default_decode_length")]
+    pub length: u32,
+    #[serde(default = "default_min_printable")]
+    pub min_printable: f64,
+    #[serde(default = "default_decode_max")]
+    pub max: u32,
+}
+const fn default_decode_length() -> u32 {
+    256
+}
+const fn default_min_printable() -> f64 {
+    0.85
+}
+const fn default_decode_max() -> u32 {
+    10
+}
+
+impl ToParams for DecodeStringsAuto {
+    fn into_params(self) -> Params {
+        vec![
+            ("address", self.address),
+            ("length", self.length.to_string()),
+            ("min_printable", self.min_printable.to_string()),
+            ("max", self.max.to_string()),
+        ]
+    }
+}
+
 const NO_QUERY: &[(); 0] = &[];
 
 impl GhidraServer {
@@ -2429,6 +2460,17 @@ impl GhidraServer {
         Parameters(p): Parameters<Address>,
     ) -> Result<CallToolResult, ErrorData> {
         self.get("cfg_obfuscation_score", p).await
+    }
+
+    #[tool(
+        description = "Brute-force decode an encoded blob at an address: tries single-byte XOR, ADD, and SUB with every key (1-255) and returns the candidates whose output is mostly printable, ranked by printable ratio with a preview. Use to recover obfuscated strings once you've located the blob. length caps the bytes read; min_printable (0-1) and max tune the results",
+        annotations(read_only_hint = true)
+    )]
+    async fn decode_strings_auto(
+        &self,
+        Parameters(p): Parameters<DecodeStringsAuto>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.get("decode_strings_auto", p).await
     }
 
     #[tool(
