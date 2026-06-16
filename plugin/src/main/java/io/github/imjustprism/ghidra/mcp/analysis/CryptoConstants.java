@@ -37,10 +37,7 @@ public final class CryptoConstants {
         return ctx.withProgram(program -> {
             var mem = program.getMemory();
             var monitor = new ConsoleTaskMonitor();
-            var t = Responses.table(p, q, new String[]{"addr", "algo", "len"});
-            var w = new Responses.Window(p);
-            long scanned = 0;
-            boolean capped = false;
+            var rows = new ArrayList<Object[]>();
             outer:
             for (var sig : signatures(program)) {
                 var mask = new byte[sig.bytes().length];
@@ -49,16 +46,17 @@ public final class CryptoConstants {
                 while (cursor != null) {
                     var hit = mem.findBytes(cursor, sig.bytes(), mask, true, monitor);
                     if (hit == null) break;
-                    if (w.take()) t.row(Responses.addr(hit), sig.name(), sig.bytes().length);
-                    if (++scanned >= GLOBAL_SCAN_CAP) {
-                        capped = true;
-                        break outer;
-                    }
+                    rows.add(new Object[]{Responses.addr(hit), sig.name(), sig.bytes().length});
+                    if (rows.size() >= GLOBAL_SCAN_CAP) break outer;
                     cursor = hit.next();
                 }
             }
-            var out = t.total(w.total()).build();
-            return capped ? out + "# total is a lower bound (scan cap " + GLOBAL_SCAN_CAP + " reached)\n" : out;
+            var t = Responses.table(p, q, new String[]{"addr", "algo", "len"});
+            var w = new Responses.Window(p);
+            for (var r : rows) {
+                if (w.take()) t.row(r);
+            }
+            return t.total(w.total()).build();
         });
     }
 
