@@ -2320,6 +2320,28 @@ impl GhidraServer {
     }
 
     #[tool(
+        description = "Score how documented the function at an address is (0-100) with a breakdown: real name, user prototype, named params, comment, named locals. Use to decide if a function still needs work",
+        annotations(read_only_hint = true)
+    )]
+    async fn function_completeness(
+        &self,
+        Parameters(p): Parameters<Address>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.get("function_completeness", p).await
+    }
+
+    #[tool(
+        description = "List functions ranked by how little they are documented (lowest completeness score first), as a work queue for a labeling pass. Skips thunks and externals. Paginate with offset/limit to walk the worst first",
+        annotations(read_only_hint = true)
+    )]
+    async fn find_undocumented(
+        &self,
+        Parameters(p): Parameters<Page>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.get("find_undocumented", p).await
+    }
+
+    #[tool(
         description = "Locate functions by a string they reference: finds the string, follows cross-references to the containing function, and emits each function's name, entry address, the xref site, and a unique signature for the entry. The fastest path from a known string to a function + a reusable signature. format=ida|code",
         annotations(read_only_hint = true)
     )]
