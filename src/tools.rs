@@ -2281,6 +2281,17 @@ impl GhidraServer {
     }
 
     #[tool(
+        description = "One-call context pack for a function at an address: metadata + signature, cleaned decompiled C, callers, callees, and referenced strings, in one response. The fastest way to load everything needed to understand and name a function. limit caps each list section",
+        annotations(read_only_hint = true)
+    )]
+    async fn function_summary_bundle(
+        &self,
+        Parameters(p): Parameters<AddressPage>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.get("function_summary", p).await
+    }
+
+    #[tool(
         description = "Set many function prototypes in one call and one transaction. Best-effort: each item is independent, and a failing item is reported but does not roll back the successful ones. items is a JSON array of {function_address, prototype} where prototype is a full C signature. Returns a per-item ok/fail report. Use instead of N set_function_prototype calls",
         annotations(destructive_hint = false)
     )]

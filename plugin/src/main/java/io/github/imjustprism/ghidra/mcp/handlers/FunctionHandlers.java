@@ -3,17 +3,21 @@ package io.github.imjustprism.ghidra.mcp.handlers;
 import ghidra.app.services.CodeViewerService;
 import ghidra.program.model.block.BasicBlockModel;
 import ghidra.program.model.listing.Function;
+import ghidra.program.model.listing.Program;
 import ghidra.util.task.ConsoleTaskMonitor;
+import io.github.imjustprism.ghidra.mcp.analysis.DecompileMinimal;
 import io.github.imjustprism.ghidra.mcp.http.Page;
 import io.github.imjustprism.ghidra.mcp.http.RouteTable;
 import io.github.imjustprism.ghidra.mcp.util.Addresses;
 import io.github.imjustprism.ghidra.mcp.util.DataTypes;
+import io.github.imjustprism.ghidra.mcp.util.DecompileCache;
 import io.github.imjustprism.ghidra.mcp.util.PluginContext;
 import io.github.imjustprism.ghidra.mcp.util.Programs;
 import io.github.imjustprism.ghidra.mcp.util.Responses;
 import io.github.imjustprism.ghidra.mcp.util.Strings;
 
 import java.util.Map;
+import java.util.function.Supplier;
 
 public final class FunctionHandlers {
 
@@ -37,6 +41,31 @@ public final class FunctionHandlers {
         routes.getQuery("/basic_blocks", q -> listBasicBlocks(q.get("address"), q));
         routes.getQuery("/function_string_refs", q -> functionStringRefs(q.get("address"), Page.from(q), q));
         routes.getQuery("/function_stack_frame", q -> functionStackFrame(q.get("address"), q));
+        routes.getQuery("/function_summary", q -> functionSummary(q.get("address"), q));
+    }
+
+    public String functionSummary(String addr, Map<String, String> q) {
+        return ctx.withAddress(addr, (program, a) -> {
+            var func = Addresses.functionAtOrContaining(program, a);
+            if (func == null) throw new IllegalArgumentException("No function at " + addr);
+            var p = Page.from(q);
+            var sb = new StringBuilder(4096);
+            sb.append("=== function ===\n").append(formatFunction(func));
+            sb.append("=== decompile ===\n")
+              .append(section(() -> DecompileMinimal.minimize(DecompileCache.decompile(program, func)))).append('\n');
+            sb.append("=== callers ===\n").append(section(() -> callersTable(func, p, q))).append('\n');
+            sb.append("=== callees ===\n").append(section(() -> calleesTable(func, p, q))).append('\n');
+            sb.append("=== strings ===\n").append(section(() -> stringRefsTable(program, func, p, q)));
+            return sb.toString();
+        });
+    }
+
+    private static String section(Supplier<String> body) {
+        try {
+            return body.get();
+        } catch (Exception e) {
+            return "(unavailable: " + e.getMessage() + ")\n";
+        }
     }
 
     public String listFunctions(Map<String, String> q) {
@@ -173,33 +202,39 @@ public final class FunctionHandlers {
     }
 
     public String listCallers(String addr, Page p, Map<String, String> q) {
-        return ctx.withAddress(addr, (program, a) -> {
-            var func = Addresses.functionAtOrContaining(program, a);
-            if (func == null) throw new IllegalArgumentException("No function at " + addr);
-            var callers = func.getCallingFunctions(new ConsoleTaskMonitor());
-            var t = Responses.table(p, q, new String[]{"fn", "addr"});
-            var w = new Responses.Window(p);
-            for (var f : callers) {
-                if (!w.take()) continue;
-                t.row(f.getName(), Responses.addr(f.getEntryPoint()));
-            }
-            return t.total(w.total()).build();
-        });
+        return ctx.withAddress(addr, (program, a) -> callersTable(requireFunction(program, a, addr), p, q));
+    }
+
+    private String callersTable(Function func, Page p, Map<String, String> q) {
+        var callers = func.getCallingFunctions(new ConsoleTaskMonitor());
+        var t = Responses.table(p, q, new String[]{"fn", "addr"});
+        var w = new Responses.Window(p);
+        for (var f : callers) {
+            if (!w.take()) continue;
+            t.row(f.getName(), Responses.addr(f.getEntryPoint()));
+        }
+        return t.total(w.total()).build();
     }
 
     public String listCallees(String addr, Page p, Map<String, String> q) {
-        return ctx.withAddress(addr, (program, a) -> {
-            var func = Addresses.functionAtOrContaining(program, a);
-            if (func == null) throw new IllegalArgumentException("No function at " + addr);
-            var callees = func.getCalledFunctions(new ConsoleTaskMonitor());
-            var t = Responses.table(p, q, new String[]{"fn", "addr"});
-            var w = new Responses.Window(p);
-            for (var f : callees) {
-                if (!w.take()) continue;
-                t.row(f.getName(), Responses.addr(f.getEntryPoint()));
-            }
-            return t.total(w.total()).build();
-        });
+        return ctx.withAddress(addr, (program, a) -> calleesTable(requireFunction(program, a, addr), p, q));
+    }
+
+    private String calleesTable(Function func, Page p, Map<String, String> q) {
+        var callees = func.getCalledFunctions(new ConsoleTaskMonitor());
+        var t = Responses.table(p, q, new String[]{"fn", "addr"});
+        var w = new Responses.Window(p);
+        for (var f : callees) {
+            if (!w.take()) continue;
+            t.row(f.getName(), Responses.addr(f.getEntryPoint()));
+        }
+        return t.total(w.total()).build();
+    }
+
+    private static Function requireFunction(Program program, ghidra.program.model.address.Address a, String addr) {
+        var func = Addresses.functionAtOrContaining(program, a);
+        if (func == null) throw new IllegalArgumentException("No function at " + addr);
+        return func;
     }
 
     public String listBasicBlocks(String addr, Map<String, String> q) {
@@ -226,27 +261,27 @@ public final class FunctionHandlers {
     }
 
     public String functionStringRefs(String addr, Page p, Map<String, String> q) {
-        return ctx.withAddress(addr, (program, a) -> {
-            var func = Addresses.functionAtOrContaining(program, a);
-            if (func == null) throw new IllegalArgumentException("No function at " + addr);
-            var refs = program.getReferenceManager();
-            var listing = program.getListing();
-            var t = Responses.table(p, q, new String[]{"from", "to", "value"});
-            var w = new Responses.Window(p);
-            var iter = func.getBody().getAddresses(true);
-            while (iter.hasNext()) {
-                var from = iter.next();
-                for (var r : refs.getReferencesFrom(from)) {
-                    var data = listing.getDataAt(r.getToAddress());
-                    if (data == null || !DataTypes.isStringLike(data)) continue;
-                    if (!w.take()) continue;
-                    var s = data.getValue() != null ? data.getValue().toString() : "";
-                    t.row(Responses.addr(from), Responses.addr(r.getToAddress()),
-                          Strings.escapeString(s));
-                }
+        return ctx.withAddress(addr, (program, a) -> stringRefsTable(program, requireFunction(program, a, addr), p, q));
+    }
+
+    private String stringRefsTable(Program program, Function func, Page p, Map<String, String> q) {
+        var refs = program.getReferenceManager();
+        var listing = program.getListing();
+        var t = Responses.table(p, q, new String[]{"from", "to", "value"});
+        var w = new Responses.Window(p);
+        var iter = func.getBody().getAddresses(true);
+        while (iter.hasNext()) {
+            var from = iter.next();
+            for (var r : refs.getReferencesFrom(from)) {
+                var data = listing.getDataAt(r.getToAddress());
+                if (data == null || !DataTypes.isStringLike(data)) continue;
+                if (!w.take()) continue;
+                var s = data.getValue() != null ? data.getValue().toString() : "";
+                t.row(Responses.addr(from), Responses.addr(r.getToAddress()),
+                      Strings.escapeString(s));
             }
-            return t.total(w.total()).build();
-        });
+        }
+        return t.total(w.total()).build();
     }
 
     public String functionStackFrame(String addr, Map<String, String> q) {
