@@ -59,7 +59,7 @@ MCP server for Ghidra. Rust bridge + Ghidra Java plugin. Wires any MCP client (C
 
 ## Tools
 
-114 tools total.
+116 tools total.
 
 <details>
 <summary><b>Listing / metadata</b> (17)</summary>
@@ -136,7 +136,7 @@ MCP server for Ghidra. Rust bridge + Ghidra Java plugin. Wires any MCP client (C
 </details>
 
 <details>
-<summary><b>Rename / types</b> (16)</summary>
+<summary><b>Rename / types</b> (18)</summary>
 
 | tool | purpose |
 | --- | --- |
@@ -156,6 +156,8 @@ MCP server for Ghidra. Rust bridge + Ghidra Java plugin. Wires any MCP client (C
 | `demangle_all` | demangle + rename all |
 | `batch_rename` | many renames, one transaction |
 | `batch_set_comment` | many comments, one transaction |
+| `batch_set_prototype` | many prototypes, one transaction |
+| `batch_set_variable_type` | many local retypes, one transaction |
 
 </details>
 

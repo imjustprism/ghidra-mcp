@@ -31,6 +31,7 @@ import io.github.imjustprism.ghidra.mcp.util.DataTypes;
 import io.github.imjustprism.ghidra.mcp.util.Json;
 import io.github.imjustprism.ghidra.mcp.util.PluginContext;
 import io.github.imjustprism.ghidra.mcp.util.Programs;
+import io.github.imjustprism.ghidra.mcp.util.Responses;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
@@ -82,6 +83,99 @@ public final class EditHandlers {
         routes.postForm("/create_enum", p -> createEnum(p.get("name"), Http.parseIntOrDefault(p.get("size"), 4), p.get("values")));
         routes.postForm("/batch_rename", p -> batchRename(p.get("items")));
         routes.postForm("/batch_set_comment", p -> batchSetComment(p.get("items")));
+        routes.postForm("/batch_set_prototype", p -> batchSetPrototype(p.get("items")));
+        routes.postForm("/batch_set_variable_type", p -> batchSetVariableType(p.get("items")));
+    }
+
+    public String batchSetPrototype(String itemsJson) {
+        var items = parseBatch(itemsJson);
+        var program = ctx.currentProgram();
+        if (program == null) throw new IllegalArgumentException("No program loaded");
+        var report = new StringBuilder("# result\taddress\tdetail\n");
+        var okCount = new int[1];
+        ctx.runOnSwingTx(program, "Batch set prototype", () -> {
+            var dtm = program.getDataTypeManager();
+            var parser = new FunctionSignatureParser(dtm, ctx.service(DataTypeManagerService.class));
+            var monitor = new ConsoleTaskMonitor();
+            for (var it : items) {
+                var addr = it.get("function_address");
+                try {
+                    var proto = it.get("prototype");
+                    if (proto == null || proto.isBlank()) throw new IllegalArgumentException("prototype is required");
+                    var a = Addresses.parse(program, addr);
+                    if (a == null) throw new IllegalArgumentException("invalid address");
+                    var func = Addresses.functionAtOrContaining(program, a);
+                    if (func == null) throw new IllegalArgumentException("no function at address");
+                    var sig = parser.parse(null, proto);
+                    if (sig == null) throw new IllegalStateException("prototype parse failed");
+                    var cmd = new ApplyFunctionSignatureCmd(func.getEntryPoint(), sig, SourceType.USER_DEFINED);
+                    if (!cmd.applyTo(program, monitor)) throw new IllegalStateException(cmd.getStatusMsg());
+                    okCount[0]++;
+                    report.append("ok\t").append(Responses.cell(addr)).append("\t\n");
+                } catch (Exception e) {
+                    report.append("fail\t").append(Responses.cell(addr)).append('\t')
+                            .append(Responses.cell(e.getMessage())).append('\n');
+                }
+            }
+            return true;
+        });
+        return "set " + okCount[0] + "/" + items.size() + "\n" + report;
+    }
+
+    public String batchSetVariableType(String itemsJson) {
+        var items = parseBatch(itemsJson);
+        var program = ctx.currentProgram();
+        if (program == null) throw new IllegalArgumentException("No program loaded");
+        var report = new StringBuilder("# result\taddress\tdetail\n");
+        var okCount = new int[1];
+        ctx.runOnSwingTx(program, "Batch set variable type", () -> {
+            var decomp = new DecompInterface();
+            try {
+                decomp.openProgram(program);
+                decomp.setSimplificationStyle("decompile");
+                var dtm = program.getDataTypeManager();
+                for (var it : items) {
+                    var addr = it.get("function_address");
+                    try {
+                        var varName = it.get("variable_name");
+                        var newType = it.get("new_type");
+                        if (varName == null || varName.isBlank() || newType == null || newType.isBlank()) {
+                            throw new IllegalArgumentException("variable_name and new_type are required");
+                        }
+                        var a = Addresses.parse(program, addr);
+                        if (a == null) throw new IllegalArgumentException("invalid address");
+                        var func = Addresses.functionAtOrContaining(program, a);
+                        if (func == null) throw new IllegalArgumentException("no function at address");
+                        var high = decompileHigh(decomp, func);
+                        if (high == null) throw new IllegalStateException("decompilation failed");
+                        var symbol = findHighSymbol(high, varName);
+                        if (symbol == null) throw new IllegalArgumentException("variable not found: " + varName);
+                        var dt = DataTypes.resolveDataType(dtm, newType);
+                        if (dt == null) throw new IllegalArgumentException("unknown type: " + newType);
+                        if (requiresFullCommit(symbol, high)) {
+                            HighFunctionDBUtil.commitParamsToDatabase(high, false,
+                                    ReturnCommitOption.NO_COMMIT, func.getSignatureSource());
+                        }
+                        HighFunctionDBUtil.updateDBVariable(symbol, symbol.getName(), dt, SourceType.USER_DEFINED);
+                        okCount[0]++;
+                        report.append("ok\t").append(Responses.cell(addr)).append('\t')
+                                .append(Responses.cell(varName)).append('\n');
+                    } catch (Exception e) {
+                        report.append("fail\t").append(Responses.cell(addr)).append('\t')
+                                .append(Responses.cell(e.getMessage())).append('\n');
+                    }
+                }
+                return true;
+            } finally {
+                decomp.dispose();
+            }
+        });
+        return "set " + okCount[0] + "/" + items.size() + "\n" + report;
+    }
+
+    private static HighFunction decompileHigh(DecompInterface decomp, ghidra.program.model.listing.Function func) {
+        var results = decomp.decompileFunction(func, DecompileHandlers.DECOMPILE_TIMEOUT_SEC, new ConsoleTaskMonitor());
+        return results != null && results.decompileCompleted() ? results.getHighFunction() : null;
     }
 
     private java.util.List<Map<String, String>> parseBatch(String itemsJson) {

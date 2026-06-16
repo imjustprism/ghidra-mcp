@@ -2292,6 +2292,34 @@ impl GhidraServer {
     }
 
     #[tool(
+        description = "Set many function prototypes in one call and one transaction. Best-effort: each item is independent, and a failing item is reported but does not roll back the successful ones. items is a JSON array of {function_address, prototype} where prototype is a full C signature. Returns a per-item ok/fail report. Use instead of N set_function_prototype calls",
+        annotations(destructive_hint = false)
+    )]
+    async fn batch_set_prototype(
+        &self,
+        Parameters(p): Parameters<BatchItems>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if p.items.is_empty() {
+            return Err(ErrorData::invalid_params("items is required", None));
+        }
+        self.post("batch_set_prototype", p).await
+    }
+
+    #[tool(
+        description = "Retype many local variables in one call and one transaction. Best-effort: a failing item is reported but does not roll back the successful ones. items is a JSON array of {function_address, variable_name, new_type}; variable_name must match the decompiler name. Returns a per-item ok/fail report",
+        annotations(destructive_hint = false)
+    )]
+    async fn batch_set_variable_type(
+        &self,
+        Parameters(p): Parameters<BatchItems>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if p.items.is_empty() {
+            return Err(ErrorData::invalid_params("items is required", None));
+        }
+        self.post("batch_set_variable_type", p).await
+    }
+
+    #[tool(
         description = "Locate functions by a string they reference: finds the string, follows cross-references to the containing function, and emits each function's name, entry address, the xref site, and a unique signature for the entry. The fastest path from a known string to a function + a reusable signature. format=ida|code",
         annotations(read_only_hint = true)
     )]
