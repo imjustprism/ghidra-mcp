@@ -1,9 +1,7 @@
 package io.github.imjustprism.ghidra.mcp.analysis;
 
-import ghidra.program.model.address.AddressSetView;
 import ghidra.program.model.listing.CodeUnit;
 import ghidra.program.model.listing.Function;
-import ghidra.program.model.listing.Listing;
 import ghidra.program.model.symbol.SourceType;
 import io.github.imjustprism.ghidra.mcp.http.Page;
 import io.github.imjustprism.ghidra.mcp.util.Addresses;
@@ -85,16 +83,9 @@ public final class Completeness {
     private static boolean hasComment(Function f) {
         if (isMeaningfulComment(f.getRepeatableComment())) return true;
         var listing = f.getProgram().getListing();
-        var body = f.getBody();
-        return hasMeaningfulComment(listing, CodeUnit.PLATE_COMMENT, body)
-                || hasMeaningfulComment(listing, CodeUnit.PRE_COMMENT, body);
-    }
-
-    private static boolean hasMeaningfulComment(Listing listing, int type, AddressSetView body) {
-        for (var it = listing.getCommentAddressIterator(type, body, true); it.hasNext(); ) {
-            if (isMeaningfulComment(listing.getComment(type, it.next()))) return true;
-        }
-        return false;
+        var entry = f.getEntryPoint();
+        return isMeaningfulComment(listing.getComment(CodeUnit.PLATE_COMMENT, entry))
+                || isMeaningfulComment(listing.getComment(CodeUnit.PRE_COMMENT, entry));
     }
 
     private static boolean isMeaningfulComment(String c) {
