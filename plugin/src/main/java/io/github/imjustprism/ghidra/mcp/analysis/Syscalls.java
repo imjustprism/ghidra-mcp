@@ -31,7 +31,8 @@ public final class Syscalls {
             var listing = program.getListing();
             var monitor = new ConsoleTaskMonitor();
             var rows = new ArrayList<Object[]>();
-            var need = (long) p.offset() + p.limit();
+            long off = p.offset();
+            long lim = p.limit();
             long total = 0;
             for (var stub : STUBS) {
                 var mask = new byte[stub.opcode().length];
@@ -42,9 +43,9 @@ public final class Syscalls {
                     if (hit == null) break;
                     var block = mem.getBlock(hit);
                     var insn = listing.getInstructionAt(hit);
-                    if (block != null && block.isExecute() && insn != null
+                    if (block != null && block.isInitialized() && block.isExecute() && insn != null
                             && insn.getMnemonicString().equalsIgnoreCase(stub.mnemonic())) {
-                        if (total < need) {
+                        if (total >= off && rows.size() < lim) {
                             rows.add(new Object[]{Responses.addr(hit), stub.kind(), findSsn(program, insn)});
                         }
                         total++;
@@ -53,9 +54,8 @@ public final class Syscalls {
                 }
             }
             var t = Responses.table(p, q, new String[]{"addr", "kind", "ssn"});
-            var w = new Responses.Window(p);
             for (var r : rows) {
-                if (w.take()) t.row(r);
+                t.row(r);
             }
             return t.total((int) Math.min(total, Integer.MAX_VALUE)).build();
         });
