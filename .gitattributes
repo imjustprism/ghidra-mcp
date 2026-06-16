@@ -1,0 +1,15 @@
+*.rs    text eol=lf
+*.toml  text eol=lf
+*.lock  text eol=lf
+*.java  text eol=lf
+*.xml   text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.md    text eol=lf
+*.ps1   text eol=crlf
+*.bat   text eol=crlf
+*.jar   binary
+*.zip   binary
+*.exe   binary
+*.png   binary
+*.ico   binary
