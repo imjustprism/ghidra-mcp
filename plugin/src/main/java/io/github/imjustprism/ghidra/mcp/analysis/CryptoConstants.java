@@ -13,6 +13,8 @@ import java.util.Map;
 
 public final class CryptoConstants {
 
+    private static final long GLOBAL_SCAN_CAP = 100_000;
+
     private record Sig(String name, byte[] bytes) {}
 
     private static final byte[] AES_SBOX = hex("637c777bf26b6fc53001672bfed7ab76");
@@ -37,8 +39,8 @@ public final class CryptoConstants {
             var monitor = new ConsoleTaskMonitor();
             var t = Responses.table(p, q, new String[]{"addr", "algo", "len"});
             var w = new Responses.Window(p);
-            var need = (long) p.offset() + p.limit();
-            long seen = 0;
+            long scanned = 0;
+            boolean capped = false;
             outer:
             for (var sig : signatures(program)) {
                 var mask = new byte[sig.bytes().length];
@@ -48,11 +50,15 @@ public final class CryptoConstants {
                     var hit = mem.findBytes(cursor, sig.bytes(), mask, true, monitor);
                     if (hit == null) break;
                     if (w.take()) t.row(Responses.addr(hit), sig.name(), sig.bytes().length);
-                    if (++seen >= need) break outer;
+                    if (++scanned >= GLOBAL_SCAN_CAP) {
+                        capped = true;
+                        break outer;
+                    }
                     cursor = hit.next();
                 }
             }
-            return t.total(w.total()).build();
+            var out = t.total(w.total()).build();
+            return capped ? out + "# total is a lower bound (scan cap " + GLOBAL_SCAN_CAP + " reached)\n" : out;
         });
     }
 
