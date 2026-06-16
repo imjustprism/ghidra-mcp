@@ -73,18 +73,18 @@ public final class FunctionHandlers {
 
     public String getCurrentAddress() {
         var svc = ctx.service(CodeViewerService.class);
-        if (svc == null) return "Code viewer service not available";
+        if (svc == null) throw new IllegalStateException("Code viewer service not available");
         var loc = svc.getCurrentLocation();
         return loc != null ? Responses.addr(loc.getAddress()) : "No current location";
     }
 
     public String describeCurrentFunction() {
         var svc = ctx.service(CodeViewerService.class);
-        if (svc == null) return "Code viewer service not available";
+        if (svc == null) throw new IllegalStateException("Code viewer service not available");
         var loc = svc.getCurrentLocation();
-        if (loc == null) return "No current location";
+        if (loc == null) throw new IllegalArgumentException("No current location");
         var program = ctx.currentProgram();
-        if (program == null) return "No program loaded";
+        if (program == null) throw new IllegalArgumentException("No program loaded");
         var func = program.getFunctionManager().getFunctionContaining(loc.getAddress());
         return func == null
                 ? "No function at current location: " + loc.getAddress()
@@ -94,7 +94,8 @@ public final class FunctionHandlers {
     public String describeFunctionAt(String addr) {
         return ctx.withAddress(addr, (program, a) -> {
             var func = program.getFunctionManager().getFunctionAt(a);
-            return func == null ? "No function at " + addr : formatFunction(func);
+            if (func == null) throw new IllegalArgumentException("No function at " + addr);
+            return formatFunction(func);
         });
     }
 
@@ -174,7 +175,7 @@ public final class FunctionHandlers {
     public String listCallers(String addr, Page p, Map<String, String> q) {
         return ctx.withAddress(addr, (program, a) -> {
             var func = Addresses.functionAtOrContaining(program, a);
-            if (func == null) return "No function at " + addr;
+            if (func == null) throw new IllegalArgumentException("No function at " + addr);
             var callers = func.getCallingFunctions(new ConsoleTaskMonitor());
             var t = Responses.table(p, q, new String[]{"fn", "addr"});
             var w = new Responses.Window(p);
@@ -189,7 +190,7 @@ public final class FunctionHandlers {
     public String listCallees(String addr, Page p, Map<String, String> q) {
         return ctx.withAddress(addr, (program, a) -> {
             var func = Addresses.functionAtOrContaining(program, a);
-            if (func == null) return "No function at " + addr;
+            if (func == null) throw new IllegalArgumentException("No function at " + addr);
             var callees = func.getCalledFunctions(new ConsoleTaskMonitor());
             var t = Responses.table(p, q, new String[]{"fn", "addr"});
             var w = new Responses.Window(p);
@@ -204,7 +205,7 @@ public final class FunctionHandlers {
     public String listBasicBlocks(String addr, Map<String, String> q) {
         return ctx.withAddress(addr, (program, a) -> {
             var func = Addresses.functionAtOrContaining(program, a);
-            if (func == null) return "No function at " + addr;
+            if (func == null) throw new IllegalArgumentException("No function at " + addr);
             var model = new BasicBlockModel(program);
             var monitor = new ConsoleTaskMonitor();
             var t = Responses.table(q, new String[]{"start", "end"}, 64);
@@ -218,7 +219,7 @@ public final class FunctionHandlers {
                     n++;
                 }
             } catch (Exception e) {
-                return "Error enumerating basic blocks: " + e.getMessage();
+                throw new IllegalStateException("Error enumerating basic blocks: " + e.getMessage(), e);
             }
             return t.total(n).build();
         });
@@ -227,7 +228,7 @@ public final class FunctionHandlers {
     public String functionStringRefs(String addr, Page p, Map<String, String> q) {
         return ctx.withAddress(addr, (program, a) -> {
             var func = Addresses.functionAtOrContaining(program, a);
-            if (func == null) return "No function at " + addr;
+            if (func == null) throw new IllegalArgumentException("No function at " + addr);
             var refs = program.getReferenceManager();
             var listing = program.getListing();
             var t = Responses.table(p, q, new String[]{"from", "to", "value"});
@@ -251,9 +252,9 @@ public final class FunctionHandlers {
     public String functionStackFrame(String addr, Map<String, String> q) {
         return ctx.withAddress(addr, (program, a) -> {
             var func = Addresses.functionAtOrContaining(program, a);
-            if (func == null) return "No function at " + addr;
+            if (func == null) throw new IllegalArgumentException("No function at " + addr);
             var frame = func.getStackFrame();
-            if (frame == null) return "No stack frame";
+            if (frame == null) throw new IllegalStateException("No stack frame");
             var t = Responses.table(q, new String[]{"name", "offset", "datatype", "size", "storage"},
                                     frame.getStackVariables().length + 3);
             t.row("_frame_size", frame.getFrameSize(), "", "", "");

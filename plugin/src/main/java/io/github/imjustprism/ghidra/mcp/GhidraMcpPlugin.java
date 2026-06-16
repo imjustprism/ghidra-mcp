@@ -15,6 +15,7 @@ import io.github.imjustprism.ghidra.mcp.handlers.DecompileHandlers;
 import io.github.imjustprism.ghidra.mcp.handlers.EditHandlers;
 import io.github.imjustprism.ghidra.mcp.handlers.FunctionHandlers;
 import io.github.imjustprism.ghidra.mcp.handlers.ListingHandlers;
+import io.github.imjustprism.ghidra.mcp.handlers.RecoveryHandlers;
 import io.github.imjustprism.ghidra.mcp.http.RouteTable;
 import io.github.imjustprism.ghidra.mcp.util.PluginContext;
 
@@ -32,6 +33,7 @@ public final class GhidraMcpPlugin extends Plugin {
     private static final String OPTION_CATEGORY = "Ghidra MCP HTTP Server";
     private static final String PORT_OPTION = "Server Port";
     private static final String BIND_OPTION = "Bind Address";
+    private static final String TOKEN_OPTION = "Auth Token";
     private static final int DEFAULT_PORT = 8080;
     private static final String DEFAULT_BIND = "127.0.0.1";
 
@@ -58,6 +60,9 @@ public final class GhidraMcpPlugin extends Plugin {
             "HTTP port (requires Ghidra restart to take effect).");
         options.registerOption(BIND_OPTION, DEFAULT_BIND, null,
             "Interface to bind to. Defaults to loopback. Never expose to untrusted networks.");
+        options.registerOption(TOKEN_OPTION, "", null,
+            "If set, every request must carry 'Authorization: Bearer <token>'. "
+                + "Pass the same value to the bridge via GHIDRA_TOKEN.");
         try {
             startServer();
         } catch (IOException e) {
@@ -77,6 +82,7 @@ public final class GhidraMcpPlugin extends Plugin {
         int port = options.getInt(PORT_OPTION, DEFAULT_PORT);
         String bind = options.getString(BIND_OPTION, DEFAULT_BIND);
 
+        routes.setAuthToken(options.getString(TOKEN_OPTION, ""));
         routes.bind(bind, port);
 
         var ctx = new PluginContext(tool, this);
@@ -86,6 +92,7 @@ public final class GhidraMcpPlugin extends Plugin {
         var bytes = new BytesHandlers(ctx);
         var edits = new EditHandlers(ctx);
         var analysis = new AnalysisHandlers(ctx);
+        var recovery = new RecoveryHandlers(ctx);
 
         listing.register(routes);
         functions.register(routes);
@@ -93,6 +100,7 @@ public final class GhidraMcpPlugin extends Plugin {
         bytes.register(routes);
         edits.register(routes);
         analysis.register(routes);
+        recovery.register(routes);
 
         try {
             debuggerHandlers = new DebuggerHandlers(ctx);

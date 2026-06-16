@@ -50,26 +50,123 @@ public final class EditHandlers {
     }
 
     public void register(RouteTable routes) {
-        routes.postForm("/renameFunction", p -> renameFunction(p.get("oldName"), p.get("newName")) ? "Renamed successfully" : "Rename failed");
+        routes.postForm("/renameFunction", p -> require(
+                renameFunction(p.get("oldName"), p.get("newName")),
+                "Renamed successfully", "Rename failed (check oldName exists and newName is valid)"));
         routes.postForm("/renameData", p -> renameDataAt(p.get("address"), p.get("newName")));
         routes.postForm("/renameVariable", p -> renameVariable(p.get("functionName"), p.get("oldName"), p.get("newName")));
-        routes.postForm("/set_decompiler_comment", p -> setComment(p.get("address"), p.get("comment"), CodeUnit.PRE_COMMENT, "Set decompiler comment") ? "Comment set successfully" : "Failed to set comment");
-        routes.postForm("/set_disassembly_comment", p -> setComment(p.get("address"), p.get("comment"), CodeUnit.EOL_COMMENT, "Set disassembly comment") ? "Comment set successfully" : "Failed to set comment");
-        routes.postForm("/rename_function_by_address", p -> renameFunctionAt(p.get("function_address"), p.get("new_name")) ? "Function renamed successfully" : "Failed to rename function");
+        routes.postForm("/set_decompiler_comment", p -> require(
+                setComment(p.get("address"), p.get("comment"), CodeUnit.PRE_COMMENT, "Set decompiler comment"),
+                "Comment set successfully", "Failed to set comment"));
+        routes.postForm("/set_disassembly_comment", p -> require(
+                setComment(p.get("address"), p.get("comment"), CodeUnit.EOL_COMMENT, "Set disassembly comment"),
+                "Comment set successfully", "Failed to set comment"));
+        routes.postForm("/rename_function_by_address", p -> require(
+                renameFunctionAt(p.get("function_address"), p.get("new_name")),
+                "Function renamed successfully", "Failed to rename function"));
         routes.postForm("/set_function_prototype", p -> {
             var r = setFunctionPrototype(p.get("function_address"), p.get("prototype"));
             return switch (r) {
                 case EditHandlers.PrototypeResult.Ok(String warn) when warn.isEmpty() -> "Function prototype set successfully";
                 case EditHandlers.PrototypeResult.Ok(String warn) -> "Function prototype set successfully\n\nWarnings/Debug Info:\n" + warn;
-                case EditHandlers.PrototypeResult.Failed(String msg) -> "Failed to set function prototype: " + msg;
+                case EditHandlers.PrototypeResult.Failed(String msg) -> throw new IllegalStateException("Failed to set function prototype: " + msg);
             };
         });
         routes.postForm("/set_local_variable_type", p -> setLocalVariableType(p.get("function_address"), p.get("variable_name"), p.get("new_type")));
-        routes.postForm("/create_label", p -> createLabel(p.get("address"), p.get("name")) ? "Label created" : "Failed to create label");
+        routes.postForm("/create_label", p -> require(
+                createLabel(p.get("address"), p.get("name")),
+                "Label created", "Failed to create label"));
         routes.postForm("/import_c_header", p -> importCHeader(p.get("header"), p.getOrDefault("category", "")));
         routes.postForm("/create_struct", p -> createStruct(p.get("name"), p.get("fields")));
         routes.postForm("/create_union", p -> createUnion(p.get("name"), p.get("fields")));
         routes.postForm("/create_enum", p -> createEnum(p.get("name"), Http.parseIntOrDefault(p.get("size"), 4), p.get("values")));
+        routes.postForm("/batch_rename", p -> batchRename(p.get("items")));
+        routes.postForm("/batch_set_comment", p -> batchSetComment(p.get("items")));
+    }
+
+    private java.util.List<Map<String, String>> parseBatch(String itemsJson) {
+        if (itemsJson == null || itemsJson.isBlank()) {
+            throw new IllegalArgumentException("items JSON array is required");
+        }
+        try {
+            var items = Json.parseObjectArray(itemsJson);
+            if (items.isEmpty()) throw new IllegalArgumentException("items is empty");
+            return items;
+        } catch (IllegalArgumentException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Invalid items JSON: " + e.getMessage());
+        }
+    }
+
+    public String batchRename(String itemsJson) {
+        var items = parseBatch(itemsJson);
+        var program = ctx.currentProgram();
+        if (program == null) throw new IllegalArgumentException("No program loaded");
+        var report = new StringBuilder("# result\taddress\tdetail\n");
+        var okCount = new int[1];
+        ctx.runOnSwingTx(program, "Batch rename", () -> {
+            for (var it : items) {
+                var addr = it.get("address");
+                try {
+                    var newName = it.get("new_name");
+                    if (newName == null || newName.isBlank()) {
+                        throw new IllegalArgumentException("new_name is required");
+                    }
+                    var a = addr == null ? null : program.getAddressFactory().getAddress(addr);
+                    if (a == null) throw new IllegalArgumentException("invalid address");
+                    var func = program.getFunctionManager().getFunctionAt(a);
+                    if (func != null) {
+                        func.setName(newName, SourceType.USER_DEFINED);
+                    } else {
+                        var sym = program.getSymbolTable().getPrimarySymbol(a);
+                        if (sym != null) sym.setName(newName, SourceType.USER_DEFINED);
+                        else program.getSymbolTable().createLabel(a, newName, SourceType.USER_DEFINED);
+                    }
+                    okCount[0]++;
+                    report.append("ok\t").append(addr).append('\t').append(newName).append('\n');
+                } catch (Exception e) {
+                    report.append("fail\t").append(addr).append('\t')
+                            .append(e.getMessage()).append('\n');
+                }
+            }
+            return true;
+        });
+        return "renamed " + okCount[0] + "/" + items.size() + "\n" + report;
+    }
+
+    public String batchSetComment(String itemsJson) {
+        var items = parseBatch(itemsJson);
+        var program = ctx.currentProgram();
+        if (program == null) throw new IllegalArgumentException("No program loaded");
+        var report = new StringBuilder("# result\taddress\tdetail\n");
+        var okCount = new int[1];
+        ctx.runOnSwingTx(program, "Batch set comment", () -> {
+            for (var it : items) {
+                var addr = it.get("address");
+                try {
+                    var comment = it.get("comment");
+                    if (comment == null) throw new IllegalArgumentException("comment is required");
+                    var a = addr == null ? null : program.getAddressFactory().getAddress(addr);
+                    if (a == null) throw new IllegalArgumentException("invalid address");
+                    int type = "pre".equals(it.get("kind"))
+                            ? CodeUnit.PRE_COMMENT : CodeUnit.EOL_COMMENT;
+                    program.getListing().setComment(a, type, comment);
+                    okCount[0]++;
+                    report.append("ok\t").append(addr).append("\t\n");
+                } catch (Exception e) {
+                    report.append("fail\t").append(addr).append('\t')
+                            .append(e.getMessage()).append('\n');
+                }
+            }
+            return true;
+        });
+        return "commented " + okCount[0] + "/" + items.size() + "\n" + report;
+    }
+
+    private static String require(boolean ok, String success, String failure) {
+        if (!ok) throw new IllegalStateException(failure);
+        return success;
     }
 
     public boolean createLabel(String addr, String name) {
@@ -108,17 +205,16 @@ public final class EditHandlers {
 
     public String renameDataAt(String addrStr, String newName) {
         if (addrStr == null || addrStr.isBlank() || newName == null || newName.isBlank()) {
-            return "address and newName are required";
+            throw new IllegalArgumentException("address and newName are required");
         }
         var program = ctx.currentProgram();
-        if (program == null) return "No program loaded";
+        if (program == null) throw new IllegalArgumentException("No program loaded");
         var result = new String[]{"Rename failed"};
-        ctx.runOnSwingTx(program, "Rename data", () -> {
+        var ok = ctx.runOnSwingTx(program, "Rename data", () -> {
             try {
                 var addr = program.getAddressFactory().getAddress(addrStr);
                 if (addr == null) {
-                    result[0] = "Invalid address: " + addrStr;
-                    return false;
+                    throw new IllegalArgumentException("Invalid address: " + addrStr);
                 }
                 var table = program.getSymbolTable();
                 var sym = table.getPrimarySymbol(addr);
@@ -129,36 +225,37 @@ public final class EditHandlers {
                 }
                 result[0] = "Renamed " + addrStr + " to " + newName;
                 return true;
+            } catch (RuntimeException e) {
+                throw e;
             } catch (Exception e) {
                 Msg.error(ctx.logOwner(), "Rename data error", e);
-                result[0] = "Rename failed: " + e.getMessage();
-                return false;
+                throw new IllegalStateException("Rename failed: " + e.getMessage(), e);
             }
         });
-        return result[0];
+        return require(ok, result[0], "Rename failed");
     }
 
     public String renameVariable(String functionName, String oldVar, String newVar) {
-        if (functionName == null || oldVar == null || newVar == null) return "Missing parameters";
+        if (functionName == null || oldVar == null || newVar == null) throw new IllegalArgumentException("Missing parameters");
         var program = ctx.currentProgram();
-        if (program == null) return "No program loaded";
+        if (program == null) throw new IllegalArgumentException("No program loaded");
         var func = Programs.findFunctionByName(program, functionName);
-        if (func == null) return "Function not found";
+        if (func == null) throw new IllegalArgumentException("Function not found");
 
         var decomp = new DecompInterface();
         try {
             decomp.openProgram(program);
             var results = decomp.decompileFunction(func, DecompileHandlers.DECOMPILE_TIMEOUT_SEC, new ConsoleTaskMonitor());
-            if (results == null || !results.decompileCompleted()) return "Decompilation failed";
+            if (results == null || !results.decompileCompleted()) throw new IllegalStateException("Decompilation failed");
             var high = results.getHighFunction();
-            if (high == null) return "Decompilation failed (no high function)";
+            if (high == null) throw new IllegalStateException("Decompilation failed (no high function)");
             var map = high.getLocalSymbolMap();
-            if (map == null) return "Decompilation failed (no local symbol map)";
+            if (map == null) throw new IllegalStateException("Decompilation failed (no local symbol map)");
 
             HighSymbol target = null;
             for (var it = map.getSymbols(); it.hasNext(); ) {
                 var s = it.next();
-                if (s.getName().equals(newVar)) return "Error: variable '" + newVar + "' already exists";
+                if (s.getName().equals(newVar)) throw new IllegalArgumentException("variable " + newVar + " already exists");
                 if (s.getName().equals(oldVar)) target = s;
             }
             if (target == null) return "Variable not found";
@@ -178,7 +275,8 @@ public final class EditHandlers {
                     return false;
                 }
             });
-            return ok ? "Variable renamed" : "Failed to rename variable";
+            if (!ok) throw new IllegalStateException("Failed to rename variable");
+            return "Variable renamed";
         } finally {
             decomp.dispose();
         }
@@ -303,26 +401,26 @@ public final class EditHandlers {
     public String setLocalVariableType(String addr, String variable, String newType) {
         if (addr == null || addr.isBlank() || variable == null || variable.isBlank()
                 || newType == null || newType.isBlank()) {
-            return "function_address, variable_name, and new_type are required";
+            throw new IllegalArgumentException("function_address, variable_name, and new_type are required");
         }
         var program = ctx.currentProgram();
-        if (program == null) return "No program loaded";
+        if (program == null) throw new IllegalArgumentException("No program loaded");
         return Swing.runNow(() -> {
             try {
                 var a = program.getAddressFactory().getAddress(addr);
-                if (a == null) return "invalid address: " + addr;
+                if (a == null) throw new IllegalArgumentException("invalid address: " + addr);
                 var func = Addresses.functionAtOrContaining(program, a);
-                if (func == null) return "No function at " + addr;
+                if (func == null) throw new IllegalArgumentException("No function at " + addr);
                 var dataType = DataTypes.resolveDataType(program.getDataTypeManager(), newType);
-                if (dataType == null) return "Unknown type: " + newType;
+                if (dataType == null) throw new IllegalArgumentException("Unknown type: " + newType);
                 var decomp = new DecompInterface();
                 try {
                     decomp.openProgram(program);
                     decomp.setSimplificationStyle("decompile");
                     var results = decomp.decompileFunction(func, 60, new ConsoleTaskMonitor());
-                    if (!results.decompileCompleted()) return "Decompilation failed for " + func.getName();
+                    if (!results.decompileCompleted()) throw new IllegalStateException("Decompilation failed for " + func.getName());
                     var high = results.getHighFunction();
-                    if (high == null) return "No high function for " + func.getName();
+                    if (high == null) throw new IllegalStateException("No high function for " + func.getName());
                     var symbol = findHighSymbol(high, variable);
                     if (symbol == null) {
                         return "Variable '" + variable + "' not found. Use the exact decompiler name; "
@@ -341,10 +439,12 @@ public final class EditHandlers {
                 } finally {
                     decomp.dispose();
                 }
+            } catch (RuntimeException e) {
+                throw e;
             } catch (Exception e) {
                 Msg.error(ctx.logOwner(), "setLocalVariableType failed", e);
-                return "Failed: " + e.getClass().getSimpleName()
-                        + (e.getMessage() != null ? " - " + e.getMessage() : "");
+                throw new IllegalStateException("Failed: " + e.getClass().getSimpleName()
+                        + (e.getMessage() != null ? " - " + e.getMessage() : ""), e);
             }
         });
     }
@@ -360,7 +460,7 @@ public final class EditHandlers {
     public String importCHeader(String header, String category) {
         if (header == null || header.isBlank()) throw new IllegalArgumentException("Header text is required");
         var program = ctx.currentProgram();
-        if (program == null) return "No program loaded";
+        if (program == null) throw new IllegalArgumentException("No program loaded");
         var result = new String[1];
         var ok = ctx.runOnSwingTx(program, "Import C header", () -> {
             try {
@@ -397,19 +497,22 @@ public final class EditHandlers {
                 return false;
             }
         });
-        return ok ? result[0] : (result[0] != null ? result[0] : "Import failed");
+        if (!ok) {
+            throw new IllegalStateException(result[0] != null ? result[0] : "Import failed");
+        }
+        return result[0];
     }
 
     public String createStruct(String name, String fieldsJson) {
         if (name == null || name.isBlank()) throw new IllegalArgumentException("Name is required");
         if (fieldsJson == null || fieldsJson.isBlank()) throw new IllegalArgumentException("Fields JSON is required");
         var program = ctx.currentProgram();
-        if (program == null) return "No program loaded";
+        if (program == null) throw new IllegalArgumentException("No program loaded");
         java.util.List<Map<String, String>> fields;
         try {
             fields = Json.parseObjectArray(fieldsJson);
         } catch (Exception e) {
-            return "Invalid fields JSON: " + e.getMessage();
+            throw new IllegalArgumentException("Invalid fields JSON: " + e.getMessage());
         }
         var out = new String[1];
         var ok = ctx.runOnSwingTx(program, "Create struct", () -> {
@@ -442,19 +545,20 @@ public final class EditHandlers {
                 return false;
             }
         });
-        return ok ? out[0] : (out[0] != null ? out[0] : "Failed");
+        if (!ok) throw new IllegalStateException(out[0] != null ? out[0] : "Failed");
+        return out[0];
     }
 
     public String createUnion(String name, String fieldsJson) {
         if (name == null || name.isBlank()) throw new IllegalArgumentException("Name is required");
         if (fieldsJson == null || fieldsJson.isBlank()) throw new IllegalArgumentException("Fields JSON is required");
         var program = ctx.currentProgram();
-        if (program == null) return "No program loaded";
+        if (program == null) throw new IllegalArgumentException("No program loaded");
         java.util.List<Map<String, String>> fields;
         try {
             fields = Json.parseObjectArray(fieldsJson);
         } catch (Exception e) {
-            return "Invalid fields JSON: " + e.getMessage();
+            throw new IllegalArgumentException("Invalid fields JSON: " + e.getMessage());
         }
         var out = new String[1];
         var ok = ctx.runOnSwingTx(program, "Create union", () -> {
@@ -481,7 +585,8 @@ public final class EditHandlers {
                 return false;
             }
         });
-        return ok ? out[0] : (out[0] != null ? out[0] : "Failed");
+        if (!ok) throw new IllegalStateException(out[0] != null ? out[0] : "Failed");
+        return out[0];
     }
 
     public String createEnum(String name, int size, String valuesJson) {
@@ -489,12 +594,12 @@ public final class EditHandlers {
         if (size != 1 && size != 2 && size != 4 && size != 8) throw new IllegalArgumentException("Size must be 1/2/4/8");
         if (valuesJson == null || valuesJson.isBlank()) throw new IllegalArgumentException("Values JSON is required");
         var program = ctx.currentProgram();
-        if (program == null) return "No program loaded";
+        if (program == null) throw new IllegalArgumentException("No program loaded");
         java.util.List<Map<String, String>> values;
         try {
             values = Json.parseObjectArray(valuesJson);
         } catch (Exception e) {
-            return "Invalid values JSON: " + e.getMessage();
+            throw new IllegalArgumentException("Invalid values JSON: " + e.getMessage());
         }
         var out = new String[1];
         var ok = ctx.runOnSwingTx(program, "Create enum", () -> {
@@ -508,8 +613,7 @@ public final class EditHandlers {
                         out[0] = "Each entry needs name,value";
                         return false;
                     }
-                    long parsed = Long.decode(vval.trim());
-                    e.add(vname, parsed);
+                    e.add(vname, parseEnumValue(vval.trim()));
                 }
                 dtm.addDataType(e, DataTypeConflictHandler.REPLACE_HANDLER);
                 out[0] = "Created enum " + name + " (" + values.size() + " members)";
@@ -519,6 +623,14 @@ public final class EditHandlers {
                 return false;
             }
         });
-        return ok ? out[0] : (out[0] != null ? out[0] : "Failed");
+        if (!ok) throw new IllegalStateException(out[0] != null ? out[0] : "Failed");
+        return out[0];
+    }
+
+    private static long parseEnumValue(String v) {
+        if (v.startsWith("0x") || v.startsWith("0X")) {
+            return Long.parseUnsignedLong(v.substring(2), 16);
+        }
+        return v.startsWith("-") ? Long.parseLong(v) : Long.parseUnsignedLong(v);
     }
 }

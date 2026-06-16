@@ -11,7 +11,7 @@ public final class Pcode {
     public static String pcodeFunction(PluginContext ctx, String addr) {
         return ctx.withAddress(addr, (program, a) -> {
             var func = Addresses.functionAtOrContaining(program, a);
-            if (func == null) return "No function at " + addr;
+            if (func == null) throw new IllegalArgumentException("No function at " + addr);
             var listing = program.getListing();
             var end = func.getBody().getMaxAddress();
             var sb = new StringBuilder(8192);

@@ -37,8 +37,12 @@ public final class Programs {
         var result = new boolean[1];
         try {
             SwingUtilities.invokeAndWait(() -> result[0] = action.get());
-        } catch (InterruptedException | InvocationTargetException e) {
+        } catch (InvocationTargetException e) {
+            if (e.getCause() instanceof RuntimeException re) throw re;
             Msg.error(logOwner, "Swing action failed", e);
+            return false;
+        } catch (InterruptedException e) {
+            Msg.error(logOwner, "Swing action interrupted", e);
             Thread.currentThread().interrupt();
             return false;
         }

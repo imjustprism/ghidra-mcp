@@ -15,7 +15,7 @@ public final class CallGraph {
         if (depth < 0 || depth > 10) throw new IllegalArgumentException("Depth must be 0..10");
         return ctx.withAddress(addr, (program, a) -> {
             var root = Addresses.functionAtOrContaining(program, a);
-            if (root == null) return "No function at " + addr;
+            if (root == null) throw new IllegalArgumentException("No function at " + addr);
             var seen = new java.util.LinkedHashSet<Function>();
             var edges = new java.util.LinkedHashSet<String>();
             var queue = new java.util.ArrayDeque<Function>();
@@ -59,7 +59,7 @@ public final class CallGraph {
         int cap = maxNodes <= 0 ? 60 : Math.min(maxNodes, 400);
         return ctx.withAddress(addr, (program, a) -> {
             var root = Addresses.functionAtOrContaining(program, a);
-            if (root == null) return "No function at " + addr;
+            if (root == null) throw new IllegalArgumentException("No function at " + addr);
             var seen = new java.util.LinkedHashSet<Function>();
             var edges = new java.util.LinkedHashSet<String>();
             var queue = new java.util.ArrayDeque<Function>();

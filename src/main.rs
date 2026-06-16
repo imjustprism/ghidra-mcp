@@ -14,6 +14,9 @@ struct Args {
 
     #[arg(long, env = "GHIDRA_TIMEOUT_SECS", default_value_t = 60)]
     timeout_secs: u64,
+
+    #[arg(long, env = "GHIDRA_TOKEN", hide_env_values = true)]
+    ghidra_token: Option<String>,
 }
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
@@ -30,7 +33,11 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     tracing::info!(url = %args.ghidra_server, "starting ghidra-mcp");
 
-    let server = GhidraServer::new(args.ghidra_server, args.timeout_secs)?;
+    let server = GhidraServer::new(
+        args.ghidra_server,
+        args.timeout_secs,
+        args.ghidra_token.as_deref(),
+    )?;
     let service = server.serve(stdio()).await?;
     service.waiting().await?;
     Ok(())

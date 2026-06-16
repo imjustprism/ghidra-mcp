@@ -23,6 +23,17 @@ fn map_err(e: BridgeError) -> ErrorData {
         BridgeError::Upstream { status, .. } if (400..500).contains(status) => {
             ErrorData::invalid_params(e.to_string(), None)
         }
+        BridgeError::Http(h) if h.is_connect() => ErrorData::internal_error(
+            format!(
+                "{e} — cannot reach the GhidraMCP plugin. Is Ghidra running with the \
+                 ghidra-mcp extension enabled and a program open?"
+            ),
+            None,
+        ),
+        BridgeError::Http(h) if h.is_timeout() => ErrorData::internal_error(
+            format!("{e} — request timed out. Raise --timeout-secs for long operations"),
+            None,
+        ),
         _ => ErrorData::internal_error(e.to_string(), None),
     }
 }
@@ -153,6 +164,18 @@ impl ToParams for ScanResults {
             p.push(("limit", l.to_string()));
         }
         p
+    }
+}
+
+impl ToParams for ScanClose {
+    fn into_params(self) -> Params {
+        vec![("scan_id", self.scan_id)]
+    }
+}
+
+impl ToParams for BatchItems {
+    fn into_params(self) -> Params {
+        vec![("items", self.items)]
     }
 }
 
@@ -932,12 +955,124 @@ pub struct ScanResults {
     pub limit: Option<u32>,
 }
 
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct ScanClose {
+    pub scan_id: String,
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct BatchItems {
+    pub items: String,
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema, Default)]
+pub struct AnalyzeProgram {
+    #[serde(default)]
+    pub all: bool,
+}
+
+impl ToParams for AnalyzeProgram {
+    fn into_params(self) -> Params {
+        vec![("all", flag(self.all))]
+    }
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct SetAnalysisOption {
+    pub name: String,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+const fn default_true() -> bool {
+    true
+}
+
+impl ToParams for SetAnalysisOption {
+    fn into_params(self) -> Params {
+        vec![("name", self.name), ("enabled", flag(self.enabled))]
+    }
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct ApplyDataType {
+    pub address: String,
+    #[serde(rename = "type")]
+    pub data_type: String,
+    #[serde(default = "default_true")]
+    pub clear: bool,
+}
+
+impl ToParams for ApplyDataType {
+    fn into_params(self) -> Params {
+        vec![
+            ("address", self.address),
+            ("type", self.data_type),
+            ("clear", flag(self.clear)),
+        ]
+    }
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct FunctionAddress {
+    pub function_address: String,
+}
+
+impl ToParams for FunctionAddress {
+    fn into_params(self) -> Params {
+        vec![("function_address", self.function_address)]
+    }
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct StructSetField {
+    pub struct_name: String,
+    pub offset: u32,
+    #[serde(rename = "type")]
+    pub data_type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
+}
+
+impl ToParams for StructSetField {
+    fn into_params(self) -> Params {
+        let mut p = vec![
+            ("struct", self.struct_name),
+            ("offset", self.offset.to_string()),
+            ("type", self.data_type),
+        ];
+        if let Some(n) = self.name {
+            p.push(("name", n));
+        }
+        if let Some(m) = self.mode {
+            p.push(("mode", m));
+        }
+        p
+    }
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct StructDeleteField {
+    pub struct_name: String,
+    pub offset: u32,
+}
+
+impl ToParams for StructDeleteField {
+    fn into_params(self) -> Params {
+        vec![
+            ("struct", self.struct_name),
+            ("offset", self.offset.to_string()),
+        ]
+    }
+}
+
 const NO_QUERY: &[(); 0] = &[];
 
 impl GhidraServer {
-    pub fn new(base: Url, timeout_secs: u64) -> Result<Self, BridgeError> {
+    pub fn new(base: Url, timeout_secs: u64, token: Option<&str>) -> Result<Self, BridgeError> {
         Ok(Self {
-            http: GhidraHttp::new(base, timeout_secs)?,
+            http: GhidraHttp::new(base, timeout_secs, token)?,
         })
     }
 
@@ -1964,6 +2099,20 @@ impl GhidraServer {
     }
 
     #[tool(
+        description = "Close a finished scan session and free its candidate list. Call when done refining",
+        annotations(destructive_hint = false)
+    )]
+    async fn scan_close(
+        &self,
+        Parameters(p): Parameters<ScanClose>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if p.scan_id.is_empty() {
+            return Err(ErrorData::invalid_params("scan_id is required", None));
+        }
+        self.post("scan_close", p).await
+    }
+
+    #[tool(
         description = "List remaining candidates of a scan with their dynamic + static addresses and current values",
         annotations(read_only_hint = true)
     )]
@@ -2104,6 +2253,34 @@ impl GhidraServer {
     }
 
     #[tool(
+        description = "Rename many symbols in one call and one transaction. items is a JSON array of {address, new_name}; renames the function at each address, else the primary symbol, else creates a label. Returns a per-item ok/fail report. Use instead of N rename calls",
+        annotations(destructive_hint = false)
+    )]
+    async fn batch_rename(
+        &self,
+        Parameters(p): Parameters<BatchItems>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if p.items.is_empty() {
+            return Err(ErrorData::invalid_params("items is required", None));
+        }
+        self.post("batch_rename", p).await
+    }
+
+    #[tool(
+        description = "Set many comments in one call and one transaction. items is a JSON array of {address, comment, kind?} with kind=eol (default, disassembly) or pre (decompiler). Returns a per-item ok/fail report",
+        annotations(destructive_hint = false)
+    )]
+    async fn batch_set_comment(
+        &self,
+        Parameters(p): Parameters<BatchItems>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if p.items.is_empty() {
+            return Err(ErrorData::invalid_params("items is required", None));
+        }
+        self.post("batch_set_comment", p).await
+    }
+
+    #[tool(
         description = "Locate functions by a string they reference: finds the string, follows cross-references to the containing function, and emits each function's name, entry address, the xref site, and a unique signature for the entry. The fastest path from a known string to a function + a reusable signature. format=ida|code",
         annotations(read_only_hint = true)
     )]
@@ -2115,6 +2292,100 @@ impl GhidraServer {
             return Err(ErrorData::invalid_params("value is required", None));
         }
         self.get("find_function_by_string", p).await
+    }
+
+    #[tool(
+        description = "Run Ghidra auto-analysis on the program. all=true clears and reanalyzes everything (slow); all=false runs pending analysis only. Triggers RTTI, FunctionID, demangler, and every enabled analyzer. Raise --timeout-secs for large binaries",
+        annotations(destructive_hint = false)
+    )]
+    async fn analyze_program(
+        &self,
+        Parameters(p): Parameters<AnalyzeProgram>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.post("analyze_program", p).await
+    }
+
+    #[tool(
+        description = "List analysis option names and their on/off state. Use the names with set_analysis_option to enable analyzers (e.g. RTTI, 'Decompiler Parameter ID') before analyze_program",
+        annotations(read_only_hint = true)
+    )]
+    async fn list_analyzers(&self) -> Result<CallToolResult, ErrorData> {
+        self.get_bare("list_analyzers").await
+    }
+
+    #[tool(
+        description = "Enable or disable an analysis option by its exact name (from list_analyzers), then call analyze_program to apply it",
+        annotations(destructive_hint = false)
+    )]
+    async fn set_analysis_option(
+        &self,
+        Parameters(p): Parameters<SetAnalysisOption>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if p.name.is_empty() {
+            return Err(ErrorData::invalid_params("name is required", None));
+        }
+        self.post("set_analysis_option", p).await
+    }
+
+    #[tool(
+        description = "Apply a data type at an address: clears conflicting code/data and lays down the typed datum. type accepts builtins (int, char[16], void*) or any defined struct/enum/typedef name. Set clear=false to fail instead of overwriting",
+        annotations(destructive_hint = false)
+    )]
+    async fn apply_data_type(
+        &self,
+        Parameters(p): Parameters<ApplyDataType>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.post("apply_data_type", p).await
+    }
+
+    #[tool(
+        description = "Create a function at an address, disassembling and computing its body. Use on orphan code (see find_orphan_gaps) or a call target Ghidra missed",
+        annotations(destructive_hint = false)
+    )]
+    async fn create_function(
+        &self,
+        Parameters(p): Parameters<Address>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.post("create_function", p).await
+    }
+
+    #[tool(
+        description = "Commit the decompiler's inferred parameter, return, and local variable types/names into the program database for the function at this address. Locks in recovered types so callers and xrefs see them",
+        annotations(destructive_hint = false)
+    )]
+    async fn propagate_function_types(
+        &self,
+        Parameters(p): Parameters<FunctionAddress>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.post("propagate_function_types", p).await
+    }
+
+    #[tool(
+        description = "Set a field in an existing structure at a byte offset. mode=replace (default) overwrites whatever occupies the offset; mode=insert shifts later fields down. type accepts builtins or any defined type name. name is optional",
+        annotations(destructive_hint = false)
+    )]
+    async fn struct_set_field(
+        &self,
+        Parameters(p): Parameters<StructSetField>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if p.struct_name.is_empty() {
+            return Err(ErrorData::invalid_params("struct_name is required", None));
+        }
+        self.post("struct_set_field", p).await
+    }
+
+    #[tool(
+        description = "Delete the field at a byte offset in an existing structure, replacing it with undefined space",
+        annotations(destructive_hint = false)
+    )]
+    async fn struct_delete_field(
+        &self,
+        Parameters(p): Parameters<StructDeleteField>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if p.struct_name.is_empty() {
+            return Err(ErrorData::invalid_params("struct_name is required", None));
+        }
+        self.post("struct_delete_field", p).await
     }
 }
 

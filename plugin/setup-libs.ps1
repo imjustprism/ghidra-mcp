@@ -22,7 +22,9 @@ $optionalJars = @(
     "Ghidra\Debug\Debugger-api\lib\Debugger-api.jar",
     "Ghidra\Debug\Debugger-rmi-trace\lib\Debugger-rmi-trace.jar",
     "Ghidra\Debug\Framework-TraceModeling\lib\Framework-TraceModeling.jar",
-    "Ghidra\Debug\Debugger-agent-dbgeng\lib\Debugger-agent-dbgeng.jar"
+    "Ghidra\Debug\Debugger-agent-dbgeng\lib\Debugger-agent-dbgeng.jar",
+    "Ghidra\Framework\Pty\lib\jna-5.14.0.jar",
+    "Ghidra\Framework\Pty\lib\jna-platform-5.14.0.jar"
 )
 
 $dest = Join-Path $PSScriptRoot "lib"

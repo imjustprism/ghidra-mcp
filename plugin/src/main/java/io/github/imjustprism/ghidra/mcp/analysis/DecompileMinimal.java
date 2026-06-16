@@ -12,7 +12,7 @@ public final class DecompileMinimal {
     public static String run(PluginContext ctx, String addr) {
         return ctx.withAddress(addr, (program, a) -> {
             Function f = Addresses.functionAtOrContaining(program, a);
-            if (f == null) return "No function at or containing " + addr;
+            if (f == null) throw new IllegalArgumentException("No function at or containing " + addr);
             String c = DecompileCache.decompile(program, f);
             return minimize(c);
         });

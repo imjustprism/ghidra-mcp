@@ -42,7 +42,8 @@ MCP server for Ghidra. Rust bridge + Ghidra Java plugin. Wires any MCP client (C
 | flag | env | default |
 | --- | --- | --- |
 | `--ghidra-server` | `GHIDRA_SERVER` | `http://127.0.0.1:8080/` |
-| `--timeout-secs` | `GHIDRA_TIMEOUT_SECS` | `10` |
+| `--timeout-secs` | `GHIDRA_TIMEOUT_SECS` | `60` |
+| `--ghidra-token` | `GHIDRA_TOKEN` | unset |
 
 `RUST_LOG=ghidra_mcp=debug` for verbose logs.
 
@@ -54,10 +55,11 @@ MCP server for Ghidra. Rust bridge + Ghidra Java plugin. Wires any MCP client (C
 | --- | --- |
 | Server Port | `8080` |
 | Bind Address | `127.0.0.1` |
+| Auth Token | empty (auth disabled) |
 
 ## Tools
 
-89 tools total.
+113 tools total.
 
 <details>
 <summary><b>Listing / metadata</b> (17)</summary>
@@ -133,7 +135,7 @@ MCP server for Ghidra. Rust bridge + Ghidra Java plugin. Wires any MCP client (C
 </details>
 
 <details>
-<summary><b>Rename / types</b> (14)</summary>
+<summary><b>Rename / types</b> (16)</summary>
 
 | tool | purpose |
 | --- | --- |
@@ -151,6 +153,24 @@ MCP server for Ghidra. Rust bridge + Ghidra Java plugin. Wires any MCP client (C
 | `import_c_header` | parse C header into types |
 | `demangle_symbol` | demangle one C++ symbol |
 | `demangle_all` | demangle + rename all |
+| `batch_rename` | many renames, one transaction |
+| `batch_set_comment` | many comments, one transaction |
+
+</details>
+
+<details>
+<summary><b>Type recovery / analysis control</b> (8)</summary>
+
+| tool | purpose |
+| --- | --- |
+| `analyze_program` | run/re-run Ghidra auto-analysis (RTTI, FID, demangler) |
+| `list_analyzers` | analysis option names + on/off state |
+| `set_analysis_option` | toggle an analyzer before analysis |
+| `apply_data_type` | lay a type at an address (clears conflicts) |
+| `create_function` | disassemble + create a function at an address |
+| `propagate_function_types` | commit decompiler-inferred types/names to the DB |
+| `struct_set_field` | replace/insert a field in an existing struct |
+| `struct_delete_field` | clear a field at an offset |
 
 </details>
 
@@ -208,6 +228,25 @@ MCP server for Ghidra. Rust bridge + Ghidra Java plugin. Wires any MCP client (C
 | `debugger_break` | interrupt target |
 | `debugger_translate_static_to_dynamic` | static addr to live |
 | `debugger_translate_dynamic_to_static` | live addr to static |
+
+</details>
+
+<details>
+<summary><b>Live RE / CheatEngine-style</b> (11)</summary>
+
+| tool | purpose |
+| --- | --- |
+| `debugger_list_offers` | available launchers/connectors |
+| `debugger_launch` | launch/attach from the MCP |
+| `live_write_memory` | write live process memory |
+| `live_write_register` | write live register |
+| `freeze_value` | hold a value (re-written ~4x/sec) |
+| `unfreeze_value` | stop freezing |
+| `list_frozen` | frozen addresses |
+| `value_scan` | first scan of live memory |
+| `next_scan` | refine candidates |
+| `scan_results` | list candidates + static addrs |
+| `scan_close` | free a scan session |
 
 </details>
 

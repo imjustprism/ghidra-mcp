@@ -16,7 +16,7 @@ public final class StackStrings {
     public static String find(PluginContext ctx, String addr, Page p, Map<String, String> q) {
         return ctx.withAddress(addr, (program, a) -> {
             var func = Addresses.functionAtOrContaining(program, a);
-            if (func == null) return "No function at " + addr;
+            if (func == null) throw new IllegalArgumentException("No function at " + addr);
             var listing = program.getListing();
             var body = func.getBody();
             var byOffset = new java.util.TreeMap<Long, Integer>();

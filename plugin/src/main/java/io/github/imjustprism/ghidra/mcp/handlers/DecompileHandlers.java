@@ -31,23 +31,23 @@ public final class DecompileHandlers {
         return ctx.withProgram(program -> {
             if (name == null || name.isBlank()) throw new IllegalArgumentException("Function name is required");
             var func = Programs.findFunctionByName(program, name.trim());
-            return func == null ? "Function not found" : DecompileCache.decompile(program, func);
+            if (func == null) throw new IllegalArgumentException("Function not found: " + name.trim());
+            return DecompileCache.decompile(program, func);
         });
     }
 
     public String decompileAt(String addr) {
         return ctx.withAddress(addr, (program, a) -> {
             var func = Addresses.functionAtOrContaining(program, a);
-            return func == null
-                    ? "No function at or containing " + addr
-                    : DecompileCache.decompile(program, func);
+            if (func == null) throw new IllegalArgumentException("No function at or containing " + addr);
+            return DecompileCache.decompile(program, func);
         });
     }
 
     public String disassembleAt(String addr) {
         return ctx.withAddress(addr, (program, a) -> {
             var func = Addresses.functionAtOrContaining(program, a);
-            if (func == null) return "No function at or containing " + addr;
+            if (func == null) throw new IllegalArgumentException("No function at or containing " + addr);
             var listing = program.getListing();
             var end = func.getBody().getMaxAddress();
             var sb = new StringBuilder(4096);
@@ -69,7 +69,7 @@ public final class DecompileHandlers {
     public String instructionAt(String addr) {
         return ctx.withAddress(addr, (program, a) -> {
             var instr = program.getListing().getInstructionAt(a);
-            if (instr == null) return "No instruction at " + addr;
+            if (instr == null) throw new IllegalArgumentException("No instruction at " + addr);
             var buf = new byte[instr.getLength()];
             try {
                 program.getMemory().getBytes(a, buf, 0, buf.length);

@@ -16,7 +16,7 @@ public final class Cfg {
     public static String mermaid(PluginContext ctx, String addr) {
         return ctx.withAddress(addr, (program, a) -> {
             var func = Addresses.functionAtOrContaining(program, a);
-            if (func == null) return "No function at " + addr;
+            if (func == null) throw new IllegalArgumentException("No function at " + addr);
             var model = new BasicBlockModel(program);
             var monitor = new ConsoleTaskMonitor();
             var nodes = new LinkedHashSet<String>();
@@ -44,7 +44,7 @@ public final class Cfg {
                     }
                 }
             } catch (Exception e) {
-                return "Error building CFG: " + e.getMessage();
+                throw new IllegalStateException("Error building CFG: " + e.getMessage(), e);
             }
             sb.append("```\n");
             return sb.toString();

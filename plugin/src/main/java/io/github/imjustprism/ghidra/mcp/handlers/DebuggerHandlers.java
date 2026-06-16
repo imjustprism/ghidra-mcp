@@ -2,6 +2,7 @@ package io.github.imjustprism.ghidra.mcp.handlers;
 
 import ghidra.app.script.GhidraState;
 import ghidra.app.services.DebuggerControlService;
+import ghidra.app.services.DebuggerTargetService;
 import ghidra.app.services.DebuggerTraceManagerService;
 import ghidra.app.services.ProgramManager;
 import ghidra.app.services.TraceRmiLauncherService;
@@ -12,6 +13,7 @@ import ghidra.debug.api.tracermi.TraceRmiLaunchOffer;
 import ghidra.debug.flatapi.FlatDebuggerAPI;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressRange;
+import ghidra.program.model.address.AddressRangeImpl;
 import ghidra.program.model.address.AddressSet;
 import ghidra.program.model.address.AddressSetView;
 import ghidra.program.model.lang.Register;
@@ -20,6 +22,7 @@ import ghidra.program.model.listing.Function;
 import ghidra.program.util.ProgramLocation;
 import ghidra.trace.model.Lifespan;
 import ghidra.trace.model.Trace;
+import ghidra.trace.model.memory.TraceMemoryRegion;
 import ghidra.trace.model.modules.TraceModule;
 import ghidra.trace.model.stack.TraceStack;
 import ghidra.trace.model.stack.TraceStackFrame;
@@ -29,15 +32,20 @@ import io.github.imjustprism.ghidra.mcp.http.Http;
 import io.github.imjustprism.ghidra.mcp.http.RouteTable;
 import io.github.imjustprism.ghidra.mcp.util.Bufs;
 import io.github.imjustprism.ghidra.mcp.util.PluginContext;
+import io.github.imjustprism.ghidra.mcp.util.ProcessMemory;
 import io.github.imjustprism.ghidra.mcp.util.Responses;
 import io.github.imjustprism.ghidra.mcp.util.ScanValues;
 
 import java.math.BigInteger;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -61,9 +69,13 @@ public final class DebuggerHandlers {
     private static final long MAX_SCAN_BUDGET_MB = 8192;
     private static final int SCAN_MAX_HITS = 200_000;
     private static final int SCAN_CHUNK = 1 << 20;
+    private static final int MAX_SCAN_SESSIONS = 8;
+    private static final long LAUNCH_TIMEOUT_MS = 90_000;
+    private static final int TERMINAL_TAIL_CHARS = 1500;
 
     private final PluginContext ctx;
     private final FlatDebuggerAPI dbg;
+    private final ProcessMemory rpm = new ProcessMemory();
     private final Map<Address, byte[]> frozen = new ConcurrentHashMap<>();
     private final Map<String, ScanSession> scans = new ConcurrentHashMap<>();
     private final AtomicInteger scanSeq = new AtomicInteger();
@@ -74,6 +86,7 @@ public final class DebuggerHandlers {
     });
     private volatile ScheduledExecutorService freezeTimer;
     private volatile String lastLaunch = "";
+    private volatile TraceRmiLaunchOffer.LaunchResult lastResult;
 
     public DebuggerHandlers(PluginContext ctx) {
         this.ctx = ctx;
@@ -121,12 +134,14 @@ public final class DebuggerHandlers {
         routes.getQuery("/value_scan", this::valueScan);
         routes.postForm("/next_scan", this::nextScan);
         routes.getQuery("/scan_results", this::scanResults);
+        routes.postForm("/scan_close", p -> scanClose(p.get("scan_id")));
     }
 
     public void close() {
         scanExec.shutdownNow();
         var ft = freezeTimer;
         if (ft != null) ft.shutdownNow();
+        rpm.close();
     }
 
     private Trace requireTrace() {
@@ -172,12 +187,93 @@ public final class DebuggerHandlers {
             if (sa != null && prog.getMemory().contains(sa)) {
                 var da = dbg.translateStaticToDynamic(sa);
                 if (da != null) return da;
-                throw new IllegalArgumentException(s + " is a program address with no live module"
-                        + " mapping yet (stop the target so modules sync, or pass a raw dynamic"
-                        + " offset like 0x7ff...). Refusing to read/write a raw static offset.");
+                long slide = programSlide(trace, prog);
+                return trace.getBaseLanguage().getDefaultSpace()
+                        .getAddress(sa.getOffset() + slide);
             }
         }
         return trace.getBaseLanguage().getDefaultSpace().getAddress(parseOffset(s));
+    }
+
+    private long programSlide(Trace trace, ghidra.program.model.listing.Program prog) {
+        var module = programModule(trace, prog);
+        if (module == null) return 0;
+        var base = module.getBase(liveSnap(trace));
+        return base == null ? 0 : base.getOffset() - prog.getImageBase().getOffset();
+    }
+
+    private TraceModule programModule(Trace trace, ghidra.program.model.listing.Program prog) {
+        long snap = liveSnap(trace);
+        var want = prog.getName().toLowerCase();
+        for (TraceModule m : trace.getModuleManager().getAllModules()) {
+            var n = m.getName(snap);
+            if (n == null) continue;
+            var slashed = n.replace('\\', '/');
+            int slash = slashed.lastIndexOf('/');
+            var leaf = slash >= 0 ? slashed.substring(slash + 1) : slashed;
+            if (leaf.equalsIgnoreCase(want)) return m;
+        }
+        return null;
+    }
+
+    private long liveSnap(Trace trace) {
+        var ts = ctx.service(DebuggerTargetService.class);
+        var target = ts == null ? null : ts.getTarget(trace);
+        return target != null ? target.getSnap() : dbg.getCurrentSnap();
+    }
+
+    private static final java.util.regex.Pattern PID_PATH =
+            java.util.regex.Pattern.compile("Processes\\[(\\d+)]");
+
+    private Integer livePid(Trace trace) {
+        var thread = dbg.getCurrentThread();
+        var pid = pidFromPath(thread == null ? null : thread.getPath());
+        if (pid != null) return pid;
+        for (TraceThread th : trace.getThreadManager().getAllThreads()) {
+            pid = pidFromPath(th.getPath());
+            if (pid != null) return pid;
+        }
+        try {
+            return Integer.valueOf(trace.getName().trim());
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    private static Integer pidFromPath(String path) {
+        if (path == null) return null;
+        var m = PID_PATH.matcher(path);
+        return m.find() ? Integer.valueOf(m.group(1)) : null;
+    }
+
+    private byte[] rpmRead(Integer pid, Address da, int length) {
+        if (pid == null || !rpm.available()) return null;
+        var b = rpm.read(pid, da.getOffset(), length);
+        return (b == null || b.length == 0) ? null : b;
+    }
+
+    private void syncPresent(Trace trace) {
+        var tm = ctx.service(DebuggerTraceManagerService.class);
+        var ts = ctx.service(DebuggerTargetService.class);
+        if (tm == null || ts == null) return;
+        var target = ts.getTarget(trace);
+        if (target == null) return;
+        try {
+            tm.activate(tm.resolveTarget(target),
+                    DebuggerTraceManagerService.ActivationCause.FOLLOW_PRESENT);
+        } catch (RuntimeException ignored) {
+        }
+    }
+
+    private void invalidateCaches(Trace trace) {
+        var ts = ctx.service(DebuggerTargetService.class);
+        var target = ts == null ? null : ts.getTarget(trace);
+        if (target != null) {
+            try {
+                target.invalidateMemoryCaches();
+            } catch (RuntimeException ignored) {
+            }
+        }
     }
 
     private void enterTargetControl(Trace trace) {
@@ -238,10 +334,10 @@ public final class DebuggerHandlers {
     private String stackTrace(java.util.Map<String, String> q) {
         var trace = requireTrace();
         var thread = dbg.getCurrentThread();
-        if (thread == null) return "No current thread";
+        if (thread == null) throw new IllegalArgumentException("No current thread (attach and stop a target first)");
         long snap = dbg.getCurrentSnap();
         TraceStack stack = trace.getStackManager().getLatestStack(thread, snap);
-        if (stack == null) return "No stack for current thread at snap " + snap;
+        if (stack == null) throw new IllegalStateException("No stack for current thread at snap " + snap);
         var prog = ctx.currentProgram();
         var t = Responses.table(q, new String[]{"level", "pc", "static", "function"}, 16);
         for (TraceStackFrame f : stack.getFrames(snap)) {
@@ -269,7 +365,7 @@ public final class DebuggerHandlers {
     private String registers(java.util.Map<String, String> q) {
         var trace = requireTrace();
         var thread = dbg.getCurrentThread();
-        if (thread == null) return "No current thread";
+        if (thread == null) throw new IllegalArgumentException("No current thread (attach and stop a target first)");
         var platform = dbg.getCurrentPlatform();
         long snap = dbg.getCurrentSnap();
         int frame = dbg.getCurrentFrame();
@@ -288,13 +384,20 @@ public final class DebuggerHandlers {
     }
 
     private String readMemory(String address, int length) {
+        var trace = requireTrace();
         var da = dynAddr(address);
-        try {
-            byte[] b = dbg.readMemory(da, length, TaskMonitor.DUMMY);
-            return Responses.addr(da) + "\t" + b.length + "\t" + Bufs.hex(b);
-        } catch (Exception e) {
-            return "Error reading live memory at " + Responses.addr(da) + ": " + e.getMessage();
+        byte[] b = rpmRead(livePid(trace), da, length);
+        if (b == null) {
+            syncPresent(trace);
+            try {
+                invalidateCaches(trace);
+                b = dbg.readMemory(trace, liveSnap(trace), da, length, TaskMonitor.DUMMY);
+            } catch (Exception e) {
+                throw new IllegalStateException("Error reading live memory at "
+                        + Responses.addr(da) + ": " + e.getMessage(), e);
+            }
         }
+        return Responses.addr(da) + "\t" + b.length + "\t" + Bufs.hex(b);
     }
 
     private String breakpoints(java.util.Map<String, String> q) {
@@ -319,7 +422,7 @@ public final class DebuggerHandlers {
     }
 
     private String control(String op) {
-        requireTrace();
+        var trace = requireTrace();
         boolean ok = switch (op) {
             case "resume" -> dbg.resume();
             case "step_into" -> dbg.stepInto();
@@ -327,8 +430,9 @@ public final class DebuggerHandlers {
             case "interrupt" -> dbg.interrupt();
             default -> throw new IllegalArgumentException("unknown control op: " + op);
         };
-        return ok ? op + " ok (snap=" + dbg.getCurrentSnap() + ")"
-                : op + " failed (target not alive or busy?)";
+        if (!ok) throw new IllegalStateException(op + " failed (target not alive or busy?)");
+        syncPresent(trace);
+        return op + " ok (snap=" + dbg.getCurrentSnap() + ")";
     }
 
     private String setBreakpoint(String address, String name) {
@@ -356,10 +460,33 @@ public final class DebuggerHandlers {
         var trace = requireTrace();
         var da = dynAddr(address);
         var bytes = Bufs.parseHex(hex);
+        var pid = livePid(trace);
+        if (pid != null && rpm.write(pid, da.getOffset(), bytes)) {
+            return "Wrote " + bytes.length + " byte(s) to " + Responses.addr(da) + verifyWrite(trace, da, bytes);
+        }
+        syncPresent(trace);
         enterTargetControl(trace);
         boolean ok = dbg.writeMemory(da, bytes);
-        return ok ? "Wrote " + bytes.length + " byte(s) to " + Responses.addr(da)
-                : "Write failed at " + Responses.addr(da) + " (target not alive?)";
+        if (!ok) {
+            throw new IllegalStateException(
+                    "Write failed at " + Responses.addr(da) + " (target not alive?)");
+        }
+        return "Wrote " + bytes.length + " byte(s) to " + Responses.addr(da) + verifyWrite(trace, da, bytes);
+    }
+
+    private String verifyWrite(Trace trace, Address da, byte[] expected) {
+        try {
+            byte[] back = rpmRead(livePid(trace), da, expected.length);
+            if (back == null) {
+                invalidateCaches(trace);
+                back = dbg.readMemory(trace, liveSnap(trace), da, expected.length, TaskMonitor.DUMMY);
+            }
+            if (Arrays.equals(back, expected)) return " (verified)";
+            return " WARNING: read-back mismatch (got " + Bufs.hex(back) + "); target may be"
+                    + " write-protected or the value is overwritten by the game each frame (try freeze_value)";
+        } catch (Exception e) {
+            return " (write ok; verify read failed: " + e.getMessage() + ")";
+        }
     }
 
     private String writeRegister(String register, String value) {
@@ -369,8 +496,11 @@ public final class DebuggerHandlers {
         BigInteger v = parseBigInt(value);
         enterTargetControl(trace);
         boolean ok = dbg.writeRegister(register, v);
-        return ok ? "Wrote " + register + "=0x" + v.toString(16)
-                : "Write failed for register " + register + " (target not alive or bad name?)";
+        if (!ok) {
+            throw new IllegalStateException(
+                    "Write failed for register " + register + " (target not alive or bad name?)");
+        }
+        return "Wrote " + register + "=0x" + v.toString(16);
     }
 
     private static BigInteger parseBigInt(String s) {
@@ -383,7 +513,7 @@ public final class DebuggerHandlers {
         var prog = ctx.currentProgram();
         if (prog == null) throw new IllegalArgumentException("No program loaded (offers are per-program)");
         var svc = ctx.service(TraceRmiLauncherService.class);
-        if (svc == null) return "Launcher service unavailable";
+        if (svc == null) throw new IllegalStateException("Launcher service unavailable");
         var t = Responses.table(q, new String[]{"offer", "title", "requiresImage", "params"}, 16);
         for (var offer : svc.getOffers(prog)) {
             t.row(offer.getConfigName(), offer.getTitle(), offer.requiresImage(),
@@ -399,7 +529,7 @@ public final class DebuggerHandlers {
         var prog = ctx.currentProgram();
         if (prog == null) throw new IllegalArgumentException("No program loaded");
         var svc = ctx.service(TraceRmiLauncherService.class);
-        if (svc == null) return "Launcher service unavailable";
+        if (svc == null) throw new IllegalStateException("Launcher service unavailable");
         TraceRmiLaunchOffer offer = null;
         for (var o : svc.getOffers(prog)) {
             if (o.getConfigName().equals(offerName)) {
@@ -407,10 +537,49 @@ public final class DebuggerHandlers {
                 break;
             }
         }
-        if (offer == null) return "No offer '" + offerName + "'. See debugger_list_offers.";
-        var overrides = parseKv(args);
+        if (offer == null) throw new IllegalArgumentException("No offer '" + offerName + "'. See debugger_list_offers.");
         var theOffer = offer;
-        var cfg = new TraceRmiLaunchOffer.LaunchConfigurator() {
+        var params = theOffer.getParameters();
+        var unmatched = new ArrayList<String>();
+        var resolved = new LinkedHashMap<String, String>();
+        for (var e : parseKv(args).entrySet()) {
+            var key = resolveParamKey(params.keySet(), e.getKey());
+            if (key == null) unmatched.add(e.getKey());
+            else resolved.put(key, e.getValue());
+        }
+        closeStaleResult();
+        lastLaunch = "launching '" + offerName + "'...";
+        var launcher = new Thread(() -> runLaunch(offerName, theOffer, configurator(theOffer, resolved)),
+                "ghidra-mcp-launch");
+        launcher.setDaemon(true);
+        launcher.start();
+        startWatchdog(offerName, launcher);
+        var sb = new StringBuilder("Launch started for '" + offerName + "'. Poll debugger_status for progress.");
+        if (!unmatched.isEmpty()) {
+            sb.append("\nWARNING: ignored unknown parameter(s) ").append(unmatched)
+                    .append(". Known parameters: ").append(params.keySet());
+        }
+        return sb.toString();
+    }
+
+    private static String resolveParamKey(Set<String> keys, String given) {
+        if (keys.contains(given)) return given;
+        var env = "env:" + given;
+        if (keys.contains(env)) return env;
+        for (var k : keys) {
+            if (k.equalsIgnoreCase(given) || k.equalsIgnoreCase(env)) return k;
+        }
+        var lower = given.toLowerCase();
+        for (var k : keys) {
+            if (k.toLowerCase().endsWith(lower)) return k;
+        }
+        return null;
+    }
+
+    private TraceRmiLaunchOffer.LaunchConfigurator configurator(
+            TraceRmiLaunchOffer offer, Map<String, String> resolved) {
+        var params = offer.getParameters();
+        return new TraceRmiLaunchOffer.LaunchConfigurator() {
             @Override
             public TraceRmiLaunchOffer.PromptMode getPromptMode() {
                 return TraceRmiLaunchOffer.PromptMode.NEVER;
@@ -421,33 +590,153 @@ public final class DebuggerHandlers {
                     TraceRmiLaunchOffer o, Map<String, ValStr<?>> defaults,
                     TraceRmiLaunchOffer.RelPrompt rel) {
                 var m = new HashMap<>(defaults);
-                var params = theOffer.getParameters();
-                for (var e : overrides.entrySet()) {
+                for (var e : resolved.entrySet()) {
                     var lp = params.get(e.getKey());
                     if (lp != null) m.put(e.getKey(), lp.decode(e.getValue()));
                 }
                 return m;
             }
         };
-        lastLaunch = "launching '" + offerName + "'...";
-        var launcher = new Thread(() -> {
-            try {
-                var result = theOffer.launchProgram(TaskMonitor.DUMMY, cfg);
-                if (result.exception() != null) {
-                    lastLaunch = "launch reported: " + result.exception().getMessage();
-                    return;
-                }
-                var tr = result.trace();
-                lastLaunch = "launched '" + offerName + "'"
-                        + (tr != null ? ", trace=" + tr.getName() : "");
+    }
+
+    private void runLaunch(String offerName, TraceRmiLaunchOffer offer,
+            TraceRmiLaunchOffer.LaunchConfigurator cfg) {
+        try {
+            var result = offer.launchProgram(TaskMonitor.DUMMY, cfg);
+            lastResult = result;
+            if (result.trace() != null) {
+                lastLaunch = "launched '" + offerName + "', trace=" + result.trace().getName();
                 autoResume();
-            } catch (Exception e) {
-                lastLaunch = "launch failed: " + e.getMessage();
+                return;
             }
-        }, "ghidra-mcp-launch");
-        launcher.setDaemon(true);
-        launcher.start();
-        return "Launch started for '" + offerName + "'. Poll debugger_status for progress.";
+            lastLaunch = describeIncomplete(offerName, result);
+        } catch (Throwable e) {
+            lastLaunch = "launch '" + offerName + "' failed: " + describeThrowable(e)
+                    + diagnose(throwableText(e));
+        }
+    }
+
+    private void startWatchdog(String offerName, Thread launcher) {
+        var w = new Thread(() -> {
+            try {
+                launcher.join(LAUNCH_TIMEOUT_MS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+            if (launcher.isAlive() && dbg.getCurrentTrace() == null) {
+                lastLaunch = "launch '" + offerName + "' still pending after "
+                        + (LAUNCH_TIMEOUT_MS / 1000) + "s with no trace. The connector is running but "
+                        + "has not started a trace, usually because the back-end is waiting on the "
+                        + "target (e.g. a dbgeng attach that produced no initial break) or is blocked. "
+                        + "Inspect the connector terminal in Ghidra. If the target runs elevated, run "
+                        + "Ghidra as Administrator.";
+            }
+        }, "ghidra-mcp-launch-watchdog");
+        w.setDaemon(true);
+        w.start();
+    }
+
+    private String describeIncomplete(String offerName, TraceRmiLaunchOffer.LaunchResult result) {
+        var sb = new StringBuilder();
+        if (result.exception() != null) {
+            sb.append("launch '").append(offerName).append("' failed: ")
+                    .append(describeThrowable(result.exception()));
+        } else if (result.connection() != null) {
+            sb.append("launch '").append(offerName).append("' connected to Ghidra but no trace started. "
+                    + "The back-end attached/launched yet did not begin a trace (often the target never "
+                    + "hit an initial break). Try debugger_break, or stop the target, then retry.");
+        } else {
+            sb.append("launch '").append(offerName).append("' did not connect back to Ghidra. The "
+                    + "connector started but never established a trace connection (it likely crashed or "
+                    + "hung during start-up).");
+        }
+        var term = terminalText(result);
+        if (!term.isBlank()) {
+            sb.append("\n--- connector output (tail) ---\n").append(tail(term, TERMINAL_TAIL_CHARS));
+        }
+        var probe = (result.exception() != null ? throwableText(result.exception()) : "") + "\n" + term;
+        return sb.append(diagnose(probe)).toString();
+    }
+
+    private void closeStaleResult() {
+        var prev = lastResult;
+        if (prev != null && prev.trace() == null) {
+            try {
+                prev.close();
+            } catch (Exception ignored) {
+            }
+            lastResult = null;
+        }
+    }
+
+    private static String describeThrowable(Throwable e) {
+        if (e == null) return "(unknown error)";
+        for (Throwable c = e; c != null; c = c.getCause()) {
+            var m = c.getMessage();
+            if (m != null && !m.isBlank()) return m + " (" + c.getClass().getSimpleName() + ")";
+        }
+        return e.getClass().getName();
+    }
+
+    private static String throwableText(Throwable e) {
+        var sb = new StringBuilder();
+        for (Throwable c = e; c != null; c = c.getCause()) {
+            sb.append(c.getClass().getSimpleName());
+            if (c.getMessage() != null) sb.append(": ").append(c.getMessage());
+            sb.append('\n');
+        }
+        return sb.toString();
+    }
+
+    private static String terminalText(TraceRmiLaunchOffer.LaunchResult result) {
+        if (result == null || result.sessions() == null) return "";
+        var sb = new StringBuilder();
+        for (var s : result.sessions().values()) {
+            try {
+                var c = s.content();
+                if (c != null && !c.isBlank()) sb.append(c).append('\n');
+            } catch (RuntimeException ignored) {
+            }
+        }
+        return sb.toString();
+    }
+
+    private static String tail(String s, int n) {
+        var t = s.strip();
+        return t.length() <= n ? t : "..." + t.substring(t.length() - n);
+    }
+
+    private static String diagnose(String text) {
+        if (text == null || text.isBlank()) return "";
+        var t = text.toLowerCase();
+        var sb = new StringBuilder();
+        if (t.contains("access is denied") || t.contains("0n5") || t.contains("error 5")
+                || t.contains("0x80070005")) {
+            sb.append("\nHINT: access denied attaching to the target. It likely runs at a higher "
+                    + "integrity level. Run Ghidra as Administrator with SeDebugPrivilege.");
+        }
+        if (t.contains("modulenotfounderror") || t.contains("importerror")
+                || t.contains("no module named") || t.contains("253")) {
+            sb.append("\nHINT: the connector Python is missing required packages. Install Ghidra's debug "
+                    + "wheels (ghidratrace, ghidradbg, pybag) into that interpreter, or set the Python "
+                    + "path parameter to one that has them.");
+        }
+        if (t.contains("windbg install directory not found") || t.contains("dbgeng.dll")
+                || t.contains("dbghelp.dll")) {
+            sb.append("\nHINT: dbgeng could not be located or loaded. Install WinDbg and set WINDBG_DIR "
+                    + "to a folder containing dbgeng.dll, dbghelp.dll and dbgmodel.dll.");
+        }
+        if (t.contains("is not recognized") || t.contains("the system cannot find the file")
+                || (t.contains("cannot find") && t.contains("python"))) {
+            sb.append("\nHINT: the interpreter or launcher executable was not found. Pass the full path "
+                    + "via the offer's Python/executable parameter.");
+        }
+        if (t.contains("cannot debug pid") || t.contains("no such process") || t.contains("0n87")) {
+            sb.append("\nHINT: the target PID may be invalid or gone. Re-check the running PID and pass "
+                    + "the current value via the offer's PID parameter.");
+        }
+        return sb.toString();
     }
 
     private void autoResume() {
@@ -477,16 +766,19 @@ public final class DebuggerHandlers {
 
     private String freeze(String address, String hex) {
         if (hex == null || hex.isBlank()) throw new IllegalArgumentException("hex is required");
-        requireTrace();
+        var trace = requireTrace();
         var da = dynAddr(address);
         frozen.put(da, Bufs.parseHex(hex));
+        enterTargetControl(trace);
         ensureFreezeTimer();
         return "Freezing " + Responses.addr(da) + " = " + hex + " (" + frozen.size() + " frozen)";
     }
 
     private String unfreeze(String address) {
         var da = dynAddr(address);
-        return frozen.remove(da) != null
+        boolean removed = frozen.remove(da) != null;
+        if (frozen.isEmpty()) stopFreezeTimer();
+        return removed
                 ? "Unfrozen " + Responses.addr(da) : "Not frozen: " + Responses.addr(da);
     }
 
@@ -508,13 +800,29 @@ public final class DebuggerHandlers {
         freezeTimer = ex;
     }
 
+    private synchronized void stopFreezeTimer() {
+        var ft = freezeTimer;
+        if (ft != null) {
+            ft.shutdownNow();
+            freezeTimer = null;
+        }
+    }
+
     private void applyFrozen() {
-        if (frozen.isEmpty()) return;
         try {
+            if (frozen.isEmpty()) {
+                stopFreezeTimer();
+                return;
+            }
             var trace = dbg.getCurrentTrace();
-            if (trace == null || !targetAlive()) return;
-            enterTargetControl(trace);
+            if (trace == null || !targetAlive()) {
+                frozen.clear();
+                stopFreezeTimer();
+                return;
+            }
+            var pid = livePid(trace);
             for (var e : frozen.entrySet()) {
+                if (pid != null && rpm.write(pid, e.getKey().getOffset(), e.getValue())) continue;
                 try {
                     dbg.writeMemory(e.getKey(), e.getValue());
                 } catch (RuntimeException ignored) {
@@ -536,35 +844,112 @@ public final class DebuggerHandlers {
         double tol = parseTol(q.get("tolerance"), type);
         double target = (type == ScanValues.Type.F32 || type == ScanValues.Type.F64)
                 ? Double.parseDouble(rawValue.trim()) : 0;
-        long snap = dbg.getCurrentSnap();
-        var ranges = orderedRanges(trace, snap, excludeModules);
+        var pid = livePid(trace);
+        long snap;
+        List<AddressRange> ranges;
+        if (pid != null && rpm.available()) {
+            snap = dbg.getCurrentSnap();
+            ranges = rpmRanges(trace, pid, excludeModules);
+        } else {
+            syncPresent(trace);
+            invalidateCaches(trace);
+            snap = liveSnap(trace);
+            ranges = orderedRanges(trace, snap, excludeModules);
+        }
+        if (ranges.isEmpty()) {
+            throw new IllegalStateException("No scannable memory regions found "
+                    + "(target not readable; check elevation/attach)");
+        }
         var session = new ScanSession(type, bigEndian, target);
+        evictOldScans();
         var id = "scan" + scanSeq.incrementAndGet();
         scans.put(id, session);
-        scanExec.submit(() -> runScan(session, ranges, needle, type, bigEndian, budget, tol));
+        scanExec.submit(() -> runScan(session, trace, snap, ranges, needle, type, bigEndian, budget, tol, pid));
         return "scan_id=" + id + " (scanning " + ranges.size() + " ranges, budget="
                 + (budget >> 20) + "MB; poll scan_results)";
     }
 
+    private List<AddressRange> rpmRanges(Trace trace, int pid, boolean excludeModules) {
+        var space = trace.getBaseLanguage().getDefaultSpace();
+        var moduleSet = new AddressSet();
+        if (excludeModules) {
+            long snap = liveSnap(trace);
+            for (TraceModule m : trace.getModuleManager().getAllModules()) {
+                var r = m.getRange(snap);
+                if (r != null) moduleSet.add(r);
+            }
+        }
+        var writable = new ArrayList<AddressRange>();
+        var readOnly = new ArrayList<AddressRange>();
+        for (var region : rpm.enumerateRegions(pid)) {
+            var min = space.getAddress(region.base());
+            var max = space.getAddress(region.base() + region.size() - 1);
+            if (excludeModules && moduleSet.intersects(min, max)) continue;
+            var range = new AddressRangeImpl(min, max);
+            (region.writable() ? writable : readOnly).add(range);
+        }
+        writable.addAll(readOnly);
+        return writable;
+    }
+
     private List<AddressRange> orderedRanges(Trace trace, long snap, boolean excludeModules) {
-        var all = trace.getMemoryManager().getRegionsAddressSet(snap);
         var modules = new AddressSet();
         for (TraceModule m : trace.getModuleManager().getAllModules()) {
             var r = m.getRange(snap);
             if (r != null) modules.add(r);
         }
-        var nonModule = new AddressSet(all);
-        nonModule.delete(modules);
-        var ordered = new ArrayList<AddressRange>();
-        for (var r : nonModule) ordered.add(r);
-        if (!excludeModules) {
-            for (var r : modules) ordered.add(r);
+        var writable = new ArrayList<AddressRange>();
+        var readOnly = new ArrayList<AddressRange>();
+        var moduleRanges = new ArrayList<AddressRange>();
+        for (TraceMemoryRegion region : trace.getMemoryManager().getRegionsAtSnap(snap)) {
+            if (!region.isRead(snap)) continue;
+            var r = region.getRange(snap);
+            if (r == null) continue;
+            if (modules.intersects(r.getMinAddress(), r.getMaxAddress())) {
+                moduleRanges.add(r);
+            } else if (region.isWrite(snap)) {
+                writable.add(r);
+            } else {
+                readOnly.add(r);
+            }
         }
+        var ordered = new ArrayList<>(writable);
+        ordered.addAll(readOnly);
+        if (!excludeModules) ordered.addAll(moduleRanges);
         return ordered;
     }
 
-    private void runScan(ScanSession session, List<AddressRange> ranges, byte[] needle,
-            ScanValues.Type type, boolean bigEndian, long budget, double tol) {
+    private void evictOldScans() {
+        while (scans.size() >= MAX_SCAN_SESSIONS) {
+            scans.keySet().stream()
+                    .min(Comparator.comparingInt(k -> Integer.parseInt(k.substring(4))))
+                    .ifPresent(scans::remove);
+        }
+    }
+
+    private byte[] readScanChunk(Trace trace, long snap, Address addr, int want, Integer pid) {
+        var fast = rpmRead(pid, addr, want);
+        if (fast != null) return fast;
+        try {
+            var range = new AddressRangeImpl(addr, addr.add(want - 1L));
+            var mem = trace.getMemoryManager();
+            if (mem.isKnown(snap, range)) {
+                var buf = ByteBuffer.allocate(want);
+                int n = mem.getBytes(snap, addr, buf);
+                if (n == want) return buf.array();
+                if (n > 0) return Arrays.copyOf(buf.array(), n);
+            }
+        } catch (RuntimeException ignored) {
+        }
+        try {
+            return dbg.readMemory(trace, snap, addr, want, TaskMonitor.DUMMY);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private void runScan(ScanSession session, Trace trace, long snap, List<AddressRange> ranges,
+            byte[] needle, ScanValues.Type type, boolean bigEndian, long budget, double tol, Integer pid) {
         int step = step(type);
         boolean floatTol = tol > 0 && (type == ScanValues.Type.F32 || type == ScanValues.Type.F64);
         long scanned = 0;
@@ -581,13 +966,7 @@ public final class DebuggerHandlers {
                         break outer;
                     }
                     int want = (int) Math.min(SCAN_CHUNK, Math.min(len - off, budget - scanned));
-                    byte[] data;
-                    try {
-                        data = dbg.readMemory(base.add(off), want, TaskMonitor.DUMMY);
-                    } catch (Exception e) {
-                        off += want;
-                        continue;
-                    }
+                    byte[] data = readScanChunk(trace, snap, base.add(off), want, pid);
                     if (data == null || data.length == 0) {
                         off += want;
                         continue;
@@ -632,6 +1011,9 @@ public final class DebuggerHandlers {
     private Map<Address, byte[]> bulkReadHits(List<Address> addrs, int width) {
         var result = new HashMap<Address, byte[]>();
         if (addrs.isEmpty()) return result;
+        var trace = requireTrace();
+        long snap = liveSnap(trace);
+        var pid = livePid(trace);
         var sorted = new ArrayList<>(addrs);
         sorted.sort(null);
         int n = sorted.size();
@@ -646,11 +1028,13 @@ public final class DebuggerHandlers {
                 j++;
             }
             int spanLen = (int) (sorted.get(j).subtract(spanStart) + width);
-            byte[] data;
-            try {
-                data = dbg.readMemory(spanStart, spanLen, TaskMonitor.DUMMY);
-            } catch (Exception e) {
-                data = null;
+            byte[] data = rpmRead(pid, spanStart, spanLen);
+            if (data == null) {
+                try {
+                    data = dbg.readMemory(trace, snap, spanStart, spanLen, TaskMonitor.DUMMY);
+                } catch (Exception e) {
+                    data = null;
+                }
             }
             if (data != null) {
                 for (int k = i; k <= j; k++) {
@@ -729,6 +1113,13 @@ public final class DebuggerHandlers {
                 + ", scanned=" + (session.scannedBytes >> 20) + "MB, hits=" + session.size()
                 + (session.budgetHit ? ", coverage=INCOMPLETE (budget hit; raise max_mb)" : "") + "\n"
                 + t.total(session.size()).build();
+    }
+
+    private String scanClose(String id) {
+        if (id == null || id.isBlank()) throw new IllegalArgumentException("scan_id is required");
+        return scans.remove(id) != null
+                ? "Closed " + id + " (" + scans.size() + " sessions remain)"
+                : "Unknown scan_id: " + id;
     }
 
     private String sampleHits(ScanSession s) {

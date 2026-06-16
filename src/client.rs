@@ -12,6 +12,8 @@ pub enum BridgeError {
     Url(#[from] url::ParseError),
     #[error("ghidra {status}: {body}")]
     Upstream { status: u16, body: String },
+    #[error("auth token contains characters invalid in an HTTP header")]
+    InvalidToken,
 }
 
 #[derive(Clone)]
@@ -21,13 +23,23 @@ pub struct GhidraHttp {
 }
 
 impl GhidraHttp {
-    pub fn new(base: Url, timeout_secs: u64) -> Result<Self, BridgeError> {
-        let http = Client::builder()
+    pub fn new(base: Url, timeout_secs: u64, token: Option<&str>) -> Result<Self, BridgeError> {
+        let mut builder = Client::builder()
             .timeout(Duration::from_secs(timeout_secs))
             .pool_idle_timeout(Duration::from_secs(30))
-            .user_agent(concat!("ghidra-mcp/", env!("CARGO_PKG_VERSION")))
-            .build()?;
-        Ok(Self { base, http })
+            .user_agent(concat!("ghidra-mcp/", env!("CARGO_PKG_VERSION")));
+        if let Some(token) = token.filter(|t| !t.is_empty()) {
+            let mut headers = reqwest::header::HeaderMap::with_capacity(1);
+            let mut value = reqwest::header::HeaderValue::from_str(&format!("Bearer {token}"))
+                .map_err(|_| BridgeError::InvalidToken)?;
+            value.set_sensitive(true);
+            headers.insert(reqwest::header::AUTHORIZATION, value);
+            builder = builder.default_headers(headers);
+        }
+        Ok(Self {
+            base,
+            http: builder.build()?,
+        })
     }
 
     pub async fn get<Q: Serialize + ?Sized>(
@@ -110,7 +122,7 @@ mod tests {
     #[tokio::test]
     async fn get_returns_body_on_success() {
         let base = serve_once("200 OK", "alpha\nbeta\n").await;
-        let http = GhidraHttp::new(base, 5).unwrap();
+        let http = GhidraHttp::new(base, 5, None).unwrap();
         let out = http.get("methods", &[("offset", 0u32)]).await.unwrap();
         assert_eq!(out, "alpha\nbeta\n");
     }
@@ -118,7 +130,7 @@ mod tests {
     #[tokio::test]
     async fn get_maps_404_to_upstream_error() {
         let base = serve_once("404 Not Found", "missing").await;
-        let http = GhidraHttp::new(base, 5).unwrap();
+        let http = GhidraHttp::new(base, 5, None).unwrap();
         let err = http.get("methods", &[(); 0]).await.unwrap_err();
         match err {
             BridgeError::Upstream { status, body } => {
@@ -132,7 +144,7 @@ mod tests {
     #[tokio::test]
     async fn post_form_returns_body_on_success() {
         let base = serve_once("200 OK", "ok").await;
-        let http = GhidraHttp::new(base, 5).unwrap();
+        let http = GhidraHttp::new(base, 5, None).unwrap();
         let out = http
             .post_form("renameFunction", &[("oldName", "a"), ("newName", "b")])
             .await
@@ -143,7 +155,7 @@ mod tests {
     #[tokio::test]
     async fn post_raw_returns_body_on_success() {
         let base = serve_once("200 OK", "void main(void){}").await;
-        let http = GhidraHttp::new(base, 5).unwrap();
+        let http = GhidraHttp::new(base, 5, None).unwrap();
         let out = http.post_raw("decompile", "main").await.unwrap();
         assert_eq!(out, "void main(void){}");
     }

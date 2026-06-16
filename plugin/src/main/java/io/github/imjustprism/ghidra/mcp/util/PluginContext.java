@@ -38,11 +38,13 @@ public final class PluginContext {
 
     public String withProgram(Function<Program, String> fn) {
         var p = currentProgram();
-        return p == null ? "No program loaded" : fn.apply(p);
+        if (p == null) throw new IllegalArgumentException("No program loaded");
+        return fn.apply(p);
     }
 
     public String requireProgram(Supplier<String> body) {
-        return currentProgram() == null ? "No program loaded" : body.get();
+        if (currentProgram() == null) throw new IllegalArgumentException("No program loaded");
+        return body.get();
     }
 
     public String withAddress(String addrStr, BiFunction<Program, Address, String> fn) {

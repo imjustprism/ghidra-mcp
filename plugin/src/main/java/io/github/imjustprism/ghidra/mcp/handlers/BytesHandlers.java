@@ -44,7 +44,7 @@ public final class BytesHandlers {
                 int read = program.getMemory().getBytes(a, buf, 0, length);
                 return Responses.addr(a) + "\t" + read + "\t" + Bufs.hex(buf, read);
             } catch (Exception e) {
-                return "Error reading memory: " + e.getMessage();
+                throw new IllegalStateException("Error reading memory: " + e.getMessage(), e);
             }
         });
     }
@@ -76,7 +76,7 @@ public final class BytesHandlers {
                 }
                 return sb.toString();
             } catch (Exception e) {
-                return "Error reading memory: " + e.getMessage();
+                throw new IllegalStateException("Error reading memory: " + e.getMessage(), e);
             }
         });
     }
@@ -148,7 +148,7 @@ public final class BytesHandlers {
             throw new IllegalArgumentException("Invalid hex: " + e.getMessage());
         }
         var program = ctx.currentProgram();
-        if (program == null) return "No program loaded";
+        if (program == null) throw new IllegalArgumentException("No program loaded");
         var error = new String[1];
         var ok = ctx.runOnSwingTx(program, "Patch bytes", () -> {
             try {
@@ -161,10 +161,13 @@ public final class BytesHandlers {
                 if (!wasWrite) block.setWrite(true);
                 try {
                     var listing = program.getListing();
+                    boolean wasCode = listing.getInstructionContaining(a) != null;
                     listing.clearCodeUnits(a, end, false);
                     program.getMemory().setBytes(a, bytes);
-                    var disasm = new ghidra.app.cmd.disassemble.DisassembleCommand(a, null, true);
-                    disasm.applyTo(program, new ConsoleTaskMonitor());
+                    if (wasCode) {
+                        var disasm = new ghidra.app.cmd.disassemble.DisassembleCommand(a, null, true);
+                        disasm.applyTo(program, new ConsoleTaskMonitor());
+                    }
                     return true;
                 } finally {
                     if (!wasWrite) block.setWrite(false);
@@ -175,9 +178,11 @@ public final class BytesHandlers {
                 return false;
             }
         });
-        return ok
-                ? "Patched %d bytes at %s".formatted(bytes.length, addr)
-                : "Failed to patch bytes: " + (error[0] != null ? error[0] : "unknown");
+        if (!ok) {
+            throw new IllegalStateException(
+                    "Failed to patch bytes: " + (error[0] != null ? error[0] : "unknown"));
+        }
+        return "Patched %d bytes at %s".formatted(bytes.length, addr);
     }
 
     public String nopRange(String addr, int length) {
@@ -199,7 +204,7 @@ public final class BytesHandlers {
             throw new IllegalArgumentException("Invalid key hex: " + e.getMessage());
         }
         var program = ctx.currentProgram();
-        if (program == null) return "No program loaded";
+        if (program == null) throw new IllegalArgumentException("No program loaded");
         var error = new String[1];
         var ok = ctx.runOnSwingTx(program, "XOR decrypt", () -> {
             try {
@@ -226,21 +231,23 @@ public final class BytesHandlers {
                 return false;
             }
         });
-        return ok
-                ? "XOR-decrypted %d bytes at %s with %d-byte key".formatted(length, addr, key.length)
-                : "Failed: " + (error[0] != null ? error[0] : "unknown");
+        if (!ok) {
+            throw new IllegalStateException(
+                    "Failed: " + (error[0] != null ? error[0] : "unknown"));
+        }
+        return "XOR-decrypted %d bytes at %s with %d-byte key".formatted(length, addr, key.length);
     }
 
     public String importMemoryDump(String addr, String path) {
         if (addr == null || addr.isBlank()) throw new IllegalArgumentException("Address is required");
         if (path == null || path.isBlank()) throw new IllegalArgumentException("Path is required");
         var program = ctx.currentProgram();
-        if (program == null) return "No program loaded";
+        if (program == null) throw new IllegalArgumentException("No program loaded");
         byte[] bytes;
         try {
             bytes = java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path));
         } catch (Exception e) {
-            return "Failed to read file: " + e.getMessage();
+            throw new IllegalStateException("Failed to read file: " + e.getMessage(), e);
         }
         var error = new String[1];
         var ok = ctx.runOnSwingTx(program, "Import memory dump", () -> {
@@ -265,20 +272,22 @@ public final class BytesHandlers {
                 return false;
             }
         });
-        return ok
-                ? "Imported %d bytes from %s to %s".formatted(bytes.length, path, addr)
-                : "Failed: " + (error[0] != null ? error[0] : "unknown");
+        if (!ok) {
+            throw new IllegalStateException(
+                    "Failed: " + (error[0] != null ? error[0] : "unknown"));
+        }
+        return "Imported %d bytes from %s to %s".formatted(bytes.length, path, addr);
     }
 
     public String exportBinary(String path) {
         if (path == null || path.isBlank()) throw new IllegalArgumentException("Path is required");
         var program = ctx.currentProgram();
-        if (program == null) return "No program loaded";
+        if (program == null) throw new IllegalArgumentException("No program loaded");
         try {
             var out = new java.io.File(path);
             var parent = out.getAbsoluteFile().getParentFile();
             if (parent != null && !parent.exists() && !parent.mkdirs()) {
-                return "Failed to create parent directory: " + parent;
+                throw new IllegalStateException("Failed to create parent directory: " + parent);
             }
             var exporter = new ghidra.app.util.exporter.BinaryExporter();
             var monitor = new ConsoleTaskMonitor();
@@ -294,7 +303,7 @@ public final class BytesHandlers {
 
     public String saveProgram() {
         var program = ctx.currentProgram();
-        if (program == null) return "No program loaded";
+        if (program == null) throw new IllegalArgumentException("No program loaded");
         return ctx.runOnSwing(() -> {
             try {
                 program.save("ghidra-mcp save", new ConsoleTaskMonitor());

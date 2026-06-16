@@ -13,7 +13,7 @@ public final class Emulator {
         if (startAddr == null || startAddr.isEmpty()) throw new IllegalArgumentException("start address required");
         if (maxSteps <= 0 || maxSteps > 10_000_000) throw new IllegalArgumentException("max_steps must be 1..10000000");
         var program = ctx.currentProgram();
-        if (program == null) return "No program loaded";
+        if (program == null) throw new IllegalArgumentException("No program loaded");
 
         var skip = new java.util.HashSet<Long>();
         if (!skipCsv.isEmpty()) {
@@ -27,7 +27,7 @@ public final class Emulator {
         var result = new StringBuilder();
         try {
             var start = program.getAddressFactory().getAddress(startAddr);
-            if (start == null) return "Invalid start address";
+            if (start == null) throw new IllegalArgumentException("Invalid start address");
             var stop = stopAddr == null || stopAddr.isEmpty()
                     ? null : program.getAddressFactory().getAddress(stopAddr);
 

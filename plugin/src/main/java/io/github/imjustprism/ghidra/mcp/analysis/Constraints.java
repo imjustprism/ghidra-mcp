@@ -18,7 +18,7 @@ public final class Constraints {
     public static String extract(PluginContext ctx, String addr, Map<String, String> q) {
         return ctx.withAddress(addr, (program, a) -> {
             Function func = Addresses.functionAtOrContaining(program, a);
-            if (func == null) return "No function at or containing " + addr;
+            if (func == null) throw new IllegalArgumentException("No function at or containing " + addr);
             return run(program, func, q);
         });
     }

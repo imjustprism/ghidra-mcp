@@ -23,7 +23,7 @@ public final class Demangler {
 
     public static String demangleAll(PluginContext ctx) {
         var program = ctx.currentProgram();
-        if (program == null) return "No program loaded";
+        if (program == null) throw new IllegalArgumentException("No program loaded");
         var counter = new int[1];
         var failed = new int[1];
         ctx.runOnSwingTx(program, "Demangle all symbols", () -> {

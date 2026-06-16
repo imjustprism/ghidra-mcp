@@ -21,7 +21,7 @@ public final class IdiomSimplifier {
         boolean apply = "1".equals(q.get("apply"));
         return ctx.withAddress(addr, (program, a) -> {
             Function f = Addresses.functionAtOrContaining(program, a);
-            if (f == null) return "No function at or containing " + addr;
+            if (f == null) throw new IllegalArgumentException("No function at or containing " + addr);
             var matches = scan(program, f);
             if (apply) {
                 ctx.runOnSwingTx(program, "Idiom simplifier comments", () -> {

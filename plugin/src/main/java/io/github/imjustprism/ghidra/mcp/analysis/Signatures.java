@@ -29,7 +29,7 @@ public final class Signatures {
         return ctx.withAddress(addrStr, (program, start) -> {
             var listing = program.getListing();
             var insn = listing.getInstructionContaining(start);
-            if (insn == null) return "No instruction at " + addrStr;
+            if (insn == null) throw new IllegalArgumentException("No instruction at " + addrStr);
             var built = build(program.getMemory(), insn, bodyLimit(program, start),
                     maxLen > 0 ? maxLen : DEFAULT_MAX_BYTES);
             if (built == null) return "Could not read instruction bytes at " + addrStr;
@@ -40,7 +40,7 @@ public final class Signatures {
     public static String resolveRelative(PluginContext ctx, String addrStr) {
         return ctx.withAddress(addrStr, (program, a) -> {
             var insn = program.getListing().getInstructionContaining(a);
-            if (insn == null) return "No instruction at " + addrStr;
+            if (insn == null) throw new IllegalArgumentException("No instruction at " + addrStr);
             var refs = insn.getReferencesFrom();
             if (refs.length == 0) {
                 return "No address/relative operand at " + Responses.addr(insn.getAddress());

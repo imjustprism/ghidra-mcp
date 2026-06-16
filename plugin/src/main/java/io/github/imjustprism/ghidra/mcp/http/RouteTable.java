@@ -15,9 +15,14 @@ public final class RouteTable {
     private final Object owner;
     private HttpServer server;
     private ExecutorService executor;
+    private volatile String authToken = "";
 
     public RouteTable(Object owner) {
         this.owner = owner;
+    }
+
+    public void setAuthToken(String token) {
+        authToken = token == null ? "" : token.trim();
     }
 
     public void bind(String bind, int port) throws IOException {
@@ -76,6 +81,17 @@ public final class RouteTable {
 
     private HttpHandler wrap(Route.ExchangeHandler h) {
         return ex -> {
+            if (ex.getRequestHeaders().getFirst("Origin") != null) {
+                Http.sendResponse(ex, 403, "Browser origins are not allowed");
+                return;
+            }
+            if (!authToken.isEmpty()) {
+                var auth = ex.getRequestHeaders().getFirst("Authorization");
+                if (!("Bearer " + authToken).equals(auth)) {
+                    Http.sendResponse(ex, 401, "Missing or invalid Authorization bearer token");
+                    return;
+                }
+            }
             try {
                 var body = h.handle(ex);
                 Http.sendResponse(ex, 200, body == null ? "" : body);
@@ -83,7 +99,9 @@ public final class RouteTable {
                 Http.sendResponse(ex, 400, "Bad request: " + iae.getMessage());
             } catch (Exception e) {
                 Msg.error(owner, "Handler failed for " + ex.getRequestURI(), e);
-                Http.sendResponse(ex, 500, "Internal error");
+                var msg = e.getMessage();
+                Http.sendResponse(ex, 500,
+                        msg == null || msg.isBlank() ? "Internal error" : msg);
             }
         };
     }
