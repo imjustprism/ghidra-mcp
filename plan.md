@@ -20,7 +20,7 @@ Legend: `[x]` shipped · `[~]` in progress (open PR) · `[ ]` planned · API sta
 - [ ] MCP progress notifications for long scans/analysis `[N]`
 
 ## Phase 2 — Protocol leap + type recovery
-- [ ] MCP **resources** (subscribable live state: registers/stack/watch/scan) `[N]`
+- [x] MCP **resources** (program info/current-function/current-address, live debugger status) — subscription/notifications still TODO
 - [x] MCP **prompts** (survey_binary, analyze_function, solve_crackme, triage_malware, recover_types)
 - [ ] Progressive disclosure (`list_tool_groups`/`search_tools`/`get_tool_schema`) `[N]`
 - [x] `function_completeness` scoring 0–100

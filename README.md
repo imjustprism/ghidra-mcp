@@ -282,6 +282,17 @@ Guided RE workflows, surfaced as MCP prompts (slash commands in clients that sup
 | `solve_crackme` | locate + solve a validation routine |
 | `recover_types` | RTTI/FID/demangle/propagate across the program |
 
+## Resources
+
+Read-only program/debugger state, exposed as MCP resources (clients can read or attach them as context).
+
+| uri | content |
+| --- | --- |
+| `ghidra://program/info` | language, arch, base, sha256 |
+| `ghidra://program/current-function` | function at the cursor |
+| `ghidra://program/current-address` | cursor address |
+| `ghidra://debugger/status` | live trace/target state |
+
 ## Troubleshooting
 
 | symptom | fix |
