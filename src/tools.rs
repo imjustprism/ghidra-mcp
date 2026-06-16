@@ -981,8 +981,8 @@ pub struct SetVariables {
     pub new_name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prototype: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub variables: Vec<VariableEdit>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub variables: Option<Vec<VariableEdit>>,
 }
 
 impl ToParams for SetVariables {
@@ -994,10 +994,10 @@ impl ToParams for SetVariables {
         if let Some(pr) = self.prototype {
             p.push(("prototype", pr));
         }
-        if !self.variables.is_empty() {
+        if let Some(vars) = self.variables.filter(|v| !v.is_empty()) {
             p.push((
                 "variables",
-                serde_json::to_string(&self.variables).unwrap_or_else(|_| "[]".to_owned()),
+                serde_json::to_string(&vars).unwrap_or_else(|_| "[]".to_owned()),
             ));
         }
         p
