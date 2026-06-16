@@ -81,6 +81,7 @@ public final class Completeness {
     private static final String PROTOTYPE_BOILERPLATE = "Setting prototype:";
 
     private static boolean hasComment(Function f) {
+        if (isMeaningfulComment(f.getComment())) return true;
         if (isMeaningfulComment(f.getRepeatableComment())) return true;
         var listing = f.getProgram().getListing();
         var entry = f.getEntryPoint();
