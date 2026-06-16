@@ -21,7 +21,7 @@ public final class DataTypes {
             var base = name.substring(1);
             if (base.equalsIgnoreCase("VOID")) return new PointerDataType(dtm.getDataType("/void"));
             var baseDt = findDataType(dtm, base);
-            return new PointerDataType(baseDt != null ? baseDt : dtm.getDataType("/void"));
+            return baseDt != null ? new PointerDataType(baseDt) : null;
         }
         return switch (name.toLowerCase()) {
             case "int", "long" -> dtm.getDataType("/int");
