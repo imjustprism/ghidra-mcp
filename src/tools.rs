@@ -2414,6 +2414,17 @@ impl GhidraServer {
     }
 
     #[tool(
+        description = "Score how likely the function at an address is control-flow obfuscated (0-100) from intra-procedural CFG metrics: block count, edges, cyclomatic complexity, the max in-degree (a high-in-degree hub suggests control-flow flattening), and a likely_flattened flag. Use to spot obfuscated/protected code",
+        annotations(read_only_hint = true)
+    )]
+    async fn cfg_obfuscation_score(
+        &self,
+        Parameters(p): Parameters<Address>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.get("cfg_obfuscation_score", p).await
+    }
+
+    #[tool(
         description = "Atomically edit one function in a single transaction and one decompile: optionally rename it (new_name), set its prototype (full C signature), and rename/retype any of its locals or params (variables array of {variable_name, new_name?, new_type?}; new_type omitted = rename only, new_name omitted = retype only). All-or-nothing: if any field fails the whole edit is rolled back and an error with the per-field report is returned. The one-call way to fully annotate a function",
         annotations(destructive_hint = false)
     )]

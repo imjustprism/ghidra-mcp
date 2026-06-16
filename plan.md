@@ -56,7 +56,8 @@ Legend: `[x]` shipped · `[~]` in progress (open PR) · `[ ]` planned · API sta
 - [x] `find_crypto_constants` — AES/SHA/MD5 constant detection
 - [x] `find_syscalls` — direct syscall/sysenter/int2e stub detection + SSN
 - [x] `find_anti_vm` — VM/sandbox artifact string detection
-- [ ] Malware double-down: `unpack_assist`, `iat_rebuild`, `decode_strings_auto`, `yara_scan`, `cfg_obfuscation_score` `[N]`
+- [x] `cfg_obfuscation_score` — CFG-flattening / obfuscation scoring
+- [ ] Malware double-down: `unpack_assist`, `iat_rebuild`, `decode_strings_auto`, `yara_scan` `[N]`
 - [ ] Optional Frida backend `[X]`
 
 ## Engineering hardening (alongside)

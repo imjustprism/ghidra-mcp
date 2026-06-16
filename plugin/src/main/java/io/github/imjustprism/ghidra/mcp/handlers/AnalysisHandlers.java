@@ -6,6 +6,7 @@ import io.github.imjustprism.ghidra.mcp.analysis.AntiVm;
 import io.github.imjustprism.ghidra.mcp.analysis.ApiHashes;
 import io.github.imjustprism.ghidra.mcp.analysis.CallGraph;
 import io.github.imjustprism.ghidra.mcp.analysis.Cfg;
+import io.github.imjustprism.ghidra.mcp.analysis.CfgObfuscation;
 import io.github.imjustprism.ghidra.mcp.analysis.CheckFunction;
 import io.github.imjustprism.ghidra.mcp.analysis.Completeness;
 import io.github.imjustprism.ghidra.mcp.analysis.Constraints;
@@ -79,6 +80,7 @@ public final class AnalysisHandlers {
         routes.getQuery("/find_crypto_constants", q -> CryptoConstants.find(ctx, Page.from(q), q));
         routes.getQuery("/find_syscalls", q -> Syscalls.find(ctx, Page.from(q), q));
         routes.getQuery("/find_anti_vm", q -> AntiVm.find(ctx, Page.from(q), q));
+        routes.getQuery("/cfg_obfuscation_score", q -> CfgObfuscation.score(ctx, q.get("address"), q));
         routes.getQuery("/decompile_minimal", q -> DecompileMinimal.run(ctx, q.get("address")));
         routes.getPage("/find_magic_constants", (p, q) -> MagicConstants.find(ctx, p, q));
         routes.postForm("/neutralize_anti_debug", p -> NeutralizeAntiDebug.run(ctx, p));
