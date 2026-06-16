@@ -61,12 +61,14 @@ public final class Syscalls {
         var prev = insn.getPrevious();
         for (int i = 0; i < SSN_LOOKBACK && prev != null; i++, prev = prev.getPrevious()) {
             if (fn != null && !fn.getBody().contains(prev.getAddress())) break;
-            if (!prev.getMnemonicString().equalsIgnoreCase("MOV") || prev.getNumOperands() < 2) continue;
-            var reg = prev.getRegister(0);
-            var scalar = prev.getScalar(1);
-            if (reg != null && "EAX".equalsIgnoreCase(reg.getName()) && scalar != null) {
-                return "0x" + Long.toHexString(scalar.getUnsignedValue());
+            if (prev.getMnemonicString().equalsIgnoreCase("MOV") && prev.getNumOperands() >= 2) {
+                var reg = prev.getRegister(0);
+                var scalar = prev.getScalar(1);
+                if (reg != null && "EAX".equalsIgnoreCase(reg.getName()) && scalar != null) {
+                    return "0x" + Long.toHexString(scalar.getUnsignedValue());
+                }
             }
+            if (!prev.hasFallthrough()) break;
         }
         return "?";
     }
