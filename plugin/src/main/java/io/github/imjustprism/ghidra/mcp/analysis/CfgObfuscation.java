@@ -11,6 +11,7 @@ import io.github.imjustprism.ghidra.mcp.util.PluginContext;
 import io.github.imjustprism.ghidra.mcp.util.Responses;
 
 import java.util.ArrayList;
+import java.util.Locale;
 import java.util.Map;
 
 public final class CfgObfuscation {
@@ -49,7 +50,7 @@ public final class CfgObfuscation {
                 t.row("edges", edges);
                 t.row("cyclomatic", cyclomatic);
                 t.row("max_in_degree", maxInDegree);
-                t.row("dispatcher_ratio", String.format("%.2f", dispatcherRatio));
+                t.row("dispatcher_ratio", String.format(Locale.ROOT, "%.2f", dispatcherRatio));
                 t.row("score", obfuscationScore);
                 t.row("likely_flattened", flattened);
                 return t.build();
@@ -75,7 +76,10 @@ public final class CfgObfuscation {
                                   RefFilter filter) throws CancelledException {
         int count = 0;
         while (it.hasNext()) {
-            if (filter.keep(it.next())) count++;
+            var ref = it.next();
+            var ft = ref.getFlowType();
+            if (ft != null && ft.isCall()) continue;
+            if (filter.keep(ref)) count++;
         }
         return count;
     }
