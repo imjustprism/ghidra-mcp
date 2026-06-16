@@ -6,6 +6,7 @@ import io.github.imjustprism.ghidra.mcp.analysis.ApiHashes;
 import io.github.imjustprism.ghidra.mcp.analysis.CallGraph;
 import io.github.imjustprism.ghidra.mcp.analysis.Cfg;
 import io.github.imjustprism.ghidra.mcp.analysis.CheckFunction;
+import io.github.imjustprism.ghidra.mcp.analysis.Completeness;
 import io.github.imjustprism.ghidra.mcp.analysis.Constraints;
 import io.github.imjustprism.ghidra.mcp.analysis.DecompileMinimal;
 import io.github.imjustprism.ghidra.mcp.analysis.Emulator;
@@ -70,6 +71,8 @@ public final class AnalysisHandlers {
                 Http.parseIntOrDefault(p.get("commit"), 0) != 0));
         routes.getPage("/find_check_function", (p, q) -> CheckFunction.find(ctx, p, q));
         routes.getQuery("/extract_constraints", q -> Constraints.extract(ctx, q.get("address"), q));
+        routes.getQuery("/function_completeness", q -> Completeness.single(ctx, q.get("address"), q));
+        routes.getQuery("/find_undocumented", q -> Completeness.findUndocumented(ctx, Page.from(q), q));
         routes.getQuery("/decompile_minimal", q -> DecompileMinimal.run(ctx, q.get("address")));
         routes.getPage("/find_magic_constants", (p, q) -> MagicConstants.find(ctx, p, q));
         routes.postForm("/neutralize_anti_debug", p -> NeutralizeAntiDebug.run(ctx, p));

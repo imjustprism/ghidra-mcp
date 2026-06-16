@@ -23,8 +23,8 @@ Legend: `[x]` shipped · `[~]` in progress (open PR) · `[ ]` planned · API sta
 - [ ] MCP **resources** (subscribable live state: registers/stack/watch/scan) `[N]`
 - [ ] MCP **prompts** (survey_binary, analyze_function, solve_crackme, triage_malware, recover_types) `[N]`
 - [ ] Progressive disclosure (`list_tool_groups`/`search_tools`/`get_tool_schema`) `[N]`
-- [ ] `function_completeness` scoring 0–100 `[V]`
-- [ ] `find_next_undocumented` + self-driving loop `[V]`
+- [x] `function_completeness` scoring 0–100
+- [x] `find_undocumented` — least-documented work queue
 - [ ] `apply_naming_convention` (PascalCase/Hungarian/snake) `[V]`
 - [ ] `recover_rtti_classes` `[V]`
 - [ ] `apply_fid_signatures` `[N]`

@@ -59,7 +59,7 @@ MCP server for Ghidra. Rust bridge + Ghidra Java plugin. Wires any MCP client (C
 
 ## Tools
 
-117 tools total.
+119 tools total.
 
 <details>
 <summary><b>Listing / metadata</b> (17)</summary>
@@ -175,6 +175,16 @@ MCP server for Ghidra. Rust bridge + Ghidra Java plugin. Wires any MCP client (C
 | `propagate_function_types` | commit decompiler-inferred types/names to the DB |
 | `struct_set_field` | replace/insert a field in an existing struct |
 | `struct_delete_field` | clear a field at an offset |
+
+</details>
+
+<details>
+<summary><b>Self-driving RE</b> (2)</summary>
+
+| tool | purpose |
+| --- | --- |
+| `function_completeness` | score one function 0-100 with a breakdown |
+| `find_undocumented` | functions ranked least-documented first (work queue) |
 
 </details>
 
