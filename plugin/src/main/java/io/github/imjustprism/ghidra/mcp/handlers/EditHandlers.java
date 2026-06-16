@@ -31,6 +31,7 @@ import io.github.imjustprism.ghidra.mcp.util.DataTypes;
 import io.github.imjustprism.ghidra.mcp.util.Json;
 import io.github.imjustprism.ghidra.mcp.util.PluginContext;
 import io.github.imjustprism.ghidra.mcp.util.Programs;
+import io.github.imjustprism.ghidra.mcp.util.Responses;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
@@ -110,9 +111,10 @@ public final class EditHandlers {
                     var cmd = new ApplyFunctionSignatureCmd(func.getEntryPoint(), sig, SourceType.USER_DEFINED);
                     if (!cmd.applyTo(program, monitor)) throw new IllegalStateException(cmd.getStatusMsg());
                     okCount[0]++;
-                    report.append("ok\t").append(addr).append("\t\n");
+                    report.append("ok\t").append(Responses.cell(addr)).append("\t\n");
                 } catch (Exception e) {
-                    report.append("fail\t").append(addr).append('\t').append(e.getMessage()).append('\n');
+                    report.append("fail\t").append(Responses.cell(addr)).append('\t')
+                            .append(Responses.cell(e.getMessage())).append('\n');
                 }
             }
             return true;
@@ -128,7 +130,6 @@ public final class EditHandlers {
         var okCount = new int[1];
         ctx.runOnSwingTx(program, "Batch set variable type", () -> {
             var decomp = new DecompInterface();
-            var highCache = new java.util.HashMap<ghidra.program.model.listing.Function, HighFunction>();
             try {
                 decomp.openProgram(program);
                 decomp.setSimplificationStyle("decompile");
@@ -145,17 +146,23 @@ public final class EditHandlers {
                         if (a == null) throw new IllegalArgumentException("invalid address");
                         var func = Addresses.functionAtOrContaining(program, a);
                         if (func == null) throw new IllegalArgumentException("no function at address");
-                        var high = highCache.computeIfAbsent(func, f -> decompileHigh(decomp, f));
+                        var high = decompileHigh(decomp, func);
                         if (high == null) throw new IllegalStateException("decompilation failed");
                         var symbol = findHighSymbol(high, varName);
                         if (symbol == null) throw new IllegalArgumentException("variable not found: " + varName);
                         var dt = DataTypes.resolveDataType(dtm, newType);
                         if (dt == null) throw new IllegalArgumentException("unknown type: " + newType);
+                        if (requiresFullCommit(symbol, high)) {
+                            HighFunctionDBUtil.commitParamsToDatabase(high, false,
+                                    ReturnCommitOption.NO_COMMIT, func.getSignatureSource());
+                        }
                         HighFunctionDBUtil.updateDBVariable(symbol, symbol.getName(), dt, SourceType.USER_DEFINED);
                         okCount[0]++;
-                        report.append("ok\t").append(addr).append('\t').append(varName).append('\n');
+                        report.append("ok\t").append(Responses.cell(addr)).append('\t')
+                                .append(Responses.cell(varName)).append('\n');
                     } catch (Exception e) {
-                        report.append("fail\t").append(addr).append('\t').append(e.getMessage()).append('\n');
+                        report.append("fail\t").append(Responses.cell(addr)).append('\t')
+                                .append(Responses.cell(e.getMessage())).append('\n');
                     }
                 }
                 return true;

@@ -2281,7 +2281,7 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Set many function prototypes in one call and one transaction. items is a JSON array of {function_address, prototype} where prototype is a full C signature. Returns a per-item ok/fail report. Use instead of N set_function_prototype calls",
+        description = "Set many function prototypes in one call and one transaction. Best-effort: each item is independent, and a failing item is reported but does not roll back the successful ones. items is a JSON array of {function_address, prototype} where prototype is a full C signature. Returns a per-item ok/fail report. Use instead of N set_function_prototype calls",
         annotations(destructive_hint = false)
     )]
     async fn batch_set_prototype(
@@ -2295,7 +2295,7 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Retype many local variables in one call and one transaction. items is a JSON array of {function_address, variable_name, new_type}; each function is decompiled once. variable_name must match the decompiler name. Returns a per-item ok/fail report",
+        description = "Retype many local variables in one call and one transaction. Best-effort: a failing item is reported but does not roll back the successful ones. items is a JSON array of {function_address, variable_name, new_type}; variable_name must match the decompiler name. Returns a per-item ok/fail report",
         annotations(destructive_hint = false)
     )]
     async fn batch_set_variable_type(
