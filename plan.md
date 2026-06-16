@@ -14,7 +14,7 @@ Legend: `[x]` shipped · `[~]` in progress (open PR) · `[ ]` planned · API sta
 - [x] `batch_set_prototype` + `batch_set_variable_type` — batch type editing
 - [ ] `batch_apply_data_type` — batch typed-data application `[V]`
 - [x] `function_summary_bundle` — one-call context pack (decompile + sig + callers + callees + strings)
-- [ ] `set_variables` — atomic name+proto+all-locals on one function `[V]`
+- [x] `set_variables` — atomic name+proto+all-locals on one function
 - [ ] Error envelope `{ok,value?,error?,hint?}` → MCP `isError` `[V]`
 - [ ] Expose `fmt`/verbosity knob to the bridge `[V]`
 - [ ] MCP progress notifications for long scans/analysis `[N]`

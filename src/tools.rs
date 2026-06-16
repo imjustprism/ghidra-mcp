@@ -965,6 +965,45 @@ pub struct BatchItems {
     pub items: String,
 }
 
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct VariableEdit {
+    pub variable_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new_type: Option<String>,
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct SetVariables {
+    pub function_address: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prototype: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub variables: Option<Vec<VariableEdit>>,
+}
+
+impl ToParams for SetVariables {
+    fn into_params(self) -> Params {
+        let mut p = vec![("function_address", self.function_address)];
+        if let Some(n) = self.new_name {
+            p.push(("new_name", n));
+        }
+        if let Some(pr) = self.prototype {
+            p.push(("prototype", pr));
+        }
+        if let Some(vars) = self.variables.filter(|v| !v.is_empty()) {
+            p.push((
+                "variables",
+                serde_json::to_string(&vars).unwrap_or_else(|_| "[]".to_owned()),
+            ));
+        }
+        p
+    }
+}
+
 #[derive(Deserialize, Serialize, schemars::JsonSchema, Default)]
 pub struct AnalyzeProgram {
     #[serde(default)]
@@ -2339,6 +2378,17 @@ impl GhidraServer {
         Parameters(p): Parameters<Page>,
     ) -> Result<CallToolResult, ErrorData> {
         self.get("find_undocumented", p).await
+    }
+
+    #[tool(
+        description = "Atomically edit one function in a single transaction and one decompile: optionally rename it (new_name), set its prototype (full C signature), and rename/retype any of its locals or params (variables array of {variable_name, new_name?, new_type?}; new_type omitted = rename only, new_name omitted = retype only). All-or-nothing: if any field fails the whole edit is rolled back and an error with the per-field report is returned. The one-call way to fully annotate a function",
+        annotations(destructive_hint = false)
+    )]
+    async fn set_variables(
+        &self,
+        Parameters(p): Parameters<SetVariables>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.post("set_variables", p).await
     }
 
     #[tool(

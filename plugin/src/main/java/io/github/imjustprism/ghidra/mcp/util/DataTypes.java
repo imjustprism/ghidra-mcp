@@ -21,7 +21,7 @@ public final class DataTypes {
             var base = name.substring(1);
             if (base.equalsIgnoreCase("VOID")) return new PointerDataType(dtm.getDataType("/void"));
             var baseDt = findDataType(dtm, base);
-            return new PointerDataType(baseDt != null ? baseDt : dtm.getDataType("/void"));
+            return baseDt != null ? new PointerDataType(baseDt) : null;
         }
         return switch (name.toLowerCase()) {
             case "int", "long" -> dtm.getDataType("/int");
@@ -34,10 +34,7 @@ public final class DataTypes {
             case "ulonglong", "unsigned __int64" -> dtm.getDataType("/ulonglong");
             case "bool", "boolean" -> dtm.getDataType("/bool");
             case "void" -> dtm.getDataType("/void");
-            default -> {
-                var direct = dtm.getDataType("/" + name);
-                yield direct != null ? direct : dtm.getDataType("/int");
-            }
+            default -> dtm.getDataType("/" + name);
         };
     }
 
