@@ -2,8 +2,10 @@ use rmcp::{
     ErrorData, RoleServer, ServerHandler,
     handler::server::wrapper::Parameters,
     model::{
-        CallToolResult, Content, GetPromptRequestParams, GetPromptResult, ListPromptsResult,
-        PaginatedRequestParams, PromptMessage, PromptMessageRole,
+        AnnotateAble, CallToolResult, Content, GetPromptRequestParams, GetPromptResult,
+        Implementation, ListPromptsResult, ListResourcesResult, PaginatedRequestParams,
+        PromptMessage, PromptMessageRole, RawResource, ReadResourceRequestParams,
+        ReadResourceResult, ResourceContents, ServerCapabilities, ServerInfo,
     },
     prompt, prompt_handler, prompt_router, schemars,
     service::RequestContext,
@@ -2650,12 +2652,77 @@ impl GhidraServer {
     }
 }
 
-#[tool_handler(
-    name = "ghidra-mcp",
-    instructions = "Rust-based MCP bridge to the GhidraMCP HTTP plugin. Invoke tools to decompile, disassemble, search, and annotate programs loaded in Ghidra. Prompts provide guided RE workflows."
-)]
+type Resource = (&'static str, &'static str, &'static str);
+
+const RESOURCES: &[Resource] = &[
+    ("ghidra://program/info", "Program info", "program_info"),
+    (
+        "ghidra://program/current-function",
+        "Current function",
+        "get_current_function",
+    ),
+    (
+        "ghidra://program/current-address",
+        "Current address",
+        "get_current_address",
+    ),
+    (
+        "ghidra://debugger/status",
+        "Debugger status (live)",
+        "debugger_status",
+    ),
+];
+
+#[tool_handler]
 #[prompt_handler]
-impl ServerHandler for GhidraServer {}
+impl ServerHandler for GhidraServer {
+    fn get_info(&self) -> ServerInfo {
+        ServerInfo::new(
+            ServerCapabilities::builder()
+                .enable_tools()
+                .enable_prompts()
+                .enable_resources()
+                .build(),
+        )
+        .with_server_info(Implementation::new("ghidra-mcp", env!("CARGO_PKG_VERSION")))
+        .with_instructions(
+            "Rust-based MCP bridge to the GhidraMCP HTTP plugin. Tools decompile, disassemble, \
+             search, and annotate; prompts give guided RE workflows; resources expose live \
+             program and debugger state."
+                .to_owned(),
+        )
+    }
+
+    async fn list_resources(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListResourcesResult, ErrorData> {
+        let resources = RESOURCES
+            .iter()
+            .map(|(uri, name, _)| RawResource::new(*uri, *name).no_annotation())
+            .collect();
+        Ok(ListResourcesResult::with_all_items(resources))
+    }
+
+    async fn read_resource(
+        &self,
+        request: ReadResourceRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ReadResourceResult, ErrorData> {
+        let Some((uri, _, endpoint)) = RESOURCES.iter().find(|(uri, ..)| *uri == request.uri)
+        else {
+            return Err(ErrorData::resource_not_found(
+                format!("unknown resource: {}", request.uri),
+                None,
+            ));
+        };
+        let body = self.http.get(endpoint, NO_QUERY).await.map_err(map_err)?;
+        Ok(ReadResourceResult::new(vec![ResourceContents::text(
+            body, *uri,
+        )]))
+    }
+}
 
 #[cfg(test)]
 mod tests {
