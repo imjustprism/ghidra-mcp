@@ -13,7 +13,6 @@ import java.util.Map;
 
 public final class Syscalls {
 
-    private static final int SCAN_CAP = 100_000;
     private static final int SSN_LOOKBACK = 8;
 
     private record Stub(String kind, String mnemonic, byte[] opcode) {}
@@ -32,7 +31,6 @@ public final class Syscalls {
             var listing = program.getListing();
             var monitor = new ConsoleTaskMonitor();
             var rows = new ArrayList<Object[]>();
-            outer:
             for (var stub : STUBS) {
                 var mask = new byte[stub.opcode().length];
                 Arrays.fill(mask, (byte) 0xFF);
@@ -40,10 +38,11 @@ public final class Syscalls {
                 while (cursor != null) {
                     var hit = mem.findBytes(cursor, stub.opcode(), mask, true, monitor);
                     if (hit == null) break;
+                    var block = mem.getBlock(hit);
                     var insn = listing.getInstructionAt(hit);
-                    if (insn != null && insn.getMnemonicString().equalsIgnoreCase(stub.mnemonic())) {
-                        rows.add(new Object[]{Responses.addr(hit), stub.kind(), findSsn(insn)});
-                        if (rows.size() >= SCAN_CAP) break outer;
+                    if (block != null && block.isExecute() && insn != null
+                            && insn.getMnemonicString().equalsIgnoreCase(stub.mnemonic())) {
+                        rows.add(new Object[]{Responses.addr(hit), stub.kind(), findSsn(program, insn)});
                     }
                     cursor = hit.next();
                 }
@@ -57,9 +56,11 @@ public final class Syscalls {
         });
     }
 
-    private static String findSsn(Instruction insn) {
+    private static String findSsn(ghidra.program.model.listing.Program program, Instruction insn) {
+        var fn = program.getFunctionManager().getFunctionContaining(insn.getAddress());
         var prev = insn.getPrevious();
         for (int i = 0; i < SSN_LOOKBACK && prev != null; i++, prev = prev.getPrevious()) {
+            if (fn != null && !fn.getBody().contains(prev.getAddress())) break;
             if (!prev.getMnemonicString().equalsIgnoreCase("MOV") || prev.getNumOperands() < 2) continue;
             var reg = prev.getRegister(0);
             var scalar = prev.getScalar(1);
