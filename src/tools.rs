@@ -2281,6 +2281,17 @@ impl GhidraServer {
     }
 
     #[tool(
+        description = "One-call context pack for a function at an address: metadata + signature, cleaned decompiled C, callers, callees, and referenced strings, in one response. The fastest way to load everything needed to understand and name a function. limit caps each list section",
+        annotations(read_only_hint = true)
+    )]
+    async fn function_summary_bundle(
+        &self,
+        Parameters(p): Parameters<AddressPage>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.get("function_summary", p).await
+    }
+
+    #[tool(
         description = "Locate functions by a string they reference: finds the string, follows cross-references to the containing function, and emits each function's name, entry address, the xref site, and a unique signature for the entry. The fastest path from a known string to a function + a reusable signature. format=ida|code",
         annotations(read_only_hint = true)
     )]

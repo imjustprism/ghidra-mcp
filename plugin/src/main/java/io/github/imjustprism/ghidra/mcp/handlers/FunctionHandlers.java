@@ -4,6 +4,7 @@ import ghidra.app.services.CodeViewerService;
 import ghidra.program.model.block.BasicBlockModel;
 import ghidra.program.model.listing.Function;
 import ghidra.util.task.ConsoleTaskMonitor;
+import io.github.imjustprism.ghidra.mcp.analysis.DecompileMinimal;
 import io.github.imjustprism.ghidra.mcp.http.Page;
 import io.github.imjustprism.ghidra.mcp.http.RouteTable;
 import io.github.imjustprism.ghidra.mcp.util.Addresses;
@@ -37,6 +38,23 @@ public final class FunctionHandlers {
         routes.getQuery("/basic_blocks", q -> listBasicBlocks(q.get("address"), q));
         routes.getQuery("/function_string_refs", q -> functionStringRefs(q.get("address"), Page.from(q), q));
         routes.getQuery("/function_stack_frame", q -> functionStackFrame(q.get("address"), q));
+        routes.getQuery("/function_summary", q -> functionSummary(q.get("address"), q));
+    }
+
+    public String functionSummary(String addr, Map<String, String> q) {
+        return ctx.withAddress(addr, (program, a) -> {
+            var func = Addresses.functionAtOrContaining(program, a);
+            if (func == null) throw new IllegalArgumentException("No function at " + addr);
+            var entry = Responses.addr(func.getEntryPoint());
+            var p = Page.from(q);
+            var sb = new StringBuilder(4096);
+            sb.append("=== function ===\n").append(formatFunction(func));
+            sb.append("=== decompile ===\n").append(DecompileMinimal.run(ctx, entry)).append('\n');
+            sb.append("=== callers ===\n").append(listCallers(entry, p, q)).append('\n');
+            sb.append("=== callees ===\n").append(listCallees(entry, p, q)).append('\n');
+            sb.append("=== strings ===\n").append(functionStringRefs(entry, p, q));
+            return sb.toString();
+        });
     }
 
     public String listFunctions(Map<String, String> q) {

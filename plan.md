@@ -12,7 +12,7 @@ Legend: `[x]` shipped · `[~]` in progress (open PR) · `[ ]` planned · API sta
 
 ## Phase 1 — Ergonomics & throughput
 - [ ] `batch_set_prototype` + `batch_set_variable_type` + `batch_apply_data_type` — atomic multi-field editing `[V]`
-- [ ] `function_summary_bundle` — one-call context pack (decompile + sig + callers + callees + strings + constants) `[V]`
+- [x] `function_summary_bundle` — one-call context pack (decompile + sig + callers + callees + strings)
 - [ ] `set_variables` — atomic name+proto+all-locals on one function `[V]`
 - [ ] Error envelope `{ok,value?,error?,hint?}` → MCP `isError` `[V]`
 - [ ] Expose `fmt`/verbosity knob to the bridge `[V]`
