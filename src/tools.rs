@@ -2381,7 +2381,7 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Scan program memory for well-known cryptographic constants and report each hit's address and algorithm: AES S-box / inverse S-box / Te0 table, SHA-256 init + round constants, MD5 round constants, and the MD5/SHA-1 init vector. Fast way to spot crypto in malware or packed code",
+        description = "Scan program memory for well-known cryptographic constants and report each hit's address and algorithm: AES S-box / inverse S-box / Te0 table, SHA-256 init + round constants, MD5 round constants, the MD5/SHA-1 init vector, and the CRC-32 table. Word tables are matched in the target's byte order. Fast way to spot crypto in malware or packed code",
         annotations(read_only_hint = true)
     )]
     async fn find_crypto_constants(
