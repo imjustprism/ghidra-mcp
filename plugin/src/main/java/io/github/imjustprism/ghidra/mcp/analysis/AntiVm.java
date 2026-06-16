@@ -8,6 +8,7 @@ import io.github.imjustprism.ghidra.mcp.util.Strings;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 public final class AntiVm {
@@ -35,11 +36,14 @@ public final class AntiVm {
         new Indicator("hyper-v", "hyperv"),
         new Indicator("sandboxie", "sandbox"),
         new Indicator("sbiedll", "sandbox"),
-        new Indicator("cuckoomon", "sandbox"),
-        new Indicator("00:05:69", "mac_vmware"),
-        new Indicator("00:0c:29", "mac_vmware"),
-        new Indicator("00:50:56", "mac_vmware"),
-        new Indicator("08:00:27", "mac_vbox")
+        new Indicator("cuckoomon", "sandbox")
+    );
+
+    private static final List<Indicator> MAC_PREFIXES = List.of(
+        new Indicator("000569", "mac_vmware"),
+        new Indicator("000c29", "mac_vmware"),
+        new Indicator("005056", "mac_vmware"),
+        new Indicator("080027", "mac_vbox")
     );
 
     private AntiVm() {}
@@ -56,7 +60,7 @@ public final class AntiVm {
                 if (data == null || !DataTypes.isStringLike(data)) continue;
                 var value = data.getValue() != null ? data.getValue().toString() : "";
                 if (value.isEmpty()) continue;
-                var category = match(value.toLowerCase());
+                var category = match(value.toLowerCase(Locale.ROOT));
                 if (category == null) continue;
                 if (total >= off && rows.size() < lim) {
                     rows.add(new Object[]{Responses.addr(data.getAddress()), category,
@@ -76,6 +80,16 @@ public final class AntiVm {
         for (var ind : INDICATORS) {
             if (lower.contains(ind.needle())) return ind.category();
         }
+        for (var mac : MAC_PREFIXES) {
+            var compact = mac.needle();
+            if (lower.contains(compact) || lower.contains(sep(compact, ':')) || lower.contains(sep(compact, '-'))) {
+                return mac.category();
+            }
+        }
         return null;
+    }
+
+    private static String sep(String compact, char c) {
+        return compact.substring(0, 2) + c + compact.substring(2, 4) + c + compact.substring(4, 6);
     }
 }
