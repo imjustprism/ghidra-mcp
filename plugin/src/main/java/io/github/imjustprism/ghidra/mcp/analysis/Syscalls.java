@@ -31,6 +31,8 @@ public final class Syscalls {
             var listing = program.getListing();
             var monitor = new ConsoleTaskMonitor();
             var rows = new ArrayList<Object[]>();
+            var need = (long) p.offset() + p.limit();
+            long total = 0;
             for (var stub : STUBS) {
                 var mask = new byte[stub.opcode().length];
                 Arrays.fill(mask, (byte) 0xFF);
@@ -42,7 +44,10 @@ public final class Syscalls {
                     var insn = listing.getInstructionAt(hit);
                     if (block != null && block.isExecute() && insn != null
                             && insn.getMnemonicString().equalsIgnoreCase(stub.mnemonic())) {
-                        rows.add(new Object[]{Responses.addr(hit), stub.kind(), findSsn(program, insn)});
+                        if (total < need) {
+                            rows.add(new Object[]{Responses.addr(hit), stub.kind(), findSsn(program, insn)});
+                        }
+                        total++;
                     }
                     cursor = hit.next();
                 }
@@ -52,7 +57,7 @@ public final class Syscalls {
             for (var r : rows) {
                 if (w.take()) t.row(r);
             }
-            return t.total(w.total()).build();
+            return t.total((int) Math.min(total, Integer.MAX_VALUE)).build();
         });
     }
 
@@ -68,7 +73,8 @@ public final class Syscalls {
                     return "0x" + Long.toHexString(scalar.getUnsignedValue());
                 }
             }
-            if (!prev.hasFallthrough()) break;
+            var ft = prev.getFlowType();
+            if (!prev.hasFallthrough() || (ft != null && ft.isCall())) break;
         }
         return "?";
     }
