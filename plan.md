@@ -55,7 +55,8 @@ Legend: `[x]` shipped · `[~]` in progress (open PR) · `[ ]` planned · API sta
 - [ ] Interactive HTML graph + `xref_graph`/`namespace_graph`/`dominator_tree`/`cfg_metrics` `[V]`
 - [x] `find_crypto_constants` — AES/SHA/MD5 constant detection
 - [x] `find_syscalls` — direct syscall/sysenter/int2e stub detection + SSN
-- [ ] Malware double-down: `unpack_assist`, `iat_rebuild`, `decode_strings_auto`, `yara_scan`, `find_anti_vm`, `cfg_obfuscation_score` `[N]`
+- [x] `find_anti_vm` — VM/sandbox artifact string detection
+- [ ] Malware double-down: `unpack_assist`, `iat_rebuild`, `decode_strings_auto`, `yara_scan`, `cfg_obfuscation_score` `[N]`
 - [ ] Optional Frida backend `[X]`
 
 ## Engineering hardening (alongside)
