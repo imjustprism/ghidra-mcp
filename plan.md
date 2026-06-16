@@ -21,7 +21,7 @@ Legend: `[x]` shipped · `[~]` in progress (open PR) · `[ ]` planned · API sta
 
 ## Phase 2 — Protocol leap + type recovery
 - [ ] MCP **resources** (subscribable live state: registers/stack/watch/scan) `[N]`
-- [ ] MCP **prompts** (survey_binary, analyze_function, solve_crackme, triage_malware, recover_types) `[N]`
+- [x] MCP **prompts** (survey_binary, analyze_function, solve_crackme, triage_malware, recover_types)
 - [ ] Progressive disclosure (`list_tool_groups`/`search_tools`/`get_tool_schema`) `[N]`
 - [x] `function_completeness` scoring 0–100
 - [x] `find_undocumented` — least-documented work queue

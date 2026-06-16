@@ -270,6 +270,18 @@ MCP server for Ghidra. Rust bridge + Ghidra Java plugin. Wires any MCP client (C
 
 Also: `save_program`.
 
+## Prompts
+
+Guided RE workflows, surfaced as MCP prompts (slash commands in clients that support them).
+
+| prompt | purpose |
+| --- | --- |
+| `survey_binary` | first-pass survey: layout, capabilities, IOCs, what to reverse next |
+| `analyze_function` | deeply analyze + document one function (arg: `address`) |
+| `triage_malware` | anti-analysis, capabilities, encoded data, crypto |
+| `solve_crackme` | locate + solve a validation routine |
+| `recover_types` | RTTI/FID/demangle/propagate across the program |
+
 ## Troubleshooting
 
 | symptom | fix |

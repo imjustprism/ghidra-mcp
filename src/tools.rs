@@ -1,8 +1,13 @@
 use rmcp::{
-    ErrorData, ServerHandler,
+    ErrorData, RoleServer, ServerHandler,
     handler::server::wrapper::Parameters,
-    model::{CallToolResult, Content},
-    schemars, tool, tool_handler, tool_router,
+    model::{
+        CallToolResult, Content, GetPromptRequestParams, GetPromptResult, ListPromptsResult,
+        PaginatedRequestParams, PromptMessage, PromptMessageRole,
+    },
+    prompt, prompt_handler, prompt_router, schemars,
+    service::RequestContext,
+    tool, tool_handler, tool_router,
 };
 use serde::{Deserialize, Serialize};
 use url::Url;
@@ -2544,10 +2549,112 @@ impl GhidraServer {
     }
 }
 
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct AnalyzeFunctionArgs {
+    pub address: String,
+}
+
+fn user_prompt(text: &str) -> Vec<PromptMessage> {
+    vec![PromptMessage::new_text(
+        PromptMessageRole::User,
+        text.to_owned(),
+    )]
+}
+
+#[prompt_router]
+impl GhidraServer {
+    #[prompt(
+        name = "survey_binary",
+        description = "Guided first-pass survey of the loaded program: layout, capabilities, IOCs, and what to reverse next"
+    )]
+    async fn survey_binary(&self) -> Vec<PromptMessage> {
+        user_prompt(
+            "Survey the program loaded in Ghidra and report findings.\n\
+             1. program_info — arch, bits, base, sha256.\n\
+             2. list_imports and list_strings — flag URLs, file paths, registry keys, suspicious APIs.\n\
+             3. list_entry_points, then decompile_minimal each entry.\n\
+             4. high_entropy_regions — packed/encrypted zones.\n\
+             5. Capability triage: find_anti_debug, find_anti_vm, find_api_hashes, find_crypto_constants, find_syscalls.\n\
+             6. find_undocumented, then function_summary_bundle on the worst-scored few.\n\
+             Summarize: purpose, capabilities, IOCs, and the functions worth reversing next.",
+        )
+    }
+
+    #[prompt(
+        name = "analyze_function",
+        description = "Deeply analyze and document one function at an address"
+    )]
+    async fn analyze_function(
+        &self,
+        params: Parameters<AnalyzeFunctionArgs>,
+    ) -> Vec<PromptMessage> {
+        user_prompt(&format!(
+            "Analyze and document the function at {}.\n\
+             1. function_summary_bundle {0} — decompile + callers + callees + strings in one call.\n\
+             2. Infer purpose; name params/locals and pick a function name.\n\
+             3. Apply with set_variables (new_name, prototype, variables) in one atomic call.\n\
+             4. set_decompiler_comment with a one-line summary.\n\
+             5. function_completeness {0} to confirm it scores well.\n\
+             Recurse into the most important undocumented callee.",
+            params.0.address
+        ))
+    }
+
+    #[prompt(
+        name = "triage_malware",
+        description = "Malware triage workflow: anti-analysis, capabilities, encoded data, and crypto"
+    )]
+    async fn triage_malware(&self) -> Vec<PromptMessage> {
+        user_prompt(
+            "Triage this sample for malicious capabilities.\n\
+             1. find_anti_debug + find_anti_vm — evasion; note what to neutralize.\n\
+             2. find_api_hashes — resolve dynamically-imported APIs.\n\
+             3. find_encoded_strings + find_stack_strings — hidden strings/IOCs.\n\
+             4. find_crypto_constants — AES/SHA/MD5/CRC (ransomware/packer crypto).\n\
+             5. find_syscalls — direct-syscall / EDR evasion.\n\
+             6. high_entropy_regions + cfg_obfuscation_score on suspicious functions.\n\
+             Map findings to likely behavior (persistence, C2, encryption, injection) and list IOCs.",
+        )
+    }
+
+    #[prompt(
+        name = "solve_crackme",
+        description = "Recover the expected input/key of a check routine"
+    )]
+    async fn solve_crackme(&self) -> Vec<PromptMessage> {
+        user_prompt(
+            "Find and solve the validation routine.\n\
+             1. find_check_function — locate the password/key check.\n\
+             2. function_summary_bundle on it; identify the comparison(s).\n\
+             3. extract_constraints — collect cmp/branch constraints toward the success path.\n\
+             4. find_magic_constants — embedded comparison values.\n\
+             5. emulate the check with candidate input, or solve the constraints by hand.\n\
+             Report the accepted input and the exact branch that gates success.",
+        )
+    }
+
+    #[prompt(
+        name = "recover_types",
+        description = "Recover symbols and types across the program"
+    )]
+    async fn recover_types(&self) -> Vec<PromptMessage> {
+        user_prompt(
+            "Recover symbols and types for the program.\n\
+             1. list_analyzers; enable RTTI and Decompiler Parameter ID via set_analysis_option.\n\
+             2. analyze_program to run recovery (RTTI classes, FunctionID, demangler).\n\
+             3. demangle_all to clean up C++ names.\n\
+             4. For hot functions: propagate_function_types to commit decompiler-inferred types.\n\
+             5. find_undocumented; document the worst with set_variables + create_struct/apply_data_type.\n\
+             Report recovered classes, named functions, and remaining gaps.",
+        )
+    }
+}
+
 #[tool_handler(
     name = "ghidra-mcp",
-    instructions = "Rust-based MCP bridge to the GhidraMCP HTTP plugin. Invoke tools to decompile, disassemble, search, and annotate programs loaded in Ghidra."
+    instructions = "Rust-based MCP bridge to the GhidraMCP HTTP plugin. Invoke tools to decompile, disassemble, search, and annotate programs loaded in Ghidra. Prompts provide guided RE workflows."
 )]
+#[prompt_handler]
 impl ServerHandler for GhidraServer {}
 
 #[cfg(test)]
