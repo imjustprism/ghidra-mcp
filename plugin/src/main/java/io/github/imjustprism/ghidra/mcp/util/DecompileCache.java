@@ -14,14 +14,14 @@ public final class DecompileCache {
 
     public static final int TIMEOUT_SEC = 30;
 
-    private record Key(Address entry, long modNumber) {}
+    private record Key(long programId, Address entry, long modNumber) {}
 
     private static final Map<Key, String> CACHE = Caches.lru(CAPACITY);
 
     private DecompileCache() {}
 
     public static String decompile(Program program, Function func) {
-        var key = new Key(func.getEntryPoint(), program.getModificationNumber());
+        var key = new Key(program.getUniqueProgramID(), func.getEntryPoint(), program.getModificationNumber());
         var hit = CACHE.get(key);
         if (hit != null) return hit;
         var decomp = new DecompInterface();
