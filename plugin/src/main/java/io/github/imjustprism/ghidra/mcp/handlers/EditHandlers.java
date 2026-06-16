@@ -85,6 +85,90 @@ public final class EditHandlers {
         routes.postForm("/batch_set_comment", p -> batchSetComment(p.get("items")));
         routes.postForm("/batch_set_prototype", p -> batchSetPrototype(p.get("items")));
         routes.postForm("/batch_set_variable_type", p -> batchSetVariableType(p.get("items")));
+        routes.postForm("/set_variables", p -> setVariables(p.get("function_address"),
+                p.get("new_name"), p.get("prototype"), p.get("variables")));
+    }
+
+    public String setVariables(String addr, String newName, String prototype, String variablesJson) {
+        if (addr == null || addr.isBlank()) throw new IllegalArgumentException("function_address is required");
+        var program = ctx.currentProgram();
+        if (program == null) throw new IllegalArgumentException("No program loaded");
+        var a = Addresses.parse(program, addr);
+        if (a == null) throw new IllegalArgumentException("invalid address: " + addr);
+        if (Addresses.functionAtOrContaining(program, a) == null) {
+            throw new IllegalArgumentException("No function at " + addr);
+        }
+        var vars = variablesJson == null || variablesJson.isBlank()
+                ? java.util.List.<Map<String, String>>of() : Json.parseObjectArray(variablesJson);
+        var report = new StringBuilder("# field\tresult\tdetail\n");
+        ctx.runOnSwingTx(program, "Set variables", () -> {
+            var func = Addresses.functionAtOrContaining(program, a);
+            var dtm = program.getDataTypeManager();
+            if (newName != null && !newName.isBlank()) {
+                try {
+                    func.setName(newName, SourceType.USER_DEFINED);
+                    report.append("name\tok\t").append(Responses.cell(newName)).append('\n');
+                } catch (Exception e) {
+                    report.append("name\tfail\t").append(Responses.cell(e.getMessage())).append('\n');
+                }
+            }
+            if (prototype != null && !prototype.isBlank()) {
+                try {
+                    var parser = new FunctionSignatureParser(dtm, ctx.service(DataTypeManagerService.class));
+                    var sig = parser.parse(null, prototype);
+                    if (sig == null) throw new IllegalStateException("prototype parse failed");
+                    var cmd = new ApplyFunctionSignatureCmd(func.getEntryPoint(), sig, SourceType.USER_DEFINED);
+                    if (!cmd.applyTo(program, new ConsoleTaskMonitor())) throw new IllegalStateException(cmd.getStatusMsg());
+                    report.append("prototype\tok\t\n");
+                } catch (Exception e) {
+                    report.append("prototype\tfail\t").append(Responses.cell(e.getMessage())).append('\n');
+                }
+            }
+            if (!vars.isEmpty()) {
+                var decomp = new DecompInterface();
+                try {
+                    decomp.openProgram(program);
+                    decomp.setSimplificationStyle("decompile");
+                    var high = decompileHigh(decomp, func);
+                    if (high == null) {
+                        report.append("variables\tfail\tdecompilation failed\n");
+                    } else {
+                        for (var v : vars) applyVariableEdit(dtm, high, v, report);
+                    }
+                } finally {
+                    decomp.dispose();
+                }
+            }
+            return true;
+        });
+        return report.toString();
+    }
+
+    private void applyVariableEdit(ghidra.program.model.data.DataTypeManager dtm,
+                                   HighFunction high, Map<String, String> v, StringBuilder report) {
+        var varName = v.get("variable_name");
+        try {
+            if (varName == null || varName.isBlank()) throw new IllegalArgumentException("variable_name is required");
+            var symbol = findHighSymbol(high, varName);
+            if (symbol == null) throw new IllegalArgumentException("variable not found: " + varName);
+            var newType = v.get("new_type");
+            var dt = newType == null || newType.isBlank() ? null : DataTypes.resolveDataType(dtm, newType);
+            if (newType != null && !newType.isBlank() && dt == null) {
+                throw new IllegalArgumentException("unknown type: " + newType);
+            }
+            var rename = v.get("new_name");
+            var finalName = rename == null || rename.isBlank() ? symbol.getName() : rename;
+            if (requiresFullCommit(symbol, high)) {
+                HighFunctionDBUtil.commitParamsToDatabase(high, false,
+                        ReturnCommitOption.NO_COMMIT, high.getFunction().getSignatureSource());
+            }
+            HighFunctionDBUtil.updateDBVariable(symbol, finalName, dt, SourceType.USER_DEFINED);
+            report.append("var:").append(Responses.cell(varName)).append("\tok\t")
+                    .append(Responses.cell(finalName)).append('\n');
+        } catch (Exception e) {
+            report.append("var:").append(Responses.cell(varName)).append("\tfail\t")
+                    .append(Responses.cell(e.getMessage())).append('\n');
+        }
     }
 
     public String batchSetPrototype(String itemsJson) {

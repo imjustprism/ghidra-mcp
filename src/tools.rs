@@ -965,6 +965,33 @@ pub struct BatchItems {
     pub items: String,
 }
 
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct SetVariables {
+    pub function_address: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prototype: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub variables: Option<String>,
+}
+
+impl ToParams for SetVariables {
+    fn into_params(self) -> Params {
+        let mut p = vec![("function_address", self.function_address)];
+        if let Some(n) = self.new_name {
+            p.push(("new_name", n));
+        }
+        if let Some(pr) = self.prototype {
+            p.push(("prototype", pr));
+        }
+        if let Some(v) = self.variables {
+            p.push(("variables", v));
+        }
+        p
+    }
+}
+
 #[derive(Deserialize, Serialize, schemars::JsonSchema, Default)]
 pub struct AnalyzeProgram {
     #[serde(default)]
@@ -2317,6 +2344,17 @@ impl GhidraServer {
             return Err(ErrorData::invalid_params("items is required", None));
         }
         self.post("batch_set_variable_type", p).await
+    }
+
+    #[tool(
+        description = "Atomically edit one function in a single transaction and one decompile: optionally rename it (new_name), set its prototype (full C signature), and rename/retype any of its locals or params (variables: JSON array of {variable_name, new_name?, new_type?}). Best-effort per field with a per-field ok/fail report. The one-call way to fully annotate a function",
+        annotations(destructive_hint = false)
+    )]
+    async fn set_variables(
+        &self,
+        Parameters(p): Parameters<SetVariables>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.post("set_variables", p).await
     }
 
     #[tool(
