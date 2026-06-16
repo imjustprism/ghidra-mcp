@@ -2,6 +2,7 @@ package io.github.imjustprism.ghidra.mcp.handlers;
 
 import ghidra.util.Msg;
 import io.github.imjustprism.ghidra.mcp.analysis.AntiDebug;
+import io.github.imjustprism.ghidra.mcp.analysis.AntiVm;
 import io.github.imjustprism.ghidra.mcp.analysis.ApiHashes;
 import io.github.imjustprism.ghidra.mcp.analysis.CallGraph;
 import io.github.imjustprism.ghidra.mcp.analysis.Cfg;
@@ -77,6 +78,7 @@ public final class AnalysisHandlers {
         routes.getQuery("/find_undocumented", q -> Completeness.findUndocumented(ctx, Page.from(q), q));
         routes.getQuery("/find_crypto_constants", q -> CryptoConstants.find(ctx, Page.from(q), q));
         routes.getQuery("/find_syscalls", q -> Syscalls.find(ctx, Page.from(q), q));
+        routes.getQuery("/find_anti_vm", q -> AntiVm.find(ctx, Page.from(q), q));
         routes.getQuery("/decompile_minimal", q -> DecompileMinimal.run(ctx, q.get("address")));
         routes.getPage("/find_magic_constants", (p, q) -> MagicConstants.find(ctx, p, q));
         routes.postForm("/neutralize_anti_debug", p -> NeutralizeAntiDebug.run(ctx, p));

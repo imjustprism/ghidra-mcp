@@ -2403,6 +2403,17 @@ impl GhidraServer {
     }
 
     #[tool(
+        description = "Scan defined strings for anti-VM / anti-sandbox artifacts (VMware, VirtualBox, QEMU, Xen, Hyper-V, Sandboxie driver/device names and known hypervisor MAC prefixes). Reports each string's address, category, and value. Complements find_anti_debug for sandbox-evasion triage",
+        annotations(read_only_hint = true)
+    )]
+    async fn find_anti_vm(
+        &self,
+        Parameters(p): Parameters<Page>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.get("find_anti_vm", p).await
+    }
+
+    #[tool(
         description = "Atomically edit one function in a single transaction and one decompile: optionally rename it (new_name), set its prototype (full C signature), and rename/retype any of its locals or params (variables array of {variable_name, new_name?, new_type?}; new_type omitted = rename only, new_name omitted = retype only). All-or-nothing: if any field fails the whole edit is rolled back and an error with the per-field report is returned. The one-call way to fully annotate a function",
         annotations(destructive_hint = false)
     )]
