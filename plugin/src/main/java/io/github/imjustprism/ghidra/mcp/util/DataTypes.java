@@ -34,10 +34,7 @@ public final class DataTypes {
             case "ulonglong", "unsigned __int64" -> dtm.getDataType("/ulonglong");
             case "bool", "boolean" -> dtm.getDataType("/bool");
             case "void" -> dtm.getDataType("/void");
-            default -> {
-                var direct = dtm.getDataType("/" + name);
-                yield direct != null ? direct : dtm.getDataType("/int");
-            }
+            default -> dtm.getDataType("/" + name);
         };
     }
 

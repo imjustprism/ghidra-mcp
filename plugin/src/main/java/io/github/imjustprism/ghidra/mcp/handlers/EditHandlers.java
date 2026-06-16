@@ -100,19 +100,26 @@ public final class EditHandlers {
         }
         var vars = variablesJson == null || variablesJson.isBlank()
                 ? java.util.List.<Map<String, String>>of() : Json.parseObjectArray(variablesJson);
+        var hasName = newName != null && !newName.isBlank();
+        var hasProto = prototype != null && !prototype.isBlank();
+        if (!hasName && !hasProto && vars.isEmpty()) {
+            throw new IllegalArgumentException("provide at least one of new_name, prototype, variables");
+        }
         var report = new StringBuilder("# field\tresult\tdetail\n");
-        ctx.runOnSwingTx(program, "Set variables", () -> {
+        var failed = new boolean[1];
+        var committed = ctx.runOnSwingTx(program, "Set variables", () -> {
             var func = Addresses.functionAtOrContaining(program, a);
             var dtm = program.getDataTypeManager();
-            if (newName != null && !newName.isBlank()) {
+            if (hasName) {
                 try {
                     func.setName(newName, SourceType.USER_DEFINED);
                     report.append("name\tok\t").append(Responses.cell(newName)).append('\n');
                 } catch (Exception e) {
                     report.append("name\tfail\t").append(Responses.cell(e.getMessage())).append('\n');
+                    failed[0] = true;
                 }
             }
-            if (prototype != null && !prototype.isBlank()) {
+            if (hasProto) {
                 try {
                     var parser = new FunctionSignatureParser(dtm, ctx.service(DataTypeManagerService.class));
                     var sig = parser.parse(null, prototype);
@@ -122,6 +129,7 @@ public final class EditHandlers {
                     report.append("prototype\tok\t\n");
                 } catch (Exception e) {
                     report.append("prototype\tfail\t").append(Responses.cell(e.getMessage())).append('\n');
+                    failed[0] = true;
                 }
             }
             if (!vars.isEmpty()) {
@@ -132,29 +140,41 @@ public final class EditHandlers {
                     var high = decompileHigh(decomp, func);
                     if (high == null) {
                         report.append("variables\tfail\tdecompilation failed\n");
+                        failed[0] = true;
                     } else {
-                        for (var v : vars) applyVariableEdit(dtm, high, v, report);
+                        var index = new java.util.HashMap<String, HighSymbol>();
+                        for (var it = high.getLocalSymbolMap().getSymbols(); it.hasNext(); ) {
+                            var s = it.next();
+                            index.put(s.getName(), s);
+                        }
+                        for (var v : vars) {
+                            if (!applyVariableEdit(dtm, high, index, v, report)) failed[0] = true;
+                        }
                     }
                 } finally {
                     decomp.dispose();
                 }
             }
-            return true;
+            return !failed[0];
         });
+        if (!committed) {
+            throw new IllegalStateException("rolled back, no changes applied:\n" + report);
+        }
         return report.toString();
     }
 
-    private void applyVariableEdit(ghidra.program.model.data.DataTypeManager dtm,
-                                   HighFunction high, Map<String, String> v, StringBuilder report) {
+    private boolean applyVariableEdit(ghidra.program.model.data.DataTypeManager dtm, HighFunction high,
+                                      Map<String, HighSymbol> index, Map<String, String> v, StringBuilder report) {
         var varName = v.get("variable_name");
         try {
             if (varName == null || varName.isBlank()) throw new IllegalArgumentException("variable_name is required");
-            var symbol = findHighSymbol(high, varName);
+            var symbol = index.get(varName);
             if (symbol == null) throw new IllegalArgumentException("variable not found: " + varName);
             var newType = v.get("new_type");
-            var dt = newType == null || newType.isBlank() ? null : DataTypes.resolveDataType(dtm, newType);
-            if (newType != null && !newType.isBlank() && dt == null) {
-                throw new IllegalArgumentException("unknown type: " + newType);
+            ghidra.program.model.data.DataType dt = null;
+            if (newType != null && !newType.isBlank()) {
+                dt = DataTypes.resolveDataType(dtm, newType);
+                if (dt == null) throw new IllegalArgumentException("unknown type: " + newType);
             }
             var rename = v.get("new_name");
             var finalName = rename == null || rename.isBlank() ? symbol.getName() : rename;
@@ -163,11 +183,15 @@ public final class EditHandlers {
                         ReturnCommitOption.NO_COMMIT, high.getFunction().getSignatureSource());
             }
             HighFunctionDBUtil.updateDBVariable(symbol, finalName, dt, SourceType.USER_DEFINED);
+            index.remove(varName);
+            index.put(finalName, symbol);
             report.append("var:").append(Responses.cell(varName)).append("\tok\t")
                     .append(Responses.cell(finalName)).append('\n');
+            return true;
         } catch (Exception e) {
             report.append("var:").append(Responses.cell(varName)).append("\tfail\t")
                     .append(Responses.cell(e.getMessage())).append('\n');
+            return false;
         }
     }
 
