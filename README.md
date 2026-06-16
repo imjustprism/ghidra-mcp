@@ -59,7 +59,7 @@ MCP server for Ghidra. Rust bridge + Ghidra Java plugin. Wires any MCP client (C
 
 ## Tools
 
-120 tools total.
+121 tools total.
 
 <details>
 <summary><b>Listing / metadata</b> (17)</summary>
@@ -201,7 +201,7 @@ MCP server for Ghidra. Rust bridge + Ghidra Java plugin. Wires any MCP client (C
 </details>
 
 <details>
-<summary><b>Malware triage / analysis</b> (14)</summary>
+<summary><b>Malware triage / analysis</b> (15)</summary>
 
 | tool | purpose |
 | --- | --- |
@@ -219,6 +219,7 @@ MCP server for Ghidra. Rust bridge + Ghidra Java plugin. Wires any MCP client (C
 | `vtable_scan` | heuristic vtable finder |
 | `idiom_simplifier` | annotate arithmetic idioms |
 | `find_crypto_constants` | locate AES/SHA/MD5/CRC constant tables |
+| `find_syscalls` | direct syscall/sysenter/int2e stubs + SSN |
 
 </details>
 
