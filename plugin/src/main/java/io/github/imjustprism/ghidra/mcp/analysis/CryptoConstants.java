@@ -13,8 +13,6 @@ import java.util.Map;
 
 public final class CryptoConstants {
 
-    private static final int MAX_HITS_PER_SIG = 64;
-
     private record Sig(String name, byte[] bytes) {}
 
     private static final byte[] AES_SBOX = hex("637c777bf26b6fc53001672bfed7ab76");
@@ -39,16 +37,18 @@ public final class CryptoConstants {
             var monitor = new ConsoleTaskMonitor();
             var t = Responses.table(p, q, new String[]{"addr", "algo", "len"});
             var w = new Responses.Window(p);
+            var need = (long) p.offset() + p.limit();
+            long seen = 0;
+            outer:
             for (var sig : signatures(program)) {
                 var mask = new byte[sig.bytes().length];
                 Arrays.fill(mask, (byte) 0xFF);
                 var cursor = mem.getMinAddress();
-                int hits = 0;
-                while (cursor != null && hits < MAX_HITS_PER_SIG) {
+                while (cursor != null) {
                     var hit = mem.findBytes(cursor, sig.bytes(), mask, true, monitor);
                     if (hit == null) break;
                     if (w.take()) t.row(Responses.addr(hit), sig.name(), sig.bytes().length);
-                    hits++;
+                    if (++seen >= need) break outer;
                     cursor = hit.next();
                 }
             }
