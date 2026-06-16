@@ -177,7 +177,7 @@ public final class EditHandlers {
                 if (dt == null) throw new IllegalArgumentException("unknown type: " + newType);
             }
             var rename = v.get("new_name");
-            var finalName = rename == null || rename.isBlank() ? symbol.getName() : rename;
+            var finalName = rename == null || rename.isBlank() ? varName : rename;
             if (requiresFullCommit(symbol, high)) {
                 HighFunctionDBUtil.commitParamsToDatabase(high, false,
                         ReturnCommitOption.NO_COMMIT, high.getFunction().getSignatureSource());
