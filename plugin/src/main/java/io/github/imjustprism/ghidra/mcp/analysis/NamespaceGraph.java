@@ -3,6 +3,7 @@ package io.github.imjustprism.ghidra.mcp.analysis;
 import ghidra.program.model.address.GlobalNamespace;
 import io.github.imjustprism.ghidra.mcp.util.PluginContext;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -18,7 +19,7 @@ public final class NamespaceGraph {
         int cap = clampCap(maxStr);
         return ctx.withProgram(program -> {
             var nodes = new LinkedHashMap<String, String>();
-            var edges = new LinkedHashSet<String>();
+            var edgePairs = new ArrayList<String[]>();
             var processed = new HashSet<Long>();
             boolean capped = false;
             for (var s : program.getSymbolTable().getAllSymbols(true)) {
@@ -31,12 +32,14 @@ public final class NamespaceGraph {
                     nodes.put(id, CallGraph.escapeMermaid(ns.getName()));
                     var parent = ns.getParentNamespace();
                     if (parent != null && !(parent instanceof GlobalNamespace)) {
-                        var pid = "ns_" + parent.getID();
-                        nodes.putIfAbsent(pid, CallGraph.escapeMermaid(parent.getName()));
-                        edges.add(pid + " --> " + id);
+                        edgePairs.add(new String[]{"ns_" + parent.getID(), id});
                     }
                     ns = parent;
                 }
+            }
+            var edges = new LinkedHashSet<String>();
+            for (var pair : edgePairs) {
+                if (nodes.containsKey(pair[0])) edges.add(pair[0] + " --> " + pair[1]);
             }
 
             var sb = new StringBuilder(256 + nodes.size() * 32);
