@@ -1018,6 +1018,46 @@ impl ToParams for SetVariables {
     }
 }
 
+#[derive(Deserialize, Serialize, schemars::JsonSchema, Clone, Copy)]
+#[serde(rename_all = "snake_case")]
+pub enum NamingConvention {
+    Snake,
+    ScreamingSnake,
+    Camel,
+    Pascal,
+}
+
+impl NamingConvention {
+    const fn wire(self) -> &'static str {
+        match self {
+            Self::Snake => "snake",
+            Self::ScreamingSnake => "screaming_snake",
+            Self::Camel => "camel",
+            Self::Pascal => "pascal",
+        }
+    }
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct ApplyNamingConvention {
+    pub convention: NamingConvention,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<String>,
+    #[serde(default)]
+    pub apply: bool,
+}
+
+impl ToParams for ApplyNamingConvention {
+    fn into_params(self) -> Params {
+        let mut p = vec![("convention", self.convention.wire().to_owned())];
+        if let Some(ns) = self.namespace {
+            p.push(("namespace", ns));
+        }
+        p.push(("apply", if self.apply { "1" } else { "0" }.to_owned()));
+        p
+    }
+}
+
 #[derive(Deserialize, Serialize, schemars::JsonSchema, Default)]
 pub struct AnalyzeProgram {
     #[serde(default)]
@@ -2675,6 +2715,17 @@ impl GhidraServer {
     }
 
     #[tool(
+        description = "Batch-normalize function names to a case convention: snake, screaming_snake, camel, or pascal. Tokenizes each existing name (splitting on separators and camelCase/acronym boundaries) and rewrites it in the chosen style. Previews by default (dry-run); pass apply=true to commit the renames in one transaction. Optional namespace filter (simple name or full path). Auto-named functions (FUN_*) are skipped. Returns an address/old/new table",
+        annotations(destructive_hint = true)
+    )]
+    async fn apply_naming_convention(
+        &self,
+        Parameters(p): Parameters<ApplyNamingConvention>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.post("apply_naming_convention", p).await
+    }
+
+    #[tool(
         description = "Locate functions by a string they reference: finds the string, follows cross-references to the containing function, and emits each function's name, entry address, the xref site, and a unique signature for the entry. The fastest path from a known string to a function + a reusable signature. format=ida|code",
         annotations(read_only_hint = true)
     )]
@@ -3054,6 +3105,39 @@ mod tests {
                 ("offset", "0".to_owned()),
                 ("limit", "50".to_owned()),
                 ("address", "0x401000".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn apply_naming_convention_emits_convention_and_apply_flag() {
+        let p = ApplyNamingConvention {
+            convention: NamingConvention::ScreamingSnake,
+            namespace: None,
+            apply: true,
+        };
+        assert_eq!(
+            p.into_params(),
+            vec![
+                ("convention", "screaming_snake".to_owned()),
+                ("apply", "1".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn apply_naming_convention_dry_run_includes_namespace() {
+        let p = ApplyNamingConvention {
+            convention: NamingConvention::Snake,
+            namespace: Some("Crypto".to_owned()),
+            apply: false,
+        };
+        assert_eq!(
+            p.into_params(),
+            vec![
+                ("convention", "snake".to_owned()),
+                ("namespace", "Crypto".to_owned()),
+                ("apply", "0".to_owned()),
             ]
         );
     }

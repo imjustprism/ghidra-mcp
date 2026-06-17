@@ -25,7 +25,7 @@ Legend: `[x]` shipped · `[~]` in progress (open PR) · `[ ]` planned · API sta
 - [ ] Progressive disclosure (`list_tool_groups`/`search_tools`/`get_tool_schema`) `[N]`
 - [x] `function_completeness` scoring 0–100
 - [x] `find_undocumented` — least-documented work queue
-- [ ] `apply_naming_convention` (PascalCase/Hungarian/snake) `[V]`
+- [x] `apply_naming_convention` (snake/screaming_snake/camel/pascal, dry-run by default)
 - [x] `recover_rtti_classes` — list recovered C++ classes + vftables + method counts
 - [ ] `apply_fid_signatures` `[N]`
 - [x] `list_data_type_archives` — list available type archives

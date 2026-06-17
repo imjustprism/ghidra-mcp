@@ -12,6 +12,7 @@ import ghidra.program.model.data.FunctionDefinitionDataType;
 import ghidra.program.model.data.StructureDataType;
 import ghidra.program.model.data.UnionDataType;
 import ghidra.program.model.listing.CodeUnit;
+import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.Parameter;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.listing.VariableStorage;
@@ -29,6 +30,7 @@ import io.github.imjustprism.ghidra.mcp.http.RouteTable;
 import io.github.imjustprism.ghidra.mcp.util.Addresses;
 import io.github.imjustprism.ghidra.mcp.util.DataTypes;
 import io.github.imjustprism.ghidra.mcp.util.Json;
+import io.github.imjustprism.ghidra.mcp.util.NamingConvention;
 import io.github.imjustprism.ghidra.mcp.util.PluginContext;
 import io.github.imjustprism.ghidra.mcp.util.Programs;
 import io.github.imjustprism.ghidra.mcp.util.Responses;
@@ -87,6 +89,65 @@ public final class EditHandlers {
         routes.postForm("/batch_set_variable_type", p -> batchSetVariableType(p.get("items")));
         routes.postForm("/set_variables", p -> setVariables(p.get("function_address"),
                 p.get("new_name"), p.get("prototype"), p.get("variables")));
+        routes.postForm("/apply_naming_convention", p -> applyNamingConvention(p.get("convention"),
+                p.get("namespace"), Http.parseIntOrDefault(p.get("apply"), 0) != 0));
+    }
+
+    private static final int MAX_PREVIEW = 500;
+
+    public String applyNamingConvention(String conventionName, String namespace, boolean apply) {
+        var convention = NamingConvention.from(conventionName);
+        if (convention == null) {
+            throw new IllegalArgumentException("convention must be one of: snake, screaming_snake, camel, pascal");
+        }
+        var program = ctx.currentProgram();
+        if (program == null) throw new IllegalArgumentException("No program loaded");
+        var nsFilter = namespace == null || namespace.isBlank() ? null : namespace.trim();
+
+        record Change(String address, String oldName, String newName, Function function) {}
+        var changes = new java.util.ArrayList<Change>();
+        for (var f : program.getFunctionManager().getFunctions(true)) {
+            if (f.getSymbol().getSource() == SourceType.DEFAULT) continue;
+            if (nsFilter != null) {
+                var parent = f.getParentNamespace();
+                if (!nsFilter.equals(parent.getName(false)) && !nsFilter.equals(parent.getName(true))) continue;
+            }
+            var oldName = f.getName();
+            var newName = convention.apply(oldName);
+            if (!newName.isBlank() && !newName.equals(oldName)) {
+                changes.add(new Change(f.getEntryPoint().toString(), oldName, newName, f));
+            }
+        }
+
+        if (apply && !changes.isEmpty()) {
+            ctx.runOnSwingTx(program, "Apply naming convention", () -> {
+                for (var c : changes) {
+                    try {
+                        c.function().setName(c.newName(), SourceType.USER_DEFINED);
+                    } catch (Exception e) {
+                        Msg.error(ctx.logOwner(), "Rename failed for " + c.address(), e);
+                    }
+                }
+                return true;
+            });
+        }
+
+        var sb = new StringBuilder();
+        sb.append(apply ? "# applied " : "# preview (dry-run, pass apply=1 to commit) ")
+                .append(changes.size()).append(" rename(s) to ")
+                .append(convention.name().toLowerCase()).append('\n');
+        sb.append("address\told\tnew\n");
+        int shown = Math.min(changes.size(), MAX_PREVIEW);
+        for (int i = 0; i < shown; i++) {
+            var c = changes.get(i);
+            sb.append(c.address()).append('\t')
+                    .append(Responses.cell(c.oldName())).append('\t')
+                    .append(Responses.cell(c.newName())).append('\n');
+        }
+        if (changes.size() > shown) {
+            sb.append("# ").append(changes.size() - shown).append(" more not shown\n");
+        }
+        return sb.toString();
     }
 
     public String setVariables(String addr, String newName, String prototype, String variablesJson) {
