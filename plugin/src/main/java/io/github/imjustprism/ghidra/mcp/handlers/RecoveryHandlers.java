@@ -15,6 +15,7 @@ import io.github.imjustprism.ghidra.mcp.http.Http;
 import io.github.imjustprism.ghidra.mcp.http.RouteTable;
 import io.github.imjustprism.ghidra.mcp.util.Addresses;
 import io.github.imjustprism.ghidra.mcp.util.DataTypes;
+import io.github.imjustprism.ghidra.mcp.util.Json;
 import io.github.imjustprism.ghidra.mcp.util.PluginContext;
 import io.github.imjustprism.ghidra.mcp.util.Responses;
 
@@ -35,6 +36,7 @@ public final class RecoveryHandlers {
                 Http.parseIntOrDefault(p.get("enabled"), 1) != 0));
         routes.postForm("/apply_data_type", p -> applyDataType(p.get("address"), p.get("type"),
                 Http.parseIntOrDefault(p.get("clear"), 1) != 0));
+        routes.postForm("/batch_apply_data_type", p -> batchApplyDataType(p.get("items")));
         routes.postForm("/create_function", p -> createFunction(p.get("address")));
         routes.postForm("/propagate_function_types", p -> propagateTypes(p.get("function_address")));
         routes.postForm("/struct_set_field", p -> structSetField(p.get("struct"),
@@ -103,6 +105,41 @@ public final class RecoveryHandlers {
         });
         if (!ok) throw new IllegalStateException(out[0] != null ? out[0] : "Failed");
         return out[0];
+    }
+
+    private String batchApplyDataType(String itemsJson) {
+        if (itemsJson == null || itemsJson.isBlank()) throw new IllegalArgumentException("items JSON array is required");
+        var program = ctx.currentProgram();
+        if (program == null) throw new IllegalArgumentException("No program loaded");
+        var items = Json.parseObjectArray(itemsJson);
+        if (items.isEmpty()) throw new IllegalArgumentException("items is empty");
+        var report = new StringBuilder("# result\taddress\tdetail\n");
+        var okCount = new int[1];
+        ctx.runOnSwingTx(program, "Batch apply data type", () -> {
+            var dtm = program.getDataTypeManager();
+            for (var it : items) {
+                var addr = it.get("address");
+                try {
+                    var type = it.get("type");
+                    if (type == null || type.isBlank()) throw new IllegalArgumentException("type is required");
+                    var a = Addresses.parse(program, addr);
+                    if (a == null) throw new IllegalArgumentException("invalid address");
+                    var dt = DataTypes.resolveDataType(dtm, type);
+                    if (dt == null) throw new IllegalArgumentException("unknown type: " + type);
+                    var clear = !"0".equals(it.get("clear"));
+                    var cmd = new CreateDataCmd(a, clear, dt);
+                    if (!cmd.applyTo(program)) throw new IllegalStateException(cmd.getStatusMsg());
+                    okCount[0]++;
+                    report.append("ok\t").append(Responses.cell(addr)).append('\t')
+                            .append(Responses.cell(dt.getName())).append('\n');
+                } catch (Exception e) {
+                    report.append("fail\t").append(Responses.cell(addr)).append('\t')
+                            .append(Responses.cell(e.getMessage())).append('\n');
+                }
+            }
+            return true;
+        });
+        return "applied " + okCount[0] + "/" + items.size() + "\n" + report;
     }
 
     private String createFunction(String addr) {
