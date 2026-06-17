@@ -2474,7 +2474,7 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Compute a structural hash of the function at an address, independent of addresses and immediate values: a mnemonic_hash (instruction opcodes only) and a shape_hash (opcodes + per-operand class R/S/A/M). Hashed over the body in address order, so it is an exact-match fingerprint best for deduping identical functions and matching the same function across builds with stable layout (not a fuzzy cross-compiler matcher). Matching hashes imply structurally identical code",
+        description = "Compute a structural hash of the function at an address, independent of addresses and immediate values: a mnemonic_hash (instruction opcodes only) and a shape_hash (opcodes + operand count per instruction). Hashed over the body in address order, so it is an exact-match fingerprint best for deduping identical functions and matching the same function across builds with stable layout (not a fuzzy cross-compiler matcher). Matching hashes imply structurally identical code",
         annotations(read_only_hint = true)
     )]
     async fn function_hash(
