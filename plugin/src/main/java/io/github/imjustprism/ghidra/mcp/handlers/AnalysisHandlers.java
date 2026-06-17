@@ -20,6 +20,7 @@ import io.github.imjustprism.ghidra.mcp.analysis.EncodedStrings;
 import io.github.imjustprism.ghidra.mcp.analysis.Entropy;
 import io.github.imjustprism.ghidra.mcp.analysis.IdiomSimplifier;
 import io.github.imjustprism.ghidra.mcp.analysis.MagicConstants;
+import io.github.imjustprism.ghidra.mcp.analysis.NamespaceGraph;
 import io.github.imjustprism.ghidra.mcp.analysis.NeutralizeAntiDebug;
 import io.github.imjustprism.ghidra.mcp.analysis.OrphanGaps;
 import io.github.imjustprism.ghidra.mcp.analysis.Pcode;
@@ -68,6 +69,7 @@ public final class AnalysisHandlers {
                 Http.parseIntOrDefault(q.get("max_nodes"), 0)));
         routes.getQuery("/function_cfg", q -> Cfg.mermaid(ctx, q.get("address")));
         routes.getQuery("/xref_graph", q -> XrefGraph.mermaid(ctx, q.get("address"), q.get("max")));
+        routes.getQuery("/namespace_graph", q -> NamespaceGraph.mermaid(ctx, q.get("max")));
         routes.getQuery("/struct_diagram", q -> StructDiagram.mermaid(ctx, q.get("filter"),
                 Http.parseIntOrDefault(q.get("max"), 0)));
         routes.getQuery("/find_orphan_gaps", q -> OrphanGaps.find(ctx,
