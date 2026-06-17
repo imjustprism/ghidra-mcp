@@ -427,8 +427,8 @@ public final class DebuggerHandlers {
             long ptr = PointerPath.toUnsignedLong(pb, ptrSize, bigEndian);
             Address next;
             try {
-                next = cur.getNewAddress(ptr + offsets[i]);
-            } catch (RuntimeException e) {
+                next = cur.getNewAddress(ptr).addNoWrap(offsets[i]);
+            } catch (ghidra.program.model.address.AddressOverflowException | RuntimeException e) {
                 throw new IllegalStateException("Pointer out of range at step " + i + ": ["
                         + Responses.addr(cur) + "]=0x" + Long.toHexString(ptr)
                         + " + 0x" + Long.toHexString(offsets[i]));

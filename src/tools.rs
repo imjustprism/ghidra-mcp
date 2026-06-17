@@ -2221,7 +2221,7 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Resolve a multi-level pointer chain in the live target (CheatEngine-style). Starting from base (a static, module-relative, or raw dynamic address), dereferences a pointer and adds each offset in turn: final = [...[[base]+off0]+off1...]+offN. offsets is a comma-separated list of hex values (with or without 0x; negatives allowed), e.g. \"0x18,0x40,-0x8\"; omit for a single dereference. value_len optionally reads that many bytes at the final address. Returns each step's address and the resolved final address",
+        description = "Resolve a multi-level pointer chain in the live target (CheatEngine-style). Starting from base (a static program address, automatically slid to the live target, or a raw dynamic address), dereferences a pointer and adds each offset in turn: final = [...[[base]+off0]+off1...]+offN. offsets is a comma-separated list of hex values (with or without 0x; negatives allowed), e.g. \"0x18,0x40,-0x8\"; omit for a single dereference. value_len optionally reads that many bytes at the final address. Returns each step's address and the resolved final address",
         annotations(read_only_hint = true)
     )]
     async fn read_pointer_path(
@@ -3381,11 +3381,11 @@ mod tests {
     #[test]
     fn read_pointer_path_omits_optional_fields() {
         let p = ReadPointerPath {
-            base: "rva+0x1000".to_owned(),
+            base: "0x140001000".to_owned(),
             offsets: None,
             value_len: None,
         };
-        assert_eq!(p.into_params(), vec![("base", "rva+0x1000".to_owned())]);
+        assert_eq!(p.into_params(), vec![("base", "0x140001000".to_owned())]);
     }
 
     #[test]
