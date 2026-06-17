@@ -45,6 +45,6 @@ public final class Rtti {
 
     private static boolean isVtable(String name) {
         var lower = name.toLowerCase(Locale.ROOT);
-        return lower.contains("vftable") || lower.contains("vtable") || lower.contains("vbtable");
+        return lower.contains("vftable") || lower.contains("vtable");
     }
 }
