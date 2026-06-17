@@ -38,7 +38,8 @@ Legend: `[x]` shipped · `[~]` in progress (open PR) · `[ ]` planned · API sta
 - [ ] Docker image `[N]`
 - [ ] Script execution (`run_ghidra_script`/`run_script_source`/`list_scripts`) — gated `[N]`
 - [ ] **P0 scanner rewrite** — Trace-DB reads, parallel, freshness tags `[N]`
-- [ ] `pointer_scan` / `read_pointer_path` `[N]`
+- [x] `read_pointer_path` — multi-level pointer-chain resolver (CheatEngine-style); `pointer_scan` still TODO
+- [ ] `pointer_scan` `[N]`
 - [ ] Hardware watchpoints `break_read`/`break_write` `[N]`
 - [ ] `watch_add`/`watch_poll`/`watch_remove` `[N]`
 - [x] Scan GC + freeze auto-stop — TTL eviction of abandoned completed scans (freeze already auto-stops on target death)

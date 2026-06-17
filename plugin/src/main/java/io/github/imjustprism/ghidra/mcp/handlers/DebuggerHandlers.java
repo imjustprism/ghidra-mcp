@@ -32,6 +32,7 @@ import io.github.imjustprism.ghidra.mcp.http.Http;
 import io.github.imjustprism.ghidra.mcp.http.RouteTable;
 import io.github.imjustprism.ghidra.mcp.util.Bufs;
 import io.github.imjustprism.ghidra.mcp.util.PluginContext;
+import io.github.imjustprism.ghidra.mcp.util.PointerPath;
 import io.github.imjustprism.ghidra.mcp.util.ProcessMemory;
 import io.github.imjustprism.ghidra.mcp.util.Responses;
 import io.github.imjustprism.ghidra.mcp.util.ScanValues;
@@ -108,6 +109,8 @@ public final class DebuggerHandlers {
         routes.getQuery("/debugger_registers", q -> registers(q));
         routes.getQuery("/debugger_read_memory",
                 q -> readMemory(q.get("address"), parseLen(q.get("length"))));
+        routes.getQuery("/read_pointer_path", q -> readPointerPath(q.get("base"), q.get("offsets"),
+                Math.min(Math.max(Http.parseIntOrDefault(q.get("value_len"), 0), 0), 65536)));
         routes.getQuery("/debugger_list_breakpoints", q -> breakpoints(q));
         routes.getQuery("/debugger_translate_static_to_dynamic",
                 q -> staticToDynamic(q.get("address")));
@@ -387,18 +390,58 @@ public final class DebuggerHandlers {
     private String readMemory(String address, int length) {
         var trace = requireTrace();
         var da = dynAddr(address);
-        byte[] b = rpmRead(livePid(trace), da, length);
+        byte[] b = readLiveBytes(trace, livePid(trace), da, length);
         if (b == null) {
-            syncPresent(trace);
-            try {
-                invalidateCaches(trace);
-                b = dbg.readMemory(trace, liveSnap(trace), da, length, TaskMonitor.DUMMY);
-            } catch (Exception e) {
-                throw new IllegalStateException("Error reading live memory at "
-                        + Responses.addr(da) + ": " + e.getMessage(), e);
-            }
+            throw new IllegalStateException("Error reading live memory at " + Responses.addr(da));
         }
         return Responses.addr(da) + "\t" + b.length + "\t" + Bufs.hex(b);
+    }
+
+    private byte[] readLiveBytes(Trace trace, Integer pid, Address da, int length) {
+        byte[] b = rpmRead(pid, da, length);
+        if (b != null) return b;
+        try {
+            syncPresent(trace);
+            invalidateCaches(trace);
+            return dbg.readMemory(trace, liveSnap(trace), da, length, TaskMonitor.DUMMY);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String readPointerPath(String base, String offsetsStr, int valueLen) {
+        if (base == null || base.isBlank()) throw new IllegalArgumentException("base is required");
+        var trace = requireTrace();
+        var pid = livePid(trace);
+        boolean bigEndian = trace.getBaseLanguage().isBigEndian();
+        long[] offsets = PointerPath.parseOffsets(offsetsStr);
+        var cur = dynAddr(base);
+        int ptrSize = cur.getAddressSpace().getPointerSize();
+        var sb = new StringBuilder();
+        sb.append("# base=").append(Responses.addr(cur)).append(", ptr_size=").append(ptrSize).append('\n');
+        sb.append("step\tat\tderef\n");
+        for (int i = 0; i < offsets.length; i++) {
+            byte[] pb = readLiveBytes(trace, pid, cur, ptrSize);
+            if (pb == null) throw new IllegalStateException("Failed to read pointer at " + Responses.addr(cur));
+            long ptr = PointerPath.toUnsignedLong(pb, ptrSize, bigEndian);
+            Address next;
+            try {
+                next = cur.getNewAddress(ptr + offsets[i]);
+            } catch (RuntimeException e) {
+                throw new IllegalStateException("Pointer out of range at step " + i + ": ["
+                        + Responses.addr(cur) + "]=0x" + Long.toHexString(ptr)
+                        + " + 0x" + Long.toHexString(offsets[i]));
+            }
+            sb.append("+0x").append(Long.toHexString(offsets[i])).append('\t')
+                    .append(Responses.addr(cur)).append('\t').append(Responses.addr(next)).append('\n');
+            cur = next;
+        }
+        sb.append("final\t").append(Responses.addr(cur));
+        if (valueLen > 0) {
+            byte[] vb = readLiveBytes(trace, pid, cur, valueLen);
+            sb.append('\t').append(vb == null ? "?" : Bufs.hex(vb));
+        }
+        return sb.append('\n').toString();
     }
 
     private String breakpoints(java.util.Map<String, String> q) {
