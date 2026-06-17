@@ -12,7 +12,7 @@ Legend: `[x]` shipped · `[~]` in progress (open PR) · `[ ]` planned · API sta
 
 ## Phase 1 — Ergonomics & throughput
 - [x] `batch_set_prototype` + `batch_set_variable_type` — batch type editing
-- [ ] `batch_apply_data_type` — batch typed-data application `[V]`
+- [x] `batch_apply_data_type` — batch typed-data application
 - [x] `function_summary_bundle` — one-call context pack (decompile + sig + callers + callees + strings)
 - [x] `set_variables` — atomic name+proto+all-locals on one function
 - [ ] Error envelope `{ok,value?,error?,hint?}` → MCP `isError` `[V]`

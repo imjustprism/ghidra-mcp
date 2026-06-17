@@ -2543,6 +2543,20 @@ impl GhidraServer {
     }
 
     #[tool(
+        description = "Apply many data types in one call and one transaction. items is a JSON array of {address, type, clear?} where clear (default true) clears conflicting code/data at the address. Best-effort: a failing item is reported but does not roll back the others. Returns a per-item ok/fail report",
+        annotations(destructive_hint = true)
+    )]
+    async fn batch_apply_data_type(
+        &self,
+        Parameters(p): Parameters<BatchItems>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if p.items.is_empty() {
+            return Err(ErrorData::invalid_params("items is required", None));
+        }
+        self.post("batch_apply_data_type", p).await
+    }
+
+    #[tool(
         description = "Create a function at an address, disassembling and computing its body. Use on orphan code (see find_orphan_gaps) or a call target Ghidra missed",
         annotations(destructive_hint = false)
     )]
