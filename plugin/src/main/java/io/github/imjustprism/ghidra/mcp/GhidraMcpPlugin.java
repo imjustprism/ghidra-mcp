@@ -34,6 +34,7 @@ public final class GhidraMcpPlugin extends Plugin {
     private static final String PORT_OPTION = "Server Port";
     private static final String BIND_OPTION = "Bind Address";
     private static final String TOKEN_OPTION = "Auth Token";
+    private static final String FILE_IO_DIR_OPTION = "File IO Directory";
     private static final int DEFAULT_PORT = 8080;
     private static final String DEFAULT_BIND = "127.0.0.1";
 
@@ -63,6 +64,9 @@ public final class GhidraMcpPlugin extends Plugin {
         options.registerOption(TOKEN_OPTION, "", null,
             "If set, every request must carry 'Authorization: Bearer <token>'. "
                 + "Pass the same value to the bridge via GHIDRA_TOKEN.");
+        options.registerOption(FILE_IO_DIR_OPTION, "", null,
+            "Allow-listed directory for import_memory_dump/export_binary. "
+                + "Empty (default) disables file I/O. Paths must resolve under this directory.");
         try {
             startServer();
         } catch (IOException e) {

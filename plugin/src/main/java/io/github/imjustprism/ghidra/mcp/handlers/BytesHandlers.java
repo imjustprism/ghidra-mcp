@@ -17,10 +17,34 @@ import java.util.Map;
 
 public final class BytesHandlers {
 
+    private static final String OPTION_CATEGORY = "Ghidra MCP HTTP Server";
+    private static final String FILE_IO_DIR_OPTION = "File IO Directory";
+
     private final PluginContext ctx;
 
     public BytesHandlers(PluginContext ctx) {
         this.ctx = ctx;
+    }
+
+    private void requireAllowedPath(String path) {
+        var allowed = ctx.tool().getOptions(OPTION_CATEGORY).getString(FILE_IO_DIR_OPTION, "");
+        if (allowed == null || allowed.isBlank()) {
+            throw new IllegalStateException("File I/O is disabled. Set '" + FILE_IO_DIR_OPTION
+                    + "' (Edit > Tool Options > " + OPTION_CATEGORY + ") to an allow-listed directory.");
+        }
+        try {
+            var base = new java.io.File(allowed).getCanonicalFile();
+            var target = new java.io.File(path).getCanonicalFile();
+            for (var f = target; f != null; f = f.getParentFile()) {
+                if (f.equals(base)) {
+                    Msg.info(ctx.logOwner(), "MCP file I/O allowed: " + target);
+                    return;
+                }
+            }
+            throw new IllegalArgumentException("path is outside the allowed directory " + base + ": " + target);
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException("path validation failed: " + e.getMessage(), e);
+        }
     }
 
     public void register(RouteTable routes) {
@@ -241,6 +265,7 @@ public final class BytesHandlers {
     public String importMemoryDump(String addr, String path) {
         if (addr == null || addr.isBlank()) throw new IllegalArgumentException("Address is required");
         if (path == null || path.isBlank()) throw new IllegalArgumentException("Path is required");
+        requireAllowedPath(path);
         var program = ctx.currentProgram();
         if (program == null) throw new IllegalArgumentException("No program loaded");
         byte[] bytes;
@@ -281,6 +306,7 @@ public final class BytesHandlers {
 
     public String exportBinary(String path) {
         if (path == null || path.isBlank()) throw new IllegalArgumentException("Path is required");
+        requireAllowedPath(path);
         var program = ctx.currentProgram();
         if (program == null) throw new IllegalArgumentException("No program loaded");
         try {
