@@ -3257,7 +3257,11 @@ mod tests {
         assert!(names.iter().any(|n| n == "list_methods"));
         assert!(names.iter().any(|n| n == "search_tools"));
         assert!(names.iter().any(|n| n == "get_tool_schema"));
-        assert!(names.len() >= 140, "expected full catalog, got {}", names.len());
+        assert!(
+            names.len() >= 140,
+            "expected full catalog, got {}",
+            names.len()
+        );
     }
 
     #[test]
