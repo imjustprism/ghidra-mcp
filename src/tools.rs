@@ -1761,8 +1761,11 @@ impl GhidraServer {
         description = "Return the program's full metadata map as key/value rows (compiler, file format, analysis flags, original import details, etc.) — the complete set behind program_info",
         annotations(read_only_hint = true)
     )]
-    async fn program_metadata(&self) -> Result<CallToolResult, ErrorData> {
-        self.get_bare("program_metadata").await
+    async fn program_metadata(
+        &self,
+        Parameters(p): Parameters<Page>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.get("program_metadata", p).await
     }
 
     #[tool(

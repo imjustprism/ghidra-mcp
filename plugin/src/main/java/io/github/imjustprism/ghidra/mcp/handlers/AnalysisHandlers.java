@@ -57,7 +57,7 @@ public final class AnalysisHandlers {
                 Double.parseDouble(q.getOrDefault("threshold", "7.5")),
                 Http.parseIntOrDefault(q.get("window"), 256), Page.from(q), q));
         routes.getQuery("/program_info", this::programInfo);
-        routes.getQuery("/program_metadata", this::programMetadata);
+        routes.getQuery("/program_metadata", q -> programMetadata(Page.from(q), q));
         routes.getQuery("/demangle_symbol", q -> Demangler.demangleSymbol(q.get("mangled")));
         routes.getQuery("/pcode_function", q -> Pcode.pcodeFunction(ctx, q.get("address")));
         routes.getQuery("/callgraph_dot", q -> CallGraph.dot(ctx, q.get("address"),
@@ -105,17 +105,23 @@ public final class AnalysisHandlers {
                 q.get("value"), Http.parseIntOrDefault(q.get("max"), 5), q.getOrDefault("format", "ida")));
     }
 
-    public String programMetadata(Map<String, String> q) {
+    public String programMetadata(Page p, Map<String, String> q) {
         return ctx.withProgram(program -> {
-            var md = program.getMetadata();
-            int size = md != null ? md.size() : 0;
-            var t = Responses.table(q, new String[]{"key", "value"}, size);
+            Map<String, String> md;
+            try {
+                md = program.getMetadata();
+            } catch (Exception e) {
+                throw new IllegalStateException("metadata unavailable: " + e.getMessage(), e);
+            }
+            var t = Responses.table(p, q, new String[]{"key", "value"});
+            var w = new Responses.Window(p);
             if (md != null) {
                 for (var e : md.entrySet()) {
+                    if (!w.take()) continue;
                     t.row(e.getKey(), e.getValue() != null ? e.getValue() : "");
                 }
             }
-            return t.total(size).build();
+            return t.total(w.total()).build();
         });
     }
 
