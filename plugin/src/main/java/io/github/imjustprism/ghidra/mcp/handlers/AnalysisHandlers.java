@@ -6,6 +6,7 @@ import io.github.imjustprism.ghidra.mcp.analysis.AntiVm;
 import io.github.imjustprism.ghidra.mcp.analysis.ApiHashes;
 import io.github.imjustprism.ghidra.mcp.analysis.CallGraph;
 import io.github.imjustprism.ghidra.mcp.analysis.Cfg;
+import io.github.imjustprism.ghidra.mcp.analysis.CfgMetrics;
 import io.github.imjustprism.ghidra.mcp.analysis.CfgObfuscation;
 import io.github.imjustprism.ghidra.mcp.analysis.CheckFunction;
 import io.github.imjustprism.ghidra.mcp.analysis.Completeness;
@@ -68,6 +69,7 @@ public final class AnalysisHandlers {
                 Http.parseIntOrDefault(q.get("depth"), 2), q.get("direction"),
                 Http.parseIntOrDefault(q.get("max_nodes"), 0)));
         routes.getQuery("/function_cfg", q -> Cfg.mermaid(ctx, q.get("address")));
+        routes.getQuery("/cfg_metrics", q -> CfgMetrics.metrics(ctx, q.get("address"), q));
         routes.getQuery("/xref_graph", q -> XrefGraph.mermaid(ctx, q.get("address"), q.get("max")));
         routes.getQuery("/namespace_graph", q -> NamespaceGraph.mermaid(ctx, q.get("max")));
         routes.getQuery("/struct_diagram", q -> StructDiagram.mermaid(ctx, q.get("filter"),
