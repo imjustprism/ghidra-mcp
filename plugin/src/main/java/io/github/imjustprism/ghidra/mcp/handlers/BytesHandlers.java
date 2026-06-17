@@ -154,6 +154,10 @@ public final class BytesHandlers {
                 cursor = next.next();
             }
             var body = t.total(found).build();
+            if (Responses.pickFmt(q) == Responses.Fmt.JSON) {
+                var nextCursor = resume == null ? "null" : '"' + resume.toString() + '"';
+                return "{\"matches\":" + body + ",\"next_cursor\":" + nextCursor + "}";
+            }
             if (resume != null) {
                 body += "# next_cursor: " + resume + "\n";
             }
