@@ -229,7 +229,14 @@ impl ToParams for ReadBytes {
 
 impl ToParams for PatchBytes {
     fn into_params(self) -> Params {
-        vec![("address", self.address), ("hex", self.hex)]
+        vec![
+            ("address", self.address),
+            ("hex", self.hex),
+            (
+                "disassemble",
+                if self.disassemble { "1" } else { "0" }.to_owned(),
+            ),
+        ]
     }
 }
 
@@ -237,6 +244,9 @@ impl ToParams for SearchBytes {
     fn into_params(self) -> Params {
         let mut p = self.page.into_params();
         p.push(("pattern", self.pattern));
+        if let Some(start) = self.start {
+            p.push(("start", start));
+        }
         p
     }
 }
@@ -624,11 +634,15 @@ const fn default_read_length() -> u32 {
 pub struct PatchBytes {
     pub address: String,
     pub hex: String,
+    #[serde(default)]
+    pub disassemble: bool,
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
 pub struct SearchBytes {
     pub pattern: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start: Option<String>,
     #[serde(flatten)]
     pub page: Page,
 }
@@ -1611,7 +1625,7 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Search program memory for a hex pattern. Use '??' for wildcard bytes. Returns matching addresses",
+        description = "Search program memory for a hex pattern. Use '??' for wildcard bytes. Returns matching addresses. For large images, paginate forward with the cursor: pass the address from the '# next_cursor:' footer as 'start' on the next call to resume the scan in O(1) instead of rescanning from the start",
         annotations(read_only_hint = true)
     )]
     async fn search_bytes(
@@ -1625,7 +1639,7 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Patch program memory with raw hex bytes at the given address. Modifies Ghidra's program image only"
+        description = "Patch program memory with raw hex bytes at the given address. Modifies Ghidra's program image only. Existing code units at the target are cleared first; pass disassemble=true to re-disassemble at the patch site afterward (opt-in; default leaves the region as raw data)"
     )]
     async fn patch_bytes(
         &self,
@@ -3138,6 +3152,45 @@ mod tests {
                 ("convention", "snake".to_owned()),
                 ("namespace", "Crypto".to_owned()),
                 ("apply", "0".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn patch_bytes_emits_disassemble_flag() {
+        let p = PatchBytes {
+            address: "0x401000".to_owned(),
+            hex: "90 90".to_owned(),
+            disassemble: true,
+        };
+        assert_eq!(
+            p.into_params(),
+            vec![
+                ("address", "0x401000".to_owned()),
+                ("hex", "90 90".to_owned()),
+                ("disassemble", "1".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn search_bytes_appends_start_cursor_when_set() {
+        let p = SearchBytes {
+            pattern: "48 8B ??".to_owned(),
+            start: Some("0x401234".to_owned()),
+            page: Page {
+                offset: 0,
+                limit: 20,
+                fmt: None,
+            },
+        };
+        assert_eq!(
+            p.into_params(),
+            vec![
+                ("offset", "0".to_owned()),
+                ("limit", "20".to_owned()),
+                ("pattern", "48 8B ??".to_owned()),
+                ("start", "0x401234".to_owned()),
             ]
         );
     }

@@ -48,6 +48,15 @@ public final class Http {
         }
     }
 
+    public static boolean parseBool(String s, boolean d) {
+        if (s == null || s.isBlank()) return d;
+        return switch (s.trim().toLowerCase(java.util.Locale.ROOT)) {
+            case "1", "true", "yes", "on" -> true;
+            case "0", "false", "no", "off" -> false;
+            default -> d;
+        };
+    }
+
     public static void sendResponse(HttpExchange ex, int status, String body) throws IOException {
         var bytes = body.getBytes(StandardCharsets.UTF_8);
         ex.getResponseHeaders().set("Content-Type", "text/plain; charset=utf-8");
