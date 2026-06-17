@@ -22,6 +22,7 @@ import io.github.imjustprism.ghidra.mcp.analysis.MagicConstants;
 import io.github.imjustprism.ghidra.mcp.analysis.NeutralizeAntiDebug;
 import io.github.imjustprism.ghidra.mcp.analysis.OrphanGaps;
 import io.github.imjustprism.ghidra.mcp.analysis.Pcode;
+import io.github.imjustprism.ghidra.mcp.analysis.Rtti;
 import io.github.imjustprism.ghidra.mcp.analysis.Signatures;
 import io.github.imjustprism.ghidra.mcp.analysis.StackStrings;
 import io.github.imjustprism.ghidra.mcp.analysis.StructDiagram;
@@ -84,6 +85,7 @@ public final class AnalysisHandlers {
         routes.getQuery("/find_anti_vm", q -> AntiVm.find(ctx, Page.from(q), q));
         routes.getQuery("/cfg_obfuscation_score", q -> CfgObfuscation.score(ctx, q.get("address"), q));
         routes.getQuery("/function_hash", q -> FunctionHash.hash(ctx, q.get("address"), q));
+        routes.getQuery("/recover_rtti_classes", q -> Rtti.recover(ctx, Page.from(q), q));
         routes.getQuery("/decode_strings_auto", q -> DecodeStrings.decode(ctx, q.get("address"),
                 Http.parseIntOrDefault(q.get("length"), 256),
                 Double.parseDouble(q.getOrDefault("min_printable", "0.85")),

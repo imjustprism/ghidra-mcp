@@ -59,7 +59,7 @@ MCP server for Ghidra. Rust bridge + Ghidra Java plugin. Wires any MCP client (C
 
 ## Tools
 
-126 tools total.
+127 tools total.
 
 <details>
 <summary><b>Listing / metadata</b> (17)</summary>
@@ -164,7 +164,7 @@ MCP server for Ghidra. Rust bridge + Ghidra Java plugin. Wires any MCP client (C
 </details>
 
 <details>
-<summary><b>Type recovery / analysis control</b> (9)</summary>
+<summary><b>Type recovery / analysis control</b> (10)</summary>
 
 | tool | purpose |
 | --- | --- |
@@ -174,6 +174,7 @@ MCP server for Ghidra. Rust bridge + Ghidra Java plugin. Wires any MCP client (C
 | `apply_data_type` | lay a type at an address (clears conflicts) |
 | `create_function` | disassemble + create a function at an address |
 | `propagate_function_types` | commit decompiler-inferred types/names to the DB |
+| `recover_rtti_classes` | recovered C++ classes + vftable + method count |
 | `struct_set_field` | replace/insert a field in an existing struct |
 | `struct_delete_field` | clear a field at an offset |
 | `batch_apply_data_type` | apply many types, one transaction |

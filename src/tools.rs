@@ -2485,6 +2485,17 @@ impl GhidraServer {
     }
 
     #[tool(
+        description = "List recovered C++ classes with each class's vftable address and method count, from Ghidra's class namespaces (populated by RTTI analysis / demangling). Run analyze_program with RTTI enabled first to populate them. Paginated",
+        annotations(read_only_hint = true)
+    )]
+    async fn recover_rtti_classes(
+        &self,
+        Parameters(p): Parameters<Page>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.get("recover_rtti_classes", p).await
+    }
+
+    #[tool(
         description = "Atomically edit one function in a single transaction and one decompile: optionally rename it (new_name), set its prototype (full C signature), and rename/retype any of its locals or params (variables array of {variable_name, new_name?, new_type?}; new_type omitted = rename only, new_name omitted = retype only). All-or-nothing: if any field fails the whole edit is rolled back and an error with the per-field report is returned. The one-call way to fully annotate a function",
         annotations(destructive_hint = false)
     )]
