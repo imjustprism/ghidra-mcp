@@ -16,7 +16,7 @@ public final class RouteTable {
     private static final int MAX_CONCURRENT = Math.max(4, Runtime.getRuntime().availableProcessors());
 
     private final Object owner;
-    private final Semaphore concurrency = new Semaphore(MAX_CONCURRENT);
+    private volatile Semaphore concurrency = new Semaphore(MAX_CONCURRENT, true);
     private HttpServer server;
     private ExecutorService executor;
     private volatile String authToken = "";
@@ -35,6 +35,7 @@ public final class RouteTable {
     }
 
     public void start(String bind, int port) {
+        concurrency = new Semaphore(MAX_CONCURRENT, true);
         executor = Executors.newThreadPerTaskExecutor(
                 Thread.ofVirtual().name("ghidra-mcp-http-", 0).factory());
         server.setExecutor(executor);
@@ -96,8 +97,9 @@ public final class RouteTable {
                     return;
                 }
             }
+            var sem = concurrency;
             try {
-                concurrency.acquire();
+                sem.acquire();
             } catch (InterruptedException ie) {
                 Thread.currentThread().interrupt();
                 Http.sendResponse(ex, 503, "Server unavailable");
@@ -114,7 +116,7 @@ public final class RouteTable {
                 Http.sendResponse(ex, 500,
                         msg == null || msg.isBlank() ? "Internal error" : msg);
             } finally {
-                concurrency.release();
+                sem.release();
             }
         };
     }
