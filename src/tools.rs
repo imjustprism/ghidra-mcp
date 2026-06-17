@@ -57,10 +57,14 @@ fn flag(value: bool) -> String {
 
 impl ToParams for Page {
     fn into_params(self) -> Params {
-        vec![
+        let mut p = vec![
             ("offset", self.offset.to_string()),
             ("limit", self.limit.to_string()),
-        ]
+        ];
+        if let Some(f) = self.fmt {
+            p.push(("fmt", f));
+        }
+        p
     }
 }
 
@@ -523,6 +527,9 @@ pub struct Page {
     pub offset: u32,
     #[serde(default = "default_limit")]
     pub limit: u32,
+    /// Output format: tsv (default), csv, json, or verbose.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fmt: Option<String>,
 }
 const fn default_limit() -> u32 {
     100
@@ -3006,10 +3013,28 @@ mod tests {
         let p = Page {
             offset: 5,
             limit: 9,
+            fmt: None,
         };
         assert_eq!(
             p.into_params(),
             vec![("offset", "5".to_owned()), ("limit", "9".to_owned())]
+        );
+    }
+
+    #[test]
+    fn page_into_params_appends_fmt_when_set() {
+        let p = Page {
+            offset: 0,
+            limit: 10,
+            fmt: Some("json".to_owned()),
+        };
+        assert_eq!(
+            p.into_params(),
+            vec![
+                ("offset", "0".to_owned()),
+                ("limit", "10".to_owned()),
+                ("fmt", "json".to_owned()),
+            ]
         );
     }
 
@@ -3020,6 +3045,7 @@ mod tests {
             page: Page {
                 offset: 0,
                 limit: 50,
+                fmt: None,
             },
         };
         assert_eq!(
@@ -3071,6 +3097,7 @@ mod tests {
             page: Page {
                 offset: 0,
                 limit: 20,
+                fmt: None,
             },
         };
         assert_eq!(

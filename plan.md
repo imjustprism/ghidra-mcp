@@ -16,7 +16,7 @@ Legend: `[x]` shipped · `[~]` in progress (open PR) · `[ ]` planned · API sta
 - [x] `function_summary_bundle` — one-call context pack (decompile + sig + callers + callees + strings)
 - [x] `set_variables` — atomic name+proto+all-locals on one function
 - [ ] Error envelope `{ok,value?,error?,hint?}` → MCP `isError` `[V]`
-- [ ] Expose `fmt`/verbosity knob to the bridge `[V]`
+- [x] Expose `fmt`/verbosity knob to the bridge — `fmt` (tsv/csv/json/verbose) on every paginated read tool
 - [ ] MCP progress notifications for long scans/analysis `[N]`
 
 ## Phase 2 — Protocol leap + type recovery
