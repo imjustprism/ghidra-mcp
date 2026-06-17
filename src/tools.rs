@@ -1145,6 +1145,23 @@ impl ToParams for DecodeStringsAuto {
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct XrefGraphArgs {
+    pub address: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max: Option<u32>,
+}
+
+impl ToParams for XrefGraphArgs {
+    fn into_params(self) -> Params {
+        let mut p = vec![("address", self.address)];
+        if let Some(m) = self.max {
+            p.push(("max", m.to_string()));
+        }
+        p
+    }
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
 pub struct ProgramName {
     pub name: String,
 }
@@ -1902,6 +1919,17 @@ impl GhidraServer {
             return Err(ErrorData::invalid_params("address is required", None));
         }
         self.get("function_cfg", p).await
+    }
+
+    #[tool(
+        description = "Render a one-hop reference graph around an address as Mermaid: inbound references (callers/readers) and outbound references (call/jump/data targets), edges labeled by reference type. max caps the number of references shown, split fairly between the two directions (default 40, hard cap 200)",
+        annotations(read_only_hint = true)
+    )]
+    async fn xref_graph(
+        &self,
+        Parameters(p): Parameters<XrefGraphArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.get("xref_graph", p).await
     }
 
     #[tool(

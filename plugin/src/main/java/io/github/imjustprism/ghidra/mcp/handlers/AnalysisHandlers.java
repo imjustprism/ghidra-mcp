@@ -29,6 +29,7 @@ import io.github.imjustprism.ghidra.mcp.analysis.StackStrings;
 import io.github.imjustprism.ghidra.mcp.analysis.StructDiagram;
 import io.github.imjustprism.ghidra.mcp.analysis.Syscalls;
 import io.github.imjustprism.ghidra.mcp.analysis.VTableScan;
+import io.github.imjustprism.ghidra.mcp.analysis.XrefGraph;
 import io.github.imjustprism.ghidra.mcp.http.Http;
 import io.github.imjustprism.ghidra.mcp.http.Page;
 import io.github.imjustprism.ghidra.mcp.http.RouteTable;
@@ -66,6 +67,7 @@ public final class AnalysisHandlers {
                 Http.parseIntOrDefault(q.get("depth"), 2), q.get("direction"),
                 Http.parseIntOrDefault(q.get("max_nodes"), 0)));
         routes.getQuery("/function_cfg", q -> Cfg.mermaid(ctx, q.get("address")));
+        routes.getQuery("/xref_graph", q -> XrefGraph.mermaid(ctx, q.get("address"), q.get("max")));
         routes.getQuery("/struct_diagram", q -> StructDiagram.mermaid(ctx, q.get("filter"),
                 Http.parseIntOrDefault(q.get("max"), 0)));
         routes.getQuery("/find_orphan_gaps", q -> OrphanGaps.find(ctx,
