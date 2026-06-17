@@ -12,6 +12,7 @@ import ghidra.program.model.data.FunctionDefinitionDataType;
 import ghidra.program.model.data.StructureDataType;
 import ghidra.program.model.data.UnionDataType;
 import ghidra.program.model.listing.CodeUnit;
+import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.Parameter;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.listing.VariableStorage;
@@ -29,6 +30,7 @@ import io.github.imjustprism.ghidra.mcp.http.RouteTable;
 import io.github.imjustprism.ghidra.mcp.util.Addresses;
 import io.github.imjustprism.ghidra.mcp.util.DataTypes;
 import io.github.imjustprism.ghidra.mcp.util.Json;
+import io.github.imjustprism.ghidra.mcp.util.NamingConvention;
 import io.github.imjustprism.ghidra.mcp.util.PluginContext;
 import io.github.imjustprism.ghidra.mcp.util.Programs;
 import io.github.imjustprism.ghidra.mcp.util.Responses;
@@ -87,6 +89,115 @@ public final class EditHandlers {
         routes.postForm("/batch_set_variable_type", p -> batchSetVariableType(p.get("items")));
         routes.postForm("/set_variables", p -> setVariables(p.get("function_address"),
                 p.get("new_name"), p.get("prototype"), p.get("variables")));
+        routes.postForm("/apply_naming_convention", p -> applyNamingConvention(p.get("convention"),
+                p.get("namespace"), Http.parseIntOrDefault(p.get("apply"), 0) != 0));
+    }
+
+    private static final int MAX_PREVIEW = 500;
+
+    public String applyNamingConvention(String conventionName, String namespace, boolean apply) {
+        var convention = NamingConvention.from(conventionName);
+        if (convention == null) {
+            throw new IllegalArgumentException("convention must be one of: snake, screaming_snake, camel, pascal");
+        }
+        var program = ctx.currentProgram();
+        if (program == null) throw new IllegalArgumentException("No program loaded");
+        var nsFilter = namespace == null || namespace.isBlank() ? null : namespace.trim();
+
+        record Change(String address, String oldName, String newName, Function function) {}
+        var changes = new java.util.ArrayList<Change>();
+        for (var f : program.getFunctionManager().getFunctions(true)) {
+            if (f.getSymbol().getSource() == SourceType.DEFAULT) continue;
+            if (nsFilter != null) {
+                var parent = f.getParentNamespace();
+                if (!nsFilter.equals(parent.getName(false)) && !nsFilter.equals(parent.getName(true))) continue;
+            }
+            var oldName = f.getName();
+            var newName = convention.apply(oldName);
+            if (!newName.isBlank() && !newName.equals(oldName)) {
+                changes.add(new Change(f.getEntryPoint().toString(), oldName, newName, f));
+            }
+        }
+
+        var statuses = new String[changes.size()];
+        java.util.Arrays.fill(statuses, "preview");
+        var applied = new int[1];
+        if (apply && !changes.isEmpty()) {
+            ctx.runOnSwingTx(program, "Apply naming convention", () -> {
+                var temp = new String[changes.size()];
+                for (int i = 0; i < changes.size(); i++) {
+                    try {
+                        var name = uniqueTempName(program, changes.get(i).function());
+                        changes.get(i).function().setName(name, SourceType.USER_DEFINED);
+                        temp[i] = name;
+                    } catch (Exception e) {
+                        statuses[i] = "failed: " + rootMessage(e);
+                        Msg.error(ctx.logOwner(), "Rename (stage 1) failed for " + changes.get(i).address(), e);
+                    }
+                }
+                for (int i = 0; i < changes.size(); i++) {
+                    if (temp[i] == null) continue;
+                    var c = changes.get(i);
+                    try {
+                        c.function().setName(c.newName(), SourceType.USER_DEFINED);
+                        statuses[i] = "ok";
+                        applied[0]++;
+                    } catch (Exception e) {
+                        statuses[i] = "failed: " + rootMessage(e);
+                        Msg.error(ctx.logOwner(), "Rename (stage 2) failed for " + c.address(), e);
+                        try {
+                            c.function().setName(c.oldName(), SourceType.USER_DEFINED);
+                        } catch (Exception revert) {
+                            Msg.error(ctx.logOwner(), "Revert failed for " + c.address(), revert);
+                        }
+                    }
+                }
+                return true;
+            });
+        }
+
+        int failed = 0;
+        for (var s : statuses) {
+            if (s.startsWith("failed")) failed++;
+        }
+        var sb = new StringBuilder();
+        if (apply) {
+            sb.append("# applied ").append(applied[0]).append(" of ").append(changes.size()).append(" rename(s)");
+            if (failed > 0) sb.append("; ").append(failed).append(" failed");
+        } else {
+            sb.append("# preview (dry-run, pass apply=1 to commit) ").append(changes.size()).append(" rename(s)");
+        }
+        sb.append(" to ").append(convention.name().toLowerCase(java.util.Locale.ROOT)).append('\n');
+        sb.append("address\told\tnew\tstatus\n");
+        int shown = Math.min(changes.size(), MAX_PREVIEW);
+        for (int i = 0; i < shown; i++) {
+            var c = changes.get(i);
+            sb.append(c.address()).append('\t')
+                    .append(Responses.cell(c.oldName())).append('\t')
+                    .append(Responses.cell(c.newName())).append('\t')
+                    .append(Responses.cell(statuses[i])).append('\n');
+        }
+        if (changes.size() > shown) {
+            sb.append("# ").append(changes.size() - shown).append(" more not shown\n");
+        }
+        return sb.toString();
+    }
+
+    private static String uniqueTempName(Program program, Function f) {
+        var base = "__mcp_rename_tmp_" + f.getEntryPoint();
+        var ns = f.getParentNamespace();
+        var st = program.getSymbolTable();
+        var name = base;
+        int suffix = 0;
+        while (!st.getSymbols(name, ns).isEmpty()) {
+            name = base + "_" + suffix++;
+        }
+        return name;
+    }
+
+    private static String rootMessage(Throwable e) {
+        var msg = e.getMessage();
+        return msg == null || msg.isBlank() ? e.getClass().getSimpleName() : msg;
     }
 
     public String setVariables(String addr, String newName, String prototype, String variablesJson) {
