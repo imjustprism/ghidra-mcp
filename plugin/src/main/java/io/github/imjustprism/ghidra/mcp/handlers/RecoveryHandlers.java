@@ -4,6 +4,7 @@ import ghidra.app.cmd.data.CreateDataCmd;
 import ghidra.app.cmd.function.CreateFunctionCmd;
 import ghidra.app.decompiler.DecompInterface;
 import ghidra.app.plugin.core.analysis.AutoAnalysisManager;
+import ghidra.app.services.ProgramManager;
 import ghidra.program.model.data.Structure;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.pcode.HighFunctionDBUtil;
@@ -44,6 +45,42 @@ public final class RecoveryHandlers {
                 p.getOrDefault("name", ""), p.getOrDefault("mode", "replace")));
         routes.postForm("/struct_delete_field", p -> structDeleteField(p.get("struct"),
                 Http.parseIntOrDefault(p.get("offset"), -1)));
+        routes.getQuery("/list_open_programs", this::listOpenPrograms);
+        routes.postForm("/select_program", p -> selectProgram(p.get("name")));
+    }
+
+    private String listOpenPrograms(Map<String, String> q) {
+        var pm = ctx.service(ProgramManager.class);
+        if (pm == null) throw new IllegalStateException("Program manager not available");
+        var current = pm.getCurrentProgram();
+        var all = pm.getAllOpenPrograms();
+        var t = Responses.table(q, new String[]{"name", "current", "sha256", "path"}, all.length);
+        for (var p : all) {
+            var sha = p.getExecutableSHA256();
+            var path = p.getExecutablePath();
+            t.row(p.getName(), p == current, sha != null ? sha : "", path != null ? path : "");
+        }
+        return t.total(all.length).build();
+    }
+
+    private String selectProgram(String name) {
+        if (name == null || name.isBlank()) throw new IllegalArgumentException("name is required");
+        var pm = ctx.service(ProgramManager.class);
+        if (pm == null) throw new IllegalStateException("Program manager not available");
+        Program target = null;
+        for (var p : pm.getAllOpenPrograms()) {
+            if (p.getName().equals(name) || name.equals(p.getExecutableSHA256())) {
+                target = p;
+                break;
+            }
+        }
+        if (target == null) throw new IllegalArgumentException("no open program named: " + name);
+        var chosen = target;
+        ctx.runOnSwing(() -> {
+            pm.setCurrentProgram(chosen);
+            return true;
+        });
+        return "selected " + chosen.getName();
     }
 
     private String analyzeProgram(boolean all) {

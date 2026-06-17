@@ -1144,6 +1144,17 @@ impl ToParams for DecodeStringsAuto {
     }
 }
 
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct ProgramName {
+    pub name: String,
+}
+
+impl ToParams for ProgramName {
+    fn into_params(self) -> Params {
+        vec![("name", self.name)]
+    }
+}
+
 const NO_QUERY: &[(); 0] = &[];
 
 impl GhidraServer {
@@ -2493,6 +2504,28 @@ impl GhidraServer {
         Parameters(p): Parameters<Page>,
     ) -> Result<CallToolResult, ErrorData> {
         self.get("recover_rtti_classes", p).await
+    }
+
+    #[tool(
+        description = "List all programs currently open in this Ghidra tool, with name, which is active, sha256, and path. Cross-binary work (diffing, matching) needs two programs open here",
+        annotations(read_only_hint = true)
+    )]
+    async fn list_open_programs(&self) -> Result<CallToolResult, ErrorData> {
+        self.get_bare("list_open_programs").await
+    }
+
+    #[tool(
+        description = "Switch the active program (the one all other tools operate on) to an open program by name or sha256. Use with list_open_programs to move between binaries",
+        annotations(destructive_hint = false)
+    )]
+    async fn select_program(
+        &self,
+        Parameters(p): Parameters<ProgramName>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if p.name.is_empty() {
+            return Err(ErrorData::invalid_params("name is required", None));
+        }
+        self.post("select_program", p).await
     }
 
     #[tool(
