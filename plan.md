@@ -59,7 +59,7 @@ Legend: `[x]` shipped · `[~]` in progress (open PR) · `[ ]` planned · API sta
 - [x] `namespace_graph` — Mermaid namespace/class hierarchy
 - [x] `cfg_metrics` — block/edge/cyclomatic/loop complexity
 - [x] `dominator_tree` — immediate-dominator per basic block
-- [ ] Interactive HTML graph `[V]`
+- [x] Interactive HTML graph — `xref_graph_html` (self-contained, offline, pan/zoom/hover)
 - [x] `find_crypto_constants` — AES/SHA/MD5 constant detection
 - [x] `find_syscalls` — direct syscall/sysenter/int2e stub detection + SSN
 - [x] `find_anti_vm` — VM/sandbox artifact string detection

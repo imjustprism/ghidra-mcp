@@ -58,8 +58,13 @@ public final class Http {
     }
 
     public static void sendResponse(HttpExchange ex, int status, String body) throws IOException {
+        sendResponse(ex, status, body, "text/plain; charset=utf-8");
+    }
+
+    public static void sendResponse(HttpExchange ex, int status, String body, String contentType)
+            throws IOException {
         var bytes = body.getBytes(StandardCharsets.UTF_8);
-        ex.getResponseHeaders().set("Content-Type", "text/plain; charset=utf-8");
+        ex.getResponseHeaders().set("Content-Type", contentType);
         ex.sendResponseHeaders(status, bytes.length);
         try (OutputStream os = ex.getResponseBody()) {
             os.write(bytes);

@@ -2031,6 +2031,17 @@ impl GhidraServer {
     }
 
     #[tool(
+        description = "Render the same one-hop reference graph as xref_graph but as a self-contained, offline interactive HTML page (no external dependencies): inbound references on the left, outbound on the right, the center node highlighted, with mouse pan/zoom/drag and hover edge-highlighting. Save the output to a .html file and open it in a browser. max caps the references shown (default 40, hard cap 200)",
+        annotations(read_only_hint = true)
+    )]
+    async fn xref_graph_html(
+        &self,
+        Parameters(p): Parameters<XrefGraphArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.get("xref_graph_html", p).await
+    }
+
+    #[tool(
         description = "Render the program's namespace/class hierarchy as a Mermaid top-down graph (parent namespace -> child). A module-altitude view of how the binary is organized. max caps the namespace count (default 80, hard cap 400)",
         annotations(read_only_hint = true)
     )]
