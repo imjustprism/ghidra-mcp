@@ -71,7 +71,7 @@ Legend: `[x]` shipped · `[~]` in progress (open PR) · `[ ]` planned · API sta
 
 ## Engineering hardening (alongside)
 - [x] File-IO sandbox — `import_memory_dump`/`export_binary` gated to an allow-listed dir (logged)
-- [ ] Bound executor / program lock for off-EDT reads `[V]`
+- [x] Bound executor — concurrent requests capped at CPU count (semaphore) to limit program access
 - [ ] `patch_bytes` opt-in disassembly + `search_bytes` cursor `[V]`
 - [x] Rust connect-vs-upstream error classification (map_err: connect/timeout/4xx with hints)
 - [ ] README auto-gen from route table + handler/e2e tests `[V]`
