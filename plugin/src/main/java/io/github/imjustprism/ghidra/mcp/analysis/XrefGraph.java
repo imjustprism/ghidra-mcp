@@ -28,13 +28,18 @@ public final class XrefGraph {
             nodes.put(centerId, label(program, fm, a));
 
             var outRefs = new ArrayList<Reference>();
+            boolean outMore = false;
             for (var r : refs.getReferencesFrom(a)) {
-                if (outRefs.size() >= cap) break;
+                if (outRefs.size() >= cap) { outMore = true; break; }
                 outRefs.add(r);
             }
             var inRefs = new ArrayList<Reference>();
+            boolean inMore = false;
             var inbound = refs.getReferencesTo(a);
-            while (inbound.hasNext() && inRefs.size() < cap) inRefs.add(inbound.next());
+            while (inbound.hasNext()) {
+                if (inRefs.size() >= cap) { inMore = true; break; }
+                inRefs.add(inbound.next());
+            }
 
             int oi = 0;
             int ii = 0;
@@ -57,7 +62,7 @@ public final class XrefGraph {
                     added++;
                 }
             }
-            boolean capped = oi < outRefs.size() || ii < inRefs.size();
+            boolean capped = outMore || inMore || oi < outRefs.size() || ii < inRefs.size();
 
             var sb = new StringBuilder(256 + nodes.size() * 48);
             sb.append("```mermaid\nflowchart LR\n");
