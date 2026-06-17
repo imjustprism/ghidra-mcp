@@ -1922,7 +1922,7 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Render a one-hop reference graph around an address as Mermaid: inbound references (callers/readers) and outbound references (call/jump/data targets), edges labeled by reference type. max caps node count (default 40)",
+        description = "Render a one-hop reference graph around an address as Mermaid: inbound references (callers/readers) and outbound references (call/jump/data targets), edges labeled by reference type. max caps the number of references shown, split fairly between the two directions (default 40, hard cap 200)",
         annotations(read_only_hint = true)
     )]
     async fn xref_graph(
