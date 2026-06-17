@@ -15,6 +15,7 @@ import io.github.imjustprism.ghidra.mcp.analysis.DecodeStrings;
 import io.github.imjustprism.ghidra.mcp.analysis.DynamicApi;
 import io.github.imjustprism.ghidra.mcp.analysis.CryptoConstants;
 import io.github.imjustprism.ghidra.mcp.analysis.DecompileMinimal;
+import io.github.imjustprism.ghidra.mcp.analysis.DominatorTree;
 import io.github.imjustprism.ghidra.mcp.analysis.FunctionHash;
 import io.github.imjustprism.ghidra.mcp.analysis.Emulator;
 import io.github.imjustprism.ghidra.mcp.analysis.EncodedStrings;
@@ -70,6 +71,7 @@ public final class AnalysisHandlers {
                 Http.parseIntOrDefault(q.get("max_nodes"), 0)));
         routes.getQuery("/function_cfg", q -> Cfg.mermaid(ctx, q.get("address")));
         routes.getQuery("/cfg_metrics", q -> CfgMetrics.metrics(ctx, q.get("address"), q));
+        routes.getQuery("/dominator_tree", q -> DominatorTree.compute(ctx, q.get("address"), Page.from(q), q));
         routes.getQuery("/xref_graph", q -> XrefGraph.mermaid(ctx, q.get("address"), q.get("max")));
         routes.getQuery("/namespace_graph", q -> NamespaceGraph.mermaid(ctx, q.get("max")));
         routes.getQuery("/struct_diagram", q -> StructDiagram.mermaid(ctx, q.get("filter"),
