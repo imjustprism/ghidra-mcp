@@ -1161,6 +1161,21 @@ impl ToParams for XrefGraphArgs {
     }
 }
 
+#[derive(Deserialize, Serialize, schemars::JsonSchema, Default)]
+pub struct GraphMax {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max: Option<u32>,
+}
+
+impl ToParams for GraphMax {
+    fn into_params(self) -> Params {
+        self.max
+            .map(|m| ("max", m.to_string()))
+            .into_iter()
+            .collect()
+    }
+}
+
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
 pub struct ProgramName {
     pub name: String,
@@ -1930,6 +1945,17 @@ impl GhidraServer {
         Parameters(p): Parameters<XrefGraphArgs>,
     ) -> Result<CallToolResult, ErrorData> {
         self.get("xref_graph", p).await
+    }
+
+    #[tool(
+        description = "Render the program's namespace/class hierarchy as a Mermaid top-down graph (parent namespace -> child). A module-altitude view of how the binary is organized. max caps the namespace count (default 80, hard cap 400)",
+        annotations(read_only_hint = true)
+    )]
+    async fn namespace_graph(
+        &self,
+        Parameters(p): Parameters<GraphMax>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.get("namespace_graph", p).await
     }
 
     #[tool(
