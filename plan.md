@@ -55,7 +55,8 @@ Legend: `[x]` shipped · `[~]` in progress (open PR) · `[ ]` planned · API sta
 - [ ] Z3 concolic: `solve_branch_constraints` / `find_path_to_address` `[X]`
 - [ ] Taint: `taint_forward` / `taint_backward` `[N]`
 - [ ] Coverage: `load_coverage` / `trace_to_coverage` / `coverage_report` / `coverage_diff` `[N]`
-- [ ] Interactive HTML graph + `xref_graph`/`namespace_graph`/`dominator_tree`/`cfg_metrics` `[V]`
+- [x] `xref_graph` — Mermaid one-hop reference graph
+- [ ] Interactive HTML graph + `namespace_graph`/`dominator_tree`/`cfg_metrics` `[V]`
 - [x] `find_crypto_constants` — AES/SHA/MD5 constant detection
 - [x] `find_syscalls` — direct syscall/sysenter/int2e stub detection + SSN
 - [x] `find_anti_vm` — VM/sandbox artifact string detection
