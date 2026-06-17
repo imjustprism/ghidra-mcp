@@ -74,4 +74,4 @@ Legend: `[x]` shipped · `[~]` in progress (open PR) · `[ ]` planned · API sta
 - [x] Bound executor — concurrent requests capped at CPU count (semaphore) to limit program access
 - [x] `patch_bytes` opt-in disassembly + `search_bytes` cursor (next_cursor footer + start resume)
 - [x] Rust connect-vs-upstream error classification (map_err: connect/timeout/4xx with hints)
-- [ ] README auto-gen from route table + handler/e2e tests `[V]`
+- [x] README sync guard — tests assert tool count + every tool name match the live router catalog (caught 3 undocumented tools)

@@ -3248,6 +3248,29 @@ mod tests {
     }
 
     #[test]
+    fn readme_tool_count_matches_catalog() {
+        let n = GhidraServer::tool_router().list_all().len();
+        let readme = include_str!("../README.md");
+        let expected = format!("{n} tools total.");
+        assert!(
+            readme.contains(&expected),
+            "README is out of sync: it must state \"{expected}\" (catalog has {n} tools)"
+        );
+    }
+
+    #[test]
+    fn every_tool_is_documented_in_readme() {
+        let readme = include_str!("../README.md");
+        let missing: Vec<String> = GhidraServer::tool_router()
+            .list_all()
+            .into_iter()
+            .map(|t| t.name.to_string())
+            .filter(|name| !readme.contains(&format!("`{name}`")))
+            .collect();
+        assert!(missing.is_empty(), "tools missing from README: {missing:?}");
+    }
+
+    #[test]
     fn tool_router_introspects_catalog() {
         let names: Vec<String> = GhidraServer::tool_router()
             .list_all()
