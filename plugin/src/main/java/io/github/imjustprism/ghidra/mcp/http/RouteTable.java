@@ -75,6 +75,10 @@ public final class RouteTable {
         server.createContext(path, wrap(ex -> fn.apply(Http.parseQuery(ex))));
     }
 
+    public void getHtml(String path, Route.QueryFn fn) {
+        server.createContext(path, wrap(ex -> fn.apply(Http.parseQuery(ex)), "text/html; charset=utf-8"));
+    }
+
     public void postForm(String path, Route.QueryFn fn) {
         server.createContext(path, wrap(ex -> fn.apply(Http.parseForm(ex))));
     }
@@ -85,6 +89,10 @@ public final class RouteTable {
     }
 
     private HttpHandler wrap(Route.ExchangeHandler h) {
+        return wrap(h, "text/plain; charset=utf-8");
+    }
+
+    private HttpHandler wrap(Route.ExchangeHandler h, String contentType) {
         return ex -> {
             if (ex.getRequestHeaders().getFirst("Origin") != null) {
                 Http.sendResponse(ex, 403, "Browser origins are not allowed");
@@ -107,7 +115,7 @@ public final class RouteTable {
             }
             try {
                 var body = h.handle(ex);
-                Http.sendResponse(ex, 200, body == null ? "" : body);
+                Http.sendResponse(ex, 200, body == null ? "" : body, contentType);
             } catch (IllegalArgumentException iae) {
                 Http.sendResponse(ex, 400, "Bad request: " + iae.getMessage());
             } catch (Exception e) {
