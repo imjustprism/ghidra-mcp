@@ -135,9 +135,9 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 | --- | --- |
 | `read_bytes` | raw hex |
 | `hex_dump` | formatted dump |
-| `search_bytes` | pattern search |
+| `search_bytes` | pattern search (cursor-resumable via `start`/`next_cursor`) |
 | `find_string` | literal search |
-| `patch_bytes` | write hex |
+| `patch_bytes` | write hex (opt-in re-disassembly) |
 | `nop_range` | patch NOPs |
 | `create_label` | add label |
 | `xor_decrypt` | XOR a range |

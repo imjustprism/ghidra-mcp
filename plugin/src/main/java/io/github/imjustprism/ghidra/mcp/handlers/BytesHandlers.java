@@ -55,7 +55,8 @@ public final class BytesHandlers {
         routes.getQuery("/hex_dump", q -> hexDump(q.get("address"), Http.parseIntOrDefault(q.get("length"), 128)));
         routes.getQuery("/search_bytes", q -> searchBytes(q.get("pattern"), Page.from(q), q));
         routes.getQuery("/find_string", q -> findString(q.get("value"), Page.from(q), q));
-        routes.postForm("/patch_bytes", p -> patchBytes(p.get("address"), p.get("hex")));
+        routes.postForm("/patch_bytes", p -> patchBytes(p.get("address"), p.get("hex"),
+                Http.parseIntOrDefault(p.get("disassemble"), 0) != 0));
         routes.postForm("/nop_range", p -> nopRange(p.get("address"), Http.parseIntOrDefault(p.get("length"), 0)));
         routes.postForm("/export_binary", p -> exportBinary(p.get("path")));
         routes.postForm("/save_program", p -> saveProgram());
@@ -128,20 +129,35 @@ public final class BytesHandlers {
                 }
             }
             Memory memory = program.getMemory();
+            var start = q.get("start");
+            boolean cursorMode = start != null && !start.isBlank();
+            Address cursor;
+            if (cursorMode) {
+                cursor = program.getAddressFactory().getAddress(start.trim());
+                if (cursor == null) throw new IllegalArgumentException("Invalid start address: " + start);
+            } else {
+                cursor = memory.getMinAddress();
+            }
+            int off = cursorMode ? 0 : p.offset();
             var t = Responses.table(p, q, new String[]{"addr"});
-            Address cursor = memory.getMinAddress();
-            int cap = p.offset() + p.limit();
-            int found = 0, off = p.offset(), kept = 0;
+            int found = 0, kept = 0;
+            Address resume = null;
             var monitor = new ConsoleTaskMonitor();
-            while (cursor != null && found < cap) {
+            while (cursor != null) {
                 Address next = memory.findBytes(cursor, bytes, mask, true, monitor);
                 if (next == null) break;
                 found++;
-                if (found > off && kept < p.limit()) { t.row(Responses.addr(next)); kept++; }
+                if (found > off && kept < p.limit()) {
+                    t.row(Responses.addr(next));
+                    if (++kept == p.limit()) { resume = next.next(); break; }
+                }
                 cursor = next.next();
-                if (cursor == null) break;
             }
-            return t.total(found).build();
+            var body = t.total(found).build();
+            if (resume != null && Responses.pickFmt(q) != Responses.Fmt.JSON) {
+                body += "# next_cursor: " + resume + "\n";
+            }
+            return body;
         });
     }
 
@@ -165,6 +181,10 @@ public final class BytesHandlers {
     }
 
     public String patchBytes(String addr, String hex) {
+        return patchBytes(addr, hex, false);
+    }
+
+    public String patchBytes(String addr, String hex, boolean disassemble) {
         if (addr == null || addr.isBlank()) throw new IllegalArgumentException("Address is required");
         if (hex == null || hex.isBlank()) throw new IllegalArgumentException("Hex bytes required");
         if (hex.replace(" ", "").length() % 2 != 0) throw new IllegalArgumentException("Hex must have even length");
@@ -188,10 +208,9 @@ public final class BytesHandlers {
                 if (!wasWrite) block.setWrite(true);
                 try {
                     var listing = program.getListing();
-                    boolean wasCode = listing.getInstructionContaining(a) != null;
                     listing.clearCodeUnits(a, end, false);
                     program.getMemory().setBytes(a, bytes);
-                    if (wasCode) {
+                    if (disassemble) {
                         var disasm = new ghidra.app.cmd.disassemble.DisassembleCommand(a, null, true);
                         disasm.applyTo(program, new ConsoleTaskMonitor());
                     }
@@ -209,7 +228,8 @@ public final class BytesHandlers {
             throw new IllegalStateException(
                     "Failed to patch bytes: " + (error[0] != null ? error[0] : "unknown"));
         }
-        return "Patched %d bytes at %s".formatted(bytes.length, addr);
+        return "Patched %d bytes at %s%s".formatted(bytes.length, addr,
+                disassemble ? " (re-disassembled)" : "");
     }
 
     public String nopRange(String addr, int length) {
