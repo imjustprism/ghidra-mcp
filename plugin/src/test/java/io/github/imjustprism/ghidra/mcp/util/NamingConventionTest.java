@@ -37,6 +37,13 @@ class NamingConventionTest {
     }
 
     @Test
+    void splitsLowercaseWordAfterDigits() {
+        assertEquals("foo2_bar", NamingConvention.SNAKE.apply("foo2bar"));
+        assertEquals("crc32_table", NamingConvention.SNAKE.apply("crc32table"));
+        assertEquals("aes256_decrypt", NamingConvention.SNAKE.apply("aes256decrypt"));
+    }
+
+    @Test
     void emptyOrSymbolOnlyReturnsInput() {
         assertEquals("", NamingConvention.SNAKE.apply(""));
         assertEquals("___", NamingConvention.SNAKE.apply("___"));

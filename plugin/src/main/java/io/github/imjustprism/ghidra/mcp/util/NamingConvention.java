@@ -2,6 +2,7 @@ package io.github.imjustprism.ghidra.mcp.util;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 public enum NamingConvention {
     SNAKE,
@@ -11,7 +12,7 @@ public enum NamingConvention {
 
     public static NamingConvention from(String name) {
         if (name == null) return null;
-        return switch (name.trim().toLowerCase()) {
+        return switch (name.trim().toLowerCase(Locale.ROOT)) {
             case "snake", "snake_case" -> SNAKE;
             case "screaming_snake", "screaming", "upper_snake", "constant" -> SCREAMING_SNAKE;
             case "camel", "camelcase" -> CAMEL;
@@ -42,12 +43,16 @@ public enum NamingConvention {
                 flush(word, tokens);
                 continue;
             }
-            boolean boundary = word.length() > 0
+            char prev = word.length() > 0 ? word.charAt(word.length() - 1) : 0;
+            boolean upperBoundary = word.length() > 0
                     && Character.isUpperCase(c)
-                    && (Character.isLowerCase(word.charAt(word.length() - 1))
-                        || Character.isDigit(word.charAt(word.length() - 1))
+                    && (Character.isLowerCase(prev)
+                        || Character.isDigit(prev)
                         || (i + 1 < chars.length && Character.isLowerCase(chars[i + 1])));
-            if (boundary) flush(word, tokens);
+            boolean digitBoundary = word.length() > 0
+                    && Character.isLetter(c)
+                    && Character.isDigit(prev);
+            if (upperBoundary || digitBoundary) flush(word, tokens);
             word.append(c);
         }
         flush(word, tokens);
@@ -64,7 +69,7 @@ public enum NamingConvention {
         var sb = new StringBuilder();
         for (var t : tokens) {
             if (sb.length() > 0) sb.append(sep);
-            sb.append(t.toLowerCase());
+            sb.append(t.toLowerCase(Locale.ROOT));
         }
         return sb.toString();
     }
@@ -73,7 +78,7 @@ public enum NamingConvention {
         var sb = new StringBuilder();
         for (var t : tokens) {
             if (sb.length() > 0) sb.append('_');
-            sb.append(t.toUpperCase());
+            sb.append(t.toUpperCase(Locale.ROOT));
         }
         return sb.toString();
     }
@@ -81,7 +86,7 @@ public enum NamingConvention {
     private static String camel(List<String> tokens, boolean capitalizeFirst) {
         var sb = new StringBuilder();
         for (int i = 0; i < tokens.size(); i++) {
-            var t = tokens.get(i).toLowerCase();
+            var t = tokens.get(i).toLowerCase(Locale.ROOT);
             if (i == 0 && !capitalizeFirst) sb.append(t);
             else sb.append(Character.toUpperCase(t.charAt(0))).append(t.substring(1));
         }

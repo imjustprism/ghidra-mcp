@@ -119,35 +119,73 @@ public final class EditHandlers {
             }
         }
 
+        var statuses = new String[changes.size()];
+        java.util.Arrays.fill(statuses, "preview");
+        var applied = new int[1];
         if (apply && !changes.isEmpty()) {
             ctx.runOnSwingTx(program, "Apply naming convention", () -> {
-                for (var c : changes) {
+                var temp = new String[changes.size()];
+                for (int i = 0; i < changes.size(); i++) {
+                    try {
+                        var name = "__mcp_rename_tmp_" + i;
+                        changes.get(i).function().setName(name, SourceType.USER_DEFINED);
+                        temp[i] = name;
+                    } catch (Exception e) {
+                        statuses[i] = "failed: " + rootMessage(e);
+                        Msg.error(ctx.logOwner(), "Rename (stage 1) failed for " + changes.get(i).address(), e);
+                    }
+                }
+                for (int i = 0; i < changes.size(); i++) {
+                    if (temp[i] == null) continue;
+                    var c = changes.get(i);
                     try {
                         c.function().setName(c.newName(), SourceType.USER_DEFINED);
+                        statuses[i] = "ok";
+                        applied[0]++;
                     } catch (Exception e) {
-                        Msg.error(ctx.logOwner(), "Rename failed for " + c.address(), e);
+                        statuses[i] = "failed: " + rootMessage(e);
+                        Msg.error(ctx.logOwner(), "Rename (stage 2) failed for " + c.address(), e);
+                        try {
+                            c.function().setName(c.oldName(), SourceType.USER_DEFINED);
+                        } catch (Exception revert) {
+                            Msg.error(ctx.logOwner(), "Revert failed for " + c.address(), revert);
+                        }
                     }
                 }
                 return true;
             });
         }
 
+        int failed = 0;
+        for (var s : statuses) {
+            if (s.startsWith("failed")) failed++;
+        }
         var sb = new StringBuilder();
-        sb.append(apply ? "# applied " : "# preview (dry-run, pass apply=1 to commit) ")
-                .append(changes.size()).append(" rename(s) to ")
-                .append(convention.name().toLowerCase()).append('\n');
-        sb.append("address\told\tnew\n");
+        if (apply) {
+            sb.append("# applied ").append(applied[0]).append(" of ").append(changes.size()).append(" rename(s)");
+            if (failed > 0) sb.append("; ").append(failed).append(" failed");
+        } else {
+            sb.append("# preview (dry-run, pass apply=1 to commit) ").append(changes.size()).append(" rename(s)");
+        }
+        sb.append(" to ").append(convention.name().toLowerCase(java.util.Locale.ROOT)).append('\n');
+        sb.append("address\told\tnew\tstatus\n");
         int shown = Math.min(changes.size(), MAX_PREVIEW);
         for (int i = 0; i < shown; i++) {
             var c = changes.get(i);
             sb.append(c.address()).append('\t')
                     .append(Responses.cell(c.oldName())).append('\t')
-                    .append(Responses.cell(c.newName())).append('\n');
+                    .append(Responses.cell(c.newName())).append('\t')
+                    .append(Responses.cell(statuses[i])).append('\n');
         }
         if (changes.size() > shown) {
             sb.append("# ").append(changes.size() - shown).append(" more not shown\n");
         }
         return sb.toString();
+    }
+
+    private static String rootMessage(Throwable e) {
+        var msg = e.getMessage();
+        return msg == null || msg.isBlank() ? e.getClass().getSimpleName() : msg;
     }
 
     public String setVariables(String addr, String newName, String prototype, String variablesJson) {
