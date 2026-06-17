@@ -35,6 +35,32 @@ public final class ListingHandlers {
         routes.getPage("/entry_points", this::listEntryPoints);
         routes.getQuery("/strings", q -> listStrings(Page.from(q), q));
         routes.getQuery("/relocations", q -> listRelocations(Page.from(q), q));
+        routes.getQuery("/bookmarks", q -> listBookmarks(Page.from(q), q));
+    }
+
+    public String listBookmarks(Page p, Map<String, String> q) {
+        return ctx.withProgram(program -> {
+            var bm = program.getBookmarkManager();
+            var rows = new java.util.ArrayList<Object[]>();
+            long off = p.offset();
+            long lim = p.limit();
+            long total = 0;
+            for (var it = bm.getBookmarksIterator(); it.hasNext(); ) {
+                var b = it.next();
+                if (total >= off && rows.size() < lim) {
+                    var comment = b.getComment();
+                    rows.add(new Object[]{Responses.addr(b.getAddress()), b.getTypeString(),
+                            b.getCategory() != null ? b.getCategory() : "",
+                            comment != null ? Strings.escapeString(comment) : ""});
+                }
+                total++;
+            }
+            var t = Responses.table(p, q, new String[]{"address", "type", "category", "comment"});
+            for (var row : rows) {
+                t.row(row);
+            }
+            return t.total((int) Math.min(total, Integer.MAX_VALUE)).build();
+        });
     }
 
     public String listRelocations(Page p, Map<String, String> q) {

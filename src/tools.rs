@@ -1960,6 +1960,17 @@ impl GhidraServer {
     }
 
     #[tool(
+        description = "List Ghidra bookmarks (analysis errors/warnings, notes, etc.) with address, type, category, and comment. A quick triage view of where analysis flagged problems or left notes",
+        annotations(read_only_hint = true)
+    )]
+    async fn list_bookmarks(
+        &self,
+        Parameters(p): Parameters<Page>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.get("bookmarks", p).await
+    }
+
+    #[tool(
         description = "Get active trace name, target name, target state (RUNNING/STOPPED), PID, image base, ASLR slide",
         annotations(read_only_hint = true)
     )]
