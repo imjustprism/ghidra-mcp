@@ -59,10 +59,10 @@ MCP server for Ghidra. Rust bridge + Ghidra Java plugin. Wires any MCP client (C
 
 ## Tools
 
-131 tools total.
+132 tools total.
 
 <details>
-<summary><b>Listing / metadata</b> (17)</summary>
+<summary><b>Listing / metadata</b> (18)</summary>
 
 | tool | purpose |
 | --- | --- |
@@ -83,6 +83,7 @@ MCP server for Ghidra. Rust bridge + Ghidra Java plugin. Wires any MCP client (C
 | `get_function_by_address` | resolve by address |
 | `program_info` | language, arch, base, sha256 |
 | `function_stack_frame` | stack vars for a fn |
+| `list_relocations` | relocation entries (address, type, symbol) |
 
 </details>
 
