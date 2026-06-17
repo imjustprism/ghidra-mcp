@@ -26,7 +26,7 @@ Legend: `[x]` shipped · `[~]` in progress (open PR) · `[ ]` planned · API sta
 - [x] `function_completeness` scoring 0–100
 - [x] `find_undocumented` — least-documented work queue
 - [ ] `apply_naming_convention` (PascalCase/Hungarian/snake) `[V]`
-- [ ] `recover_rtti_classes` `[V]`
+- [x] `recover_rtti_classes` — list recovered C++ classes + vftables + method counts
 - [ ] `apply_fid_signatures` `[N]`
 - [ ] `apply_gdt` / `list_data_type_archives` `[N]`
 - [ ] `import_pdb` / `import_dwarf` `[N]`
