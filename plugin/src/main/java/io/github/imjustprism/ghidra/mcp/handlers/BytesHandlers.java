@@ -17,10 +17,37 @@ import java.util.Map;
 
 public final class BytesHandlers {
 
+    private static final String OPTION_CATEGORY = "Ghidra MCP HTTP Server";
+    private static final String FILE_IO_DIR_OPTION = "File IO Directory";
+
     private final PluginContext ctx;
 
     public BytesHandlers(PluginContext ctx) {
         this.ctx = ctx;
+    }
+
+    private java.io.File requireAllowedPath(String path) {
+        var allowed = ctx.tool().getOptions(OPTION_CATEGORY).getString(FILE_IO_DIR_OPTION, "");
+        if (allowed == null || allowed.isBlank()) {
+            throw new IllegalStateException("File I/O is disabled. Set '" + FILE_IO_DIR_OPTION
+                    + "' (Edit > Tool Options > " + OPTION_CATEGORY + ") to an allow-listed directory.");
+        }
+        try {
+            var base = new java.io.File(allowed).getCanonicalFile();
+            if (!base.isDirectory()) {
+                throw new IllegalStateException("'" + FILE_IO_DIR_OPTION + "' is not a directory: " + base);
+            }
+            var target = new java.io.File(path).getCanonicalFile();
+            for (var f = target.getParentFile(); f != null; f = f.getParentFile()) {
+                if (f.equals(base)) {
+                    Msg.info(ctx.logOwner(), "MCP file I/O allowed: " + target);
+                    return target;
+                }
+            }
+            throw new IllegalArgumentException("path is outside the allowed directory " + base + ": " + target);
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException("path validation failed: " + e.getMessage(), e);
+        }
     }
 
     public void register(RouteTable routes) {
@@ -241,11 +268,12 @@ public final class BytesHandlers {
     public String importMemoryDump(String addr, String path) {
         if (addr == null || addr.isBlank()) throw new IllegalArgumentException("Address is required");
         if (path == null || path.isBlank()) throw new IllegalArgumentException("Path is required");
+        var dump = requireAllowedPath(path);
         var program = ctx.currentProgram();
         if (program == null) throw new IllegalArgumentException("No program loaded");
         byte[] bytes;
         try {
-            bytes = java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path));
+            bytes = java.nio.file.Files.readAllBytes(dump.toPath());
         } catch (Exception e) {
             throw new IllegalStateException("Failed to read file: " + e.getMessage(), e);
         }
@@ -281,11 +309,11 @@ public final class BytesHandlers {
 
     public String exportBinary(String path) {
         if (path == null || path.isBlank()) throw new IllegalArgumentException("Path is required");
+        var out = requireAllowedPath(path);
         var program = ctx.currentProgram();
         if (program == null) throw new IllegalArgumentException("No program loaded");
         try {
-            var out = new java.io.File(path);
-            var parent = out.getAbsoluteFile().getParentFile();
+            var parent = out.getParentFile();
             if (parent != null && !parent.exists() && !parent.mkdirs()) {
                 throw new IllegalStateException("Failed to create parent directory: " + parent);
             }

@@ -56,6 +56,7 @@ MCP server for Ghidra. Rust bridge + Ghidra Java plugin. Wires any MCP client (C
 | Server Port | `8080` |
 | Bind Address | `127.0.0.1` |
 | Auth Token | empty (auth disabled) |
+| File IO Directory | empty (file I/O disabled) |
 
 ## Tools
 

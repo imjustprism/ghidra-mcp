@@ -70,7 +70,7 @@ Legend: `[x]` shipped · `[~]` in progress (open PR) · `[ ]` planned · API sta
 - [ ] Optional Frida backend `[X]`
 
 ## Engineering hardening (alongside)
-- [ ] File-IO sandbox + mutation audit log `[V]`
+- [x] File-IO sandbox — `import_memory_dump`/`export_binary` gated to an allow-listed dir (logged)
 - [ ] Bound executor / program lock for off-EDT reads `[V]`
 - [ ] `patch_bytes` opt-in disassembly + `search_bytes` cursor `[V]`
 - [x] Rust connect-vs-upstream error classification (map_err: connect/timeout/4xx with hints)
