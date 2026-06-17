@@ -57,6 +57,7 @@ public final class AnalysisHandlers {
                 Double.parseDouble(q.getOrDefault("threshold", "7.5")),
                 Http.parseIntOrDefault(q.get("window"), 256), Page.from(q), q));
         routes.getQuery("/program_info", this::programInfo);
+        routes.getQuery("/program_metadata", q -> programMetadata(Page.from(q), q));
         routes.getQuery("/demangle_symbol", q -> Demangler.demangleSymbol(q.get("mangled")));
         routes.getQuery("/pcode_function", q -> Pcode.pcodeFunction(ctx, q.get("address")));
         routes.getQuery("/callgraph_dot", q -> CallGraph.dot(ctx, q.get("address"),
@@ -102,6 +103,29 @@ public final class AnalysisHandlers {
         routes.getQuery("/resolve_relative", q -> Signatures.resolveRelative(ctx, q.get("address")));
         routes.getQuery("/find_function_by_string", q -> Signatures.findFunctionByString(ctx,
                 q.get("value"), Http.parseIntOrDefault(q.get("max"), 5), q.getOrDefault("format", "ida")));
+    }
+
+    public String programMetadata(Page p, Map<String, String> q) {
+        return ctx.withProgram(program -> {
+            Map<String, String> md;
+            try {
+                md = program.getMetadata();
+            } catch (Exception e) {
+                throw new IllegalStateException("metadata unavailable: " + e.getMessage(), e);
+            }
+            var t = Responses.table(p, q, new String[]{"key", "value"});
+            var w = new Responses.Window(p);
+            if (md != null) {
+                var keys = new java.util.ArrayList<>(md.keySet());
+                java.util.Collections.sort(keys);
+                for (var key : keys) {
+                    if (!w.take()) continue;
+                    var v = md.get(key);
+                    t.row(key, v != null ? v : "");
+                }
+            }
+            return t.total(w.total()).build();
+        });
     }
 
     public String programInfo(Map<String, String> q) {
