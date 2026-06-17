@@ -3264,7 +3264,7 @@ mod tests {
             .split_once("## Tools")
             .and_then(|(_, rest)| rest.split_once("\n## "))
             .map(|(section, _)| section)
-            .expect("README must have a '## Tools' section followed by another '## ' heading")
+            .unwrap()
     }
 
     fn readme_table_tool_names() -> Vec<String> {
