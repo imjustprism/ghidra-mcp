@@ -14,6 +14,12 @@ class PointerPathTest {
     }
 
     @Test
+    void acceptsFullRangeUnsignedHex() {
+        assertArrayEquals(new long[]{0x8000000000000000L}, PointerPath.parseOffsets("0x8000000000000000"));
+        assertArrayEquals(new long[]{-1L}, PointerPath.parseOffsets("0xFFFFFFFFFFFFFFFF"));
+    }
+
+    @Test
     void emptyOffsetsYieldEmptyArray() {
         assertArrayEquals(new long[0], PointerPath.parseOffsets(""));
         assertArrayEquals(new long[0], PointerPath.parseOffsets(null));

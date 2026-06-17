@@ -415,6 +415,7 @@ public final class DebuggerHandlers {
         var pid = livePid(trace);
         boolean bigEndian = trace.getBaseLanguage().isBigEndian();
         long[] offsets = PointerPath.parseOffsets(offsetsStr);
+        if (offsets.length == 0) offsets = new long[]{0};
         var cur = dynAddr(base);
         int ptrSize = cur.getAddressSpace().getPointerSize();
         var sb = new StringBuilder();
@@ -439,7 +440,11 @@ public final class DebuggerHandlers {
         sb.append("final\t").append(Responses.addr(cur));
         if (valueLen > 0) {
             byte[] vb = readLiveBytes(trace, pid, cur, valueLen);
-            sb.append('\t').append(vb == null ? "?" : Bufs.hex(vb));
+            if (vb == null) {
+                throw new IllegalStateException("Resolved final=" + Responses.addr(cur)
+                        + " but failed to read " + valueLen + " bytes there (unmapped/inaccessible)");
+            }
+            sb.append('\t').append(Bufs.hex(vb));
         }
         return sb.append('\n').toString();
     }

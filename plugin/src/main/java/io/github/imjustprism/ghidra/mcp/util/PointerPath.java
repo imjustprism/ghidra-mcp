@@ -19,7 +19,7 @@ public final class PointerPath {
             }
             if (p.startsWith("0x") || p.startsWith("0X")) p = p.substring(2);
             if (p.isEmpty()) throw new IllegalArgumentException("empty offset in: " + s);
-            out[i] = sign * Long.parseLong(p, 16);
+            out[i] = sign * Long.parseUnsignedLong(p, 16);
         }
         return out;
     }
