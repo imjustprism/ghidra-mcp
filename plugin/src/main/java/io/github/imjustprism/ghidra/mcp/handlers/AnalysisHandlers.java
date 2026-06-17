@@ -116,9 +116,12 @@ public final class AnalysisHandlers {
             var t = Responses.table(p, q, new String[]{"key", "value"});
             var w = new Responses.Window(p);
             if (md != null) {
-                for (var e : md.entrySet()) {
+                var keys = new java.util.ArrayList<>(md.keySet());
+                java.util.Collections.sort(keys);
+                for (var key : keys) {
                     if (!w.take()) continue;
-                    t.row(e.getKey(), e.getValue() != null ? e.getValue() : "");
+                    var v = md.get(key);
+                    t.row(key, v != null ? v : "");
                 }
             }
             return t.total(w.total()).build();
