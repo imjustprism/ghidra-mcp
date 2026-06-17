@@ -127,7 +127,7 @@ public final class EditHandlers {
                 var temp = new String[changes.size()];
                 for (int i = 0; i < changes.size(); i++) {
                     try {
-                        var name = "__mcp_rename_tmp_" + i;
+                        var name = uniqueTempName(program, changes.get(i).function());
                         changes.get(i).function().setName(name, SourceType.USER_DEFINED);
                         temp[i] = name;
                     } catch (Exception e) {
@@ -181,6 +181,18 @@ public final class EditHandlers {
             sb.append("# ").append(changes.size() - shown).append(" more not shown\n");
         }
         return sb.toString();
+    }
+
+    private static String uniqueTempName(Program program, Function f) {
+        var base = "__mcp_rename_tmp_" + f.getEntryPoint();
+        var ns = f.getParentNamespace();
+        var st = program.getSymbolTable();
+        var name = base;
+        int suffix = 0;
+        while (!st.getSymbols(name, ns).isEmpty()) {
+            name = base + "_" + suffix++;
+        }
+        return name;
     }
 
     private static String rootMessage(Throwable e) {
