@@ -2507,6 +2507,17 @@ impl GhidraServer {
     }
 
     #[tool(
+        description = "Find call sites of runtime API-resolution functions (GetProcAddress, LoadLibrary*, GetModuleHandle*, Ldr*, dlopen/dlsym). Reports each site, its calling function, and which resolver — surfaces where a program resolves APIs dynamically (a common malware/evasion pattern). Pairs with find_api_hashes",
+        annotations(read_only_hint = true)
+    )]
+    async fn find_dynamic_api_resolution(
+        &self,
+        Parameters(p): Parameters<Page>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.get("find_dynamic_api_resolution", p).await
+    }
+
+    #[tool(
         description = "List all programs currently open in this Ghidra tool, with name, which is active, sha256, and path. Cross-binary work (diffing, matching) needs two programs open here",
         annotations(read_only_hint = true)
     )]
