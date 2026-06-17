@@ -34,6 +34,31 @@ public final class ListingHandlers {
         routes.getPage("/sections_detailed", this::listSectionsDetailed);
         routes.getPage("/entry_points", this::listEntryPoints);
         routes.getQuery("/strings", q -> listStrings(Page.from(q), q));
+        routes.getQuery("/relocations", q -> listRelocations(Page.from(q), q));
+    }
+
+    public String listRelocations(Page p, Map<String, String> q) {
+        return ctx.withProgram(program -> {
+            var rt = program.getRelocationTable();
+            var rows = new java.util.ArrayList<Object[]>();
+            long off = p.offset();
+            long lim = p.limit();
+            long total = 0;
+            for (var it = rt.getRelocations(); it.hasNext(); ) {
+                var r = it.next();
+                if (total >= off && rows.size() < lim) {
+                    var sym = r.getSymbolName();
+                    rows.add(new Object[]{Responses.addr(r.getAddress()),
+                            "0x" + Integer.toHexString(r.getType()), sym != null ? sym : ""});
+                }
+                total++;
+            }
+            var t = Responses.table(p, q, new String[]{"address", "type", "symbol"});
+            for (var row : rows) {
+                t.row(row);
+            }
+            return t.total((int) Math.min(total, Integer.MAX_VALUE)).build();
+        });
     }
 
     public String listFunctionNames(Page p, Map<String, String> q) {

@@ -1938,6 +1938,17 @@ impl GhidraServer {
     }
 
     #[tool(
+        description = "List relocation-table entries with address, type, and symbol name. Useful for unpacking, IAT reconstruction, and understanding what the loader patches",
+        annotations(read_only_hint = true)
+    )]
+    async fn list_relocations(
+        &self,
+        Parameters(p): Parameters<Page>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.get("relocations", p).await
+    }
+
+    #[tool(
         description = "Get active trace name, target name, target state (RUNNING/STOPPED), PID, image base, ASLR slide",
         annotations(read_only_hint = true)
     )]
