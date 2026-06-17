@@ -107,7 +107,7 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 </details>
 
 <details>
-<summary><b>Xrefs / CFG</b> (15)</summary>
+<summary><b>Xrefs / CFG</b> (17)</summary>
 
 | tool | purpose |
 | --- | --- |
@@ -119,6 +119,8 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 | `basic_blocks` | CFG blocks |
 | `function_string_refs` | strings referenced |
 | `callgraph_dot` | Graphviz DOT call graph |
+| `callgraph` | Mermaid call graph (callees/callers/both, depth + max_nodes bounded) |
+| `function_cfg` | Mermaid control-flow graph of one function (blocks + flow-typed edges) |
 | `function_summary_bundle` | one-call context pack (decompile + callers + callees + strings) |
 | `xref_graph` | Mermaid one-hop reference graph around an address |
 | `xref_graph_html` | self-contained interactive HTML reference graph (pan/zoom/hover) |
@@ -130,7 +132,7 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 </details>
 
 <details>
-<summary><b>Bytes / patching</b> (10)</summary>
+<summary><b>Bytes / patching</b> (11)</summary>
 
 | tool | purpose |
 | --- | --- |
@@ -144,6 +146,7 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 | `xor_decrypt` | XOR a range |
 | `import_memory_dump` | load bytes from file |
 | `export_binary` | dump program |
+| `save_program` | persist renames/comments/patches to the project |
 
 </details>
 
@@ -176,7 +179,7 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 </details>
 
 <details>
-<summary><b>Type recovery / analysis control</b> (13)</summary>
+<summary><b>Type recovery / analysis control</b> (14)</summary>
 
 | tool | purpose |
 | --- | --- |
@@ -193,6 +196,7 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 | `struct_set_field` | replace/insert a field in an existing struct |
 | `struct_delete_field` | clear a field at an offset |
 | `batch_apply_data_type` | apply many types, one transaction |
+| `struct_diagram` | Mermaid classDiagram of struct fields + composition edges |
 
 </details>
 
@@ -297,8 +301,6 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 | `scan_close` | free a scan session |
 
 </details>
-
-Also: `save_program`.
 
 ## Prompts
 

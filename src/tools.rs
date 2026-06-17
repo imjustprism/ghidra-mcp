@@ -3248,6 +3248,67 @@ mod tests {
     }
 
     #[test]
+    fn readme_tool_count_matches_catalog() {
+        let n = GhidraServer::tool_router().list_all().len();
+        let readme = include_str!("../README.md");
+        let expected = format!("{n} tools total.");
+        assert!(
+            readme.contains(&expected),
+            "README is out of sync: it must state \"{expected}\" (catalog has {n} tools)"
+        );
+    }
+
+    fn readme_tools_section() -> &'static str {
+        let readme = include_str!("../README.md");
+        readme
+            .split_once("## Tools")
+            .and_then(|(_, rest)| rest.split_once("\n## "))
+            .map(|(section, _)| section)
+            .unwrap()
+    }
+
+    fn readme_table_tool_names() -> Vec<String> {
+        readme_tools_section()
+            .lines()
+            .filter_map(|line| line.trim_start().strip_prefix("| `"))
+            .filter_map(|rest| rest.split_once('`').map(|(name, _)| name.to_owned()))
+            .collect()
+    }
+
+    #[test]
+    fn every_tool_has_a_readme_table_row() {
+        let documented: std::collections::HashSet<String> =
+            readme_table_tool_names().into_iter().collect();
+        let missing: Vec<String> = GhidraServer::tool_router()
+            .list_all()
+            .into_iter()
+            .map(|t| t.name.to_string())
+            .filter(|name| !documented.contains(name))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "tools missing a README table row: {missing:?}"
+        );
+    }
+
+    #[test]
+    fn no_stale_tools_in_readme_table() {
+        let catalog: std::collections::HashSet<String> = GhidraServer::tool_router()
+            .list_all()
+            .into_iter()
+            .map(|t| t.name.to_string())
+            .collect();
+        let stale: Vec<String> = readme_table_tool_names()
+            .into_iter()
+            .filter(|name| !catalog.contains(name))
+            .collect();
+        assert!(
+            stale.is_empty(),
+            "README table lists tools not in the catalog: {stale:?}"
+        );
+    }
+
+    #[test]
     fn tool_router_introspects_catalog() {
         let names: Vec<String> = GhidraServer::tool_router()
             .list_all()
