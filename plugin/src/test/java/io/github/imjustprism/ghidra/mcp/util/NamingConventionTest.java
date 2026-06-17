@@ -37,6 +37,14 @@ class NamingConventionTest {
     }
 
     @Test
+    void keepsPluralAcronymsTogether() {
+        assertEquals("parse_urls", NamingConvention.SNAKE.apply("parseURLs"));
+        assertEquals("get_ids", NamingConvention.SNAKE.apply("getIDs"));
+        assertEquals("load_xmls", NamingConvention.SNAKE.apply("loadXMLs"));
+        assertEquals("parse_url", NamingConvention.SNAKE.apply("parseURL"));
+    }
+
+    @Test
     void splitsLowercaseWordAfterDigits() {
         assertEquals("foo2_bar", NamingConvention.SNAKE.apply("foo2bar"));
         assertEquals("crc32_table", NamingConvention.SNAKE.apply("crc32table"));

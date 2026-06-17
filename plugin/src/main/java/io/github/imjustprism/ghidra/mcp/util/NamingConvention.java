@@ -44,11 +44,13 @@ public enum NamingConvention {
                 continue;
             }
             char prev = word.length() > 0 ? word.charAt(word.length() - 1) : 0;
+            boolean prevLowerOrDigit = Character.isLowerCase(prev) || Character.isDigit(prev);
+            boolean acronymToWord = i + 1 < chars.length
+                    && Character.isLowerCase(chars[i + 1])
+                    && !isPluralSuffix(chars, i + 1);
             boolean upperBoundary = word.length() > 0
                     && Character.isUpperCase(c)
-                    && (Character.isLowerCase(prev)
-                        || Character.isDigit(prev)
-                        || (i + 1 < chars.length && Character.isLowerCase(chars[i + 1])));
+                    && (prevLowerOrDigit || acronymToWord);
             boolean digitBoundary = word.length() > 0
                     && Character.isLetter(c)
                     && Character.isDigit(prev);
@@ -57,6 +59,10 @@ public enum NamingConvention {
         }
         flush(word, tokens);
         return tokens;
+    }
+
+    private static boolean isPluralSuffix(char[] chars, int j) {
+        return chars[j] == 's' && (j + 1 >= chars.length || !Character.isLowerCase(chars[j + 1]));
     }
 
     private static void flush(StringBuilder word, List<String> tokens) {
