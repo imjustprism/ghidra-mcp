@@ -1061,11 +1061,11 @@ public final class DebuggerHandlers {
     }
 
     private String nextScan(Map<String, String> p) {
+        evictExpiredScans();
         var id = p.get("scan_id");
         var session = scans.get(id);
         if (session == null) throw new IllegalArgumentException("unknown scan_id (run value_scan first)");
         session.touch();
-        evictExpiredScans();
         requireTrace();
         if (!session.done) {
             return "scan " + id + " still running (" + (session.scannedBytes >> 20)
@@ -1105,10 +1105,10 @@ public final class DebuggerHandlers {
     }
 
     private String scanResults(Map<String, String> q) {
+        evictExpiredScans();
         var session = scans.get(q.get("scan_id"));
         if (session == null) throw new IllegalArgumentException("unknown scan_id");
         session.touch();
-        evictExpiredScans();
         int limit = Http.parseIntOrDefault(q.get("limit"), 100);
         var t = Responses.table(q, new String[]{"dynamic", "static", "value"},
                 Math.min(limit, session.size()));
