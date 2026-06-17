@@ -6,6 +6,7 @@ import ghidra.app.decompiler.DecompInterface;
 import ghidra.app.plugin.core.analysis.AutoAnalysisManager;
 import ghidra.app.services.DataTypeManagerService;
 import ghidra.app.services.ProgramManager;
+import ghidra.program.model.data.DataTypeManager;
 import ghidra.program.model.data.Structure;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.pcode.HighFunctionDBUtil;
@@ -52,14 +53,19 @@ public final class RecoveryHandlers {
     }
 
     private String listDataTypeArchives(Map<String, String> q) {
+        var program = ctx.currentProgram();
+        if (program == null) throw new IllegalArgumentException("No program loaded");
+        var ordered = new java.util.LinkedHashSet<DataTypeManager>();
+        ordered.add(program.getDataTypeManager());
         var svc = ctx.service(DataTypeManagerService.class);
-        if (svc == null) throw new IllegalStateException("Data type service not available");
-        var mgrs = svc.getDataTypeManagers();
-        var t = Responses.table(q, new String[]{"name", "type", "types"}, mgrs.length);
-        for (var m : mgrs) {
+        if (svc != null) {
+            for (var m : svc.getDataTypeManagers()) ordered.add(m);
+        }
+        var t = Responses.table(q, new String[]{"name", "type", "types"}, ordered.size());
+        for (var m : ordered) {
             t.row(m.getName(), m.getType() != null ? m.getType().toString() : "", m.getDataTypeCount(false));
         }
-        return t.total(mgrs.length).build();
+        return t.total(ordered.size()).build();
     }
 
     private String listOpenPrograms(Map<String, String> q) {
