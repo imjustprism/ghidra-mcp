@@ -67,19 +67,21 @@ public final class RecoveryHandlers {
         if (name == null || name.isBlank()) throw new IllegalArgumentException("name is required");
         var pm = ctx.service(ProgramManager.class);
         if (pm == null) throw new IllegalStateException("Program manager not available");
-        Program target = null;
+        var matches = new java.util.ArrayList<Program>();
         for (var p : pm.getAllOpenPrograms()) {
-            if (p.getName().equals(name) || name.equals(p.getExecutableSHA256())) {
-                target = p;
-                break;
-            }
+            if (p.getName().equals(name) || name.equals(p.getExecutableSHA256())) matches.add(p);
         }
-        if (target == null) throw new IllegalArgumentException("no open program named: " + name);
-        var chosen = target;
-        ctx.runOnSwing(() -> {
+        if (matches.isEmpty()) throw new IllegalArgumentException("no open program matches: " + name);
+        if (matches.size() > 1) {
+            throw new IllegalArgumentException(
+                    "ambiguous: " + matches.size() + " open programs match '" + name + "'; use the exact sha256");
+        }
+        var chosen = matches.get(0);
+        var ok = ctx.runOnSwing(() -> {
             pm.setCurrentProgram(chosen);
             return true;
         });
+        if (!ok) throw new IllegalStateException("failed to switch to " + chosen.getName());
         return "selected " + chosen.getName();
     }
 
