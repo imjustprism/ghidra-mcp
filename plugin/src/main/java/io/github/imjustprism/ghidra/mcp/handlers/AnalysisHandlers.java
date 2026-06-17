@@ -57,6 +57,7 @@ public final class AnalysisHandlers {
                 Double.parseDouble(q.getOrDefault("threshold", "7.5")),
                 Http.parseIntOrDefault(q.get("window"), 256), Page.from(q), q));
         routes.getQuery("/program_info", this::programInfo);
+        routes.getQuery("/program_metadata", this::programMetadata);
         routes.getQuery("/demangle_symbol", q -> Demangler.demangleSymbol(q.get("mangled")));
         routes.getQuery("/pcode_function", q -> Pcode.pcodeFunction(ctx, q.get("address")));
         routes.getQuery("/callgraph_dot", q -> CallGraph.dot(ctx, q.get("address"),
@@ -102,6 +103,20 @@ public final class AnalysisHandlers {
         routes.getQuery("/resolve_relative", q -> Signatures.resolveRelative(ctx, q.get("address")));
         routes.getQuery("/find_function_by_string", q -> Signatures.findFunctionByString(ctx,
                 q.get("value"), Http.parseIntOrDefault(q.get("max"), 5), q.getOrDefault("format", "ida")));
+    }
+
+    public String programMetadata(Map<String, String> q) {
+        return ctx.withProgram(program -> {
+            var md = program.getMetadata();
+            int size = md != null ? md.size() : 0;
+            var t = Responses.table(q, new String[]{"key", "value"}, size);
+            if (md != null) {
+                for (var e : md.entrySet()) {
+                    t.row(e.getKey(), e.getValue() != null ? e.getValue() : "");
+                }
+            }
+            return t.total(size).build();
+        });
     }
 
     public String programInfo(Map<String, String> q) {

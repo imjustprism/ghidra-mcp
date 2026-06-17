@@ -1758,6 +1758,14 @@ impl GhidraServer {
     }
 
     #[tool(
+        description = "Return the program's full metadata map as key/value rows (compiler, file format, analysis flags, original import details, etc.) — the complete set behind program_info",
+        annotations(read_only_hint = true)
+    )]
+    async fn program_metadata(&self) -> Result<CallToolResult, ErrorData> {
+        self.get_bare("program_metadata").await
+    }
+
+    #[tool(
         description = "List stack frame variables for the function at the given address: name, offset, datatype, size, storage",
         annotations(read_only_hint = true)
     )]
