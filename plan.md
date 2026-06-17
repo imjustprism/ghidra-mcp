@@ -41,7 +41,7 @@ Legend: `[x]` shipped · `[~]` in progress (open PR) · `[ ]` planned · API sta
 - [ ] `pointer_scan` / `read_pointer_path` `[N]`
 - [ ] Hardware watchpoints `break_read`/`break_write` `[N]`
 - [ ] `watch_add`/`watch_poll`/`watch_remove` `[N]`
-- [ ] Scan GC + freeze auto-stop `[V]`
+- [x] Scan GC + freeze auto-stop — TTL eviction of abandoned completed scans (freeze already auto-stops on target death)
 - [ ] Time-travel: `list_snapshots`/`goto_snapshot`/`value_at_snapshot`/`find_last_write` `[N]`
 - [ ] Persistent emulator `emu_start/step/run_to/...` + `emulate_function(args)` `[V]`
 

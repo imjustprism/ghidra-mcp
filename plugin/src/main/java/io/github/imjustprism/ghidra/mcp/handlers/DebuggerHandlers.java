@@ -70,6 +70,7 @@ public final class DebuggerHandlers {
     private static final int SCAN_MAX_HITS = 200_000;
     private static final int SCAN_CHUNK = 1 << 20;
     private static final int MAX_SCAN_SESSIONS = 8;
+    private static final long SCAN_TTL_MS = 10 * 60 * 1000;
     private static final long LAUNCH_TIMEOUT_MS = 90_000;
     private static final int TERMINAL_TAIL_CHARS = 1500;
 
@@ -861,6 +862,7 @@ public final class DebuggerHandlers {
                     + "(target not readable; check elevation/attach)");
         }
         var session = new ScanSession(type, bigEndian, target);
+        evictExpiredScans();
         evictOldScans();
         var id = "scan" + scanSeq.incrementAndGet();
         scans.put(id, session);
@@ -927,6 +929,11 @@ public final class DebuggerHandlers {
         }
     }
 
+    private void evictExpiredScans() {
+        long now = System.currentTimeMillis();
+        scans.values().removeIf(s -> s.done && now - s.lastAccess > SCAN_TTL_MS);
+    }
+
     private byte[] readScanChunk(Trace trace, long snap, Address addr, int want, Integer pid) {
         var fast = rpmRead(pid, addr, want);
         if (fast != null) return fast;
@@ -987,6 +994,7 @@ public final class DebuggerHandlers {
                 }
             }
         } finally {
+            session.touch();
             session.done = true;
         }
     }
@@ -1053,9 +1061,11 @@ public final class DebuggerHandlers {
     }
 
     private String nextScan(Map<String, String> p) {
+        evictExpiredScans();
         var id = p.get("scan_id");
         var session = scans.get(id);
         if (session == null) throw new IllegalArgumentException("unknown scan_id (run value_scan first)");
+        session.touch();
         requireTrace();
         if (!session.done) {
             return "scan " + id + " still running (" + (session.scannedBytes >> 20)
@@ -1095,8 +1105,10 @@ public final class DebuggerHandlers {
     }
 
     private String scanResults(Map<String, String> q) {
+        evictExpiredScans();
         var session = scans.get(q.get("scan_id"));
         if (session == null) throw new IllegalArgumentException("unknown scan_id");
+        session.touch();
         int limit = Http.parseIntOrDefault(q.get("limit"), 100);
         var t = Responses.table(q, new String[]{"dynamic", "static", "value"},
                 Math.min(limit, session.size()));
@@ -1157,6 +1169,7 @@ public final class DebuggerHandlers {
         volatile boolean done = false;
         volatile boolean budgetHit = false;
         volatile long scannedBytes = 0;
+        volatile long lastAccess = System.currentTimeMillis();
         List<Address> hits = new ArrayList<>();
         Map<Address, Double> last = new HashMap<>();
 
@@ -1164,6 +1177,10 @@ public final class DebuggerHandlers {
             this.type = type;
             this.bigEndian = bigEndian;
             this.target = target;
+        }
+
+        void touch() {
+            lastAccess = System.currentTimeMillis();
         }
 
         synchronized void add(Address a, double value) {
