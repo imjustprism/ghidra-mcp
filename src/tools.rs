@@ -2474,6 +2474,17 @@ impl GhidraServer {
     }
 
     #[tool(
+        description = "Compute a stable structural hash of the function at an address, independent of addresses and immediate values: a mnemonic_hash (instruction opcodes only) and a shape_hash (opcodes + per-operand class R/S/A/M). Two functions with matching hashes are structurally identical — use to dedupe or match functions across binaries/versions",
+        annotations(read_only_hint = true)
+    )]
+    async fn function_hash(
+        &self,
+        Parameters(p): Parameters<Address>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.get("function_hash", p).await
+    }
+
+    #[tool(
         description = "Atomically edit one function in a single transaction and one decompile: optionally rename it (new_name), set its prototype (full C signature), and rename/retype any of its locals or params (variables array of {variable_name, new_name?, new_type?}; new_type omitted = rename only, new_name omitted = retype only). All-or-nothing: if any field fails the whole edit is rolled back and an error with the per-field report is returned. The one-call way to fully annotate a function",
         annotations(destructive_hint = false)
     )]

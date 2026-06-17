@@ -45,7 +45,8 @@ Legend: `[x]` shipped · `[~]` in progress (open PR) · `[ ]` planned · API sta
 - [ ] Persistent emulator `emu_start/step/run_to/...` + `emulate_function(args)` `[V]`
 
 ## Phase 4 — Differentiators
-- [ ] `function_hash` + cross-binary multi-program (`open_program`/`select_program`, `program` param) `[N]`
+- [x] `function_hash` — structural mnemonic/shape hash for matching/dedup
+- [ ] cross-binary multi-program (`open_program`/`select_program`, `program` param) `[N]`
 - [ ] `diff_functions` / `diff_programs` (Version Tracking) `[X]`
 - [ ] BSim: `bsim_index_program` / `bsim_query_function` / `bsim_query_program` `[X]`
 - [ ] `propagate_matches` (copy names/types across matched binaries) `[N]`

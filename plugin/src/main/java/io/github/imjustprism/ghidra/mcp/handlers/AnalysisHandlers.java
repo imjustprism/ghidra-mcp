@@ -13,6 +13,7 @@ import io.github.imjustprism.ghidra.mcp.analysis.Constraints;
 import io.github.imjustprism.ghidra.mcp.analysis.DecodeStrings;
 import io.github.imjustprism.ghidra.mcp.analysis.CryptoConstants;
 import io.github.imjustprism.ghidra.mcp.analysis.DecompileMinimal;
+import io.github.imjustprism.ghidra.mcp.analysis.FunctionHash;
 import io.github.imjustprism.ghidra.mcp.analysis.Emulator;
 import io.github.imjustprism.ghidra.mcp.analysis.EncodedStrings;
 import io.github.imjustprism.ghidra.mcp.analysis.Entropy;
@@ -82,6 +83,7 @@ public final class AnalysisHandlers {
         routes.getQuery("/find_syscalls", q -> Syscalls.find(ctx, Page.from(q), q));
         routes.getQuery("/find_anti_vm", q -> AntiVm.find(ctx, Page.from(q), q));
         routes.getQuery("/cfg_obfuscation_score", q -> CfgObfuscation.score(ctx, q.get("address"), q));
+        routes.getQuery("/function_hash", q -> FunctionHash.hash(ctx, q.get("address"), q));
         routes.getQuery("/decode_strings_auto", q -> DecodeStrings.decode(ctx, q.get("address"),
                 Http.parseIntOrDefault(q.get("length"), 256),
                 Double.parseDouble(q.getOrDefault("min_printable", "0.85")),
