@@ -132,7 +132,7 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 </details>
 
 <details>
-<summary><b>Bytes / patching</b> (10)</summary>
+<summary><b>Bytes / patching</b> (11)</summary>
 
 | tool | purpose |
 | --- | --- |
@@ -146,6 +146,7 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 | `xor_decrypt` | XOR a range |
 | `import_memory_dump` | load bytes from file |
 | `export_binary` | dump program |
+| `save_program` | persist renames/comments/patches to the project |
 
 </details>
 
@@ -300,8 +301,6 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 | `scan_close` | free a scan session |
 
 </details>
-
-Also: `save_program`.
 
 ## Prompts
 

@@ -3258,16 +3258,54 @@ mod tests {
         );
     }
 
-    #[test]
-    fn every_tool_is_documented_in_readme() {
+    fn readme_tools_section() -> &'static str {
         let readme = include_str!("../README.md");
+        readme
+            .split_once("## Tools")
+            .and_then(|(_, rest)| rest.split_once("\n## "))
+            .map(|(section, _)| section)
+            .expect("README must have a '## Tools' section followed by another '## ' heading")
+    }
+
+    fn readme_table_tool_names() -> Vec<String> {
+        readme_tools_section()
+            .lines()
+            .filter_map(|line| line.trim_start().strip_prefix("| `"))
+            .filter_map(|rest| rest.split_once('`').map(|(name, _)| name.to_owned()))
+            .collect()
+    }
+
+    #[test]
+    fn every_tool_has_a_readme_table_row() {
+        let documented: std::collections::HashSet<String> =
+            readme_table_tool_names().into_iter().collect();
         let missing: Vec<String> = GhidraServer::tool_router()
             .list_all()
             .into_iter()
             .map(|t| t.name.to_string())
-            .filter(|name| !readme.contains(&format!("`{name}`")))
+            .filter(|name| !documented.contains(name))
             .collect();
-        assert!(missing.is_empty(), "tools missing from README: {missing:?}");
+        assert!(
+            missing.is_empty(),
+            "tools missing a README table row: {missing:?}"
+        );
+    }
+
+    #[test]
+    fn no_stale_tools_in_readme_table() {
+        let catalog: std::collections::HashSet<String> = GhidraServer::tool_router()
+            .list_all()
+            .into_iter()
+            .map(|t| t.name.to_string())
+            .collect();
+        let stale: Vec<String> = readme_table_tool_names()
+            .into_iter()
+            .filter(|name| !catalog.contains(name))
+            .collect();
+        assert!(
+            stale.is_empty(),
+            "README table lists tools not in the catalog: {stale:?}"
+        );
     }
 
     #[test]
