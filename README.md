@@ -62,6 +62,8 @@ MCP server for Ghidra. Rust bridge + Ghidra Java plugin. Wires any MCP client (C
 
 138 tools total.
 
+Every paginated read tool accepts an optional `fmt` argument — `tsv` (default), `csv`, `json`, or `verbose` — alongside `offset`/`limit`.
+
 <details>
 <summary><b>Listing / metadata</b> (20)</summary>
 
