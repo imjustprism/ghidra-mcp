@@ -28,7 +28,8 @@ Legend: `[x]` shipped · `[~]` in progress (open PR) · `[ ]` planned · API sta
 - [ ] `apply_naming_convention` (PascalCase/Hungarian/snake) `[V]`
 - [x] `recover_rtti_classes` — list recovered C++ classes + vftables + method counts
 - [ ] `apply_fid_signatures` `[N]`
-- [ ] `apply_gdt` / `list_data_type_archives` `[N]`
+- [x] `list_data_type_archives` — list available type archives
+- [ ] `apply_gdt` `[N]`
 - [ ] `import_pdb` / `import_dwarf` `[N]`
 - [ ] `propose_struct_from_accesses` — locate FillOutStructureCmd jar first `[X]`
 

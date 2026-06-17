@@ -4,6 +4,7 @@ import ghidra.app.cmd.data.CreateDataCmd;
 import ghidra.app.cmd.function.CreateFunctionCmd;
 import ghidra.app.decompiler.DecompInterface;
 import ghidra.app.plugin.core.analysis.AutoAnalysisManager;
+import ghidra.app.services.DataTypeManagerService;
 import ghidra.app.services.ProgramManager;
 import ghidra.program.model.data.Structure;
 import ghidra.program.model.listing.Program;
@@ -45,8 +46,20 @@ public final class RecoveryHandlers {
                 p.getOrDefault("name", ""), p.getOrDefault("mode", "replace")));
         routes.postForm("/struct_delete_field", p -> structDeleteField(p.get("struct"),
                 Http.parseIntOrDefault(p.get("offset"), -1)));
+        routes.getQuery("/list_data_type_archives", this::listDataTypeArchives);
         routes.getQuery("/list_open_programs", this::listOpenPrograms);
         routes.postForm("/select_program", p -> selectProgram(p.get("name")));
+    }
+
+    private String listDataTypeArchives(Map<String, String> q) {
+        var svc = ctx.service(DataTypeManagerService.class);
+        if (svc == null) throw new IllegalStateException("Data type service not available");
+        var mgrs = svc.getDataTypeManagers();
+        var t = Responses.table(q, new String[]{"name", "type", "types"}, mgrs.length);
+        for (var m : mgrs) {
+            t.row(m.getName(), m.getType() != null ? m.getType().toString() : "", m.getDataTypeCount(false));
+        }
+        return t.total(mgrs.length).build();
     }
 
     private String listOpenPrograms(Map<String, String> q) {
