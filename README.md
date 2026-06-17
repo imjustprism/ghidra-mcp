@@ -59,7 +59,7 @@ MCP server for Ghidra. Rust bridge + Ghidra Java plugin. Wires any MCP client (C
 
 ## Tools
 
-125 tools total.
+126 tools total.
 
 <details>
 <summary><b>Listing / metadata</b> (17)</summary>
@@ -101,7 +101,7 @@ MCP server for Ghidra. Rust bridge + Ghidra Java plugin. Wires any MCP client (C
 </details>
 
 <details>
-<summary><b>Xrefs / CFG</b> (9)</summary>
+<summary><b>Xrefs / CFG</b> (10)</summary>
 
 | tool | purpose |
 | --- | --- |
@@ -114,6 +114,7 @@ MCP server for Ghidra. Rust bridge + Ghidra Java plugin. Wires any MCP client (C
 | `function_string_refs` | strings referenced |
 | `callgraph_dot` | Graphviz DOT call graph |
 | `function_summary_bundle` | one-call context pack (decompile + callers + callees + strings) |
+| `function_hash` | structural hash (mnemonic + operand-shape) for matching/dedup |
 
 </details>
 
