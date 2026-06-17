@@ -4,7 +4,9 @@ import ghidra.app.cmd.data.CreateDataCmd;
 import ghidra.app.cmd.function.CreateFunctionCmd;
 import ghidra.app.decompiler.DecompInterface;
 import ghidra.app.plugin.core.analysis.AutoAnalysisManager;
+import ghidra.app.services.DataTypeManagerService;
 import ghidra.app.services.ProgramManager;
+import ghidra.program.model.data.DataTypeManager;
 import ghidra.program.model.data.Structure;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.pcode.HighFunctionDBUtil;
@@ -45,8 +47,25 @@ public final class RecoveryHandlers {
                 p.getOrDefault("name", ""), p.getOrDefault("mode", "replace")));
         routes.postForm("/struct_delete_field", p -> structDeleteField(p.get("struct"),
                 Http.parseIntOrDefault(p.get("offset"), -1)));
+        routes.getQuery("/list_data_type_archives", this::listDataTypeArchives);
         routes.getQuery("/list_open_programs", this::listOpenPrograms);
         routes.postForm("/select_program", p -> selectProgram(p.get("name")));
+    }
+
+    private String listDataTypeArchives(Map<String, String> q) {
+        var program = ctx.currentProgram();
+        if (program == null) throw new IllegalArgumentException("No program loaded");
+        var ordered = new java.util.LinkedHashSet<DataTypeManager>();
+        ordered.add(program.getDataTypeManager());
+        var svc = ctx.service(DataTypeManagerService.class);
+        if (svc != null) {
+            for (var m : svc.getDataTypeManagers()) ordered.add(m);
+        }
+        var t = Responses.table(q, new String[]{"name", "type", "types"}, ordered.size());
+        for (var m : ordered) {
+            t.row(m.getName(), m.getType() != null ? m.getType().toString() : "", m.getDataTypeCount(false));
+        }
+        return t.total(ordered.size()).build();
     }
 
     private String listOpenPrograms(Map<String, String> q) {

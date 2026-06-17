@@ -2518,6 +2518,14 @@ impl GhidraServer {
     }
 
     #[tool(
+        description = "List the data-type archives/managers available to the program (program, built-in, and any loaded GDT/file archives), with each one's name, archive type, and data-type count. Shows which type libraries are available to apply",
+        annotations(read_only_hint = true)
+    )]
+    async fn list_data_type_archives(&self) -> Result<CallToolResult, ErrorData> {
+        self.get_bare("list_data_type_archives").await
+    }
+
+    #[tool(
         description = "List all programs currently open in this Ghidra tool, with name, which is active, sha256, and path. Cross-binary work (diffing, matching) needs two programs open here",
         annotations(read_only_hint = true)
     )]
