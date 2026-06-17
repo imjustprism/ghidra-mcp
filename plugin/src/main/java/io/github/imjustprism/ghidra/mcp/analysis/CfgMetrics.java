@@ -1,5 +1,6 @@
 package io.github.imjustprism.ghidra.mcp.analysis;
 
+import ghidra.program.model.address.Address;
 import ghidra.program.model.block.BasicBlockModel;
 import ghidra.program.model.block.CodeBlock;
 import ghidra.util.exception.CancelledException;
@@ -9,6 +10,7 @@ import io.github.imjustprism.ghidra.mcp.util.PluginContext;
 import io.github.imjustprism.ghidra.mcp.util.Responses;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Map;
 
 public final class CfgMetrics {
@@ -27,11 +29,17 @@ public final class CfgMetrics {
                 while (it.hasNext()) blocks.add(it.next());
 
                 int n = blocks.size();
+                var index = new HashMap<Address, Integer>();
+                for (int i = 0; i < n; i++) index.put(blocks.get(i).getFirstStartAddress(), i);
+                var parent = new int[n];
+                for (int i = 0; i < n; i++) parent[i] = i;
+
                 int edges = 0;
                 int conditionals = 0;
                 int exits = 0;
                 int backEdges = 0;
-                for (var b : blocks) {
+                for (int i = 0; i < n; i++) {
+                    var b = blocks.get(i);
                     int outDegree = 0;
                     for (var d = b.getDestinations(monitor); d.hasNext(); ) {
                         var ref = d.next();
@@ -41,17 +49,24 @@ public final class CfgMetrics {
                         if (!body.contains(dest)) continue;
                         edges++;
                         outDegree++;
-                        if (dest.compareTo(b.getFirstStartAddress()) <= 0) backEdges++;
+                        if (dest.compareTo(b.getFirstStartAddress()) < 0) backEdges++;
+                        var di = index.get(dest);
+                        if (di != null) union(parent, i, di);
                     }
                     if (outDegree == 0) exits++;
                     else if (outDegree > 1) conditionals++;
                 }
+                int components = 0;
+                for (int i = 0; i < n; i++) {
+                    if (find(parent, i) == i) components++;
+                }
+                int cyclomatic = n == 0 ? 0 : edges - n + 2 * components;
 
                 var t = Responses.table(q, new String[]{"k", "v"}, 7);
                 t.row("fn", func.getName());
                 t.row("blocks", n);
                 t.row("edges", edges);
-                t.row("cyclomatic", edges - n + 2);
+                t.row("cyclomatic", cyclomatic);
                 t.row("conditionals", conditionals);
                 t.row("exits", exits);
                 t.row("back_edges", backEdges);
@@ -60,5 +75,17 @@ public final class CfgMetrics {
                 throw new IllegalStateException("CFG analysis interrupted", e);
             }
         });
+    }
+
+    private static int find(int[] parent, int x) {
+        while (parent[x] != x) {
+            parent[x] = parent[parent[x]];
+            x = parent[x];
+        }
+        return x;
+    }
+
+    private static void union(int[] parent, int x, int y) {
+        parent[find(parent, x)] = find(parent, y);
     }
 }
