@@ -22,7 +22,7 @@ Legend: `[x]` shipped · `[~]` in progress (open PR) · `[ ]` planned · API sta
 ## Phase 2 — Protocol leap + type recovery
 - [x] MCP **resources** (program info/current-function/current-address, live debugger status) — subscription/notifications still TODO
 - [x] MCP **prompts** (survey_binary, analyze_function, solve_crackme, triage_malware, recover_types)
-- [ ] Progressive disclosure (`list_tool_groups`/`search_tools`/`get_tool_schema`) `[N]`
+- [x] Progressive disclosure — `search_tools` + `get_tool_schema` (catalog introspection via the live tool router)
 - [x] `function_completeness` scoring 0–100
 - [x] `find_undocumented` — least-documented work queue
 - [x] `apply_naming_convention` (snake/screaming_snake/camel/pascal, dry-run by default)

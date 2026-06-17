@@ -60,7 +60,7 @@ MCP server for Ghidra. Rust bridge + Ghidra Java plugin. Wires any MCP client (C
 
 ## Tools
 
-140 tools total.
+142 tools total.
 
 Every paginated read tool accepts an optional `fmt` argument — `tsv` (default), `csv`, `json`, or `verbose` — alongside `offset`/`limit`.
 
@@ -203,6 +203,16 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 | --- | --- |
 | `function_completeness` | score one function 0-100 with a breakdown |
 | `find_undocumented` | functions ranked least-documented first (work queue) |
+
+</details>
+
+<details>
+<summary><b>Tool discovery</b> (2)</summary>
+
+| tool | purpose |
+| --- | --- |
+| `search_tools` | keyword-search this server's own tool catalog (progressive disclosure) |
+| `get_tool_schema` | return one tool's full JSON input schema by name |
 
 </details>
 

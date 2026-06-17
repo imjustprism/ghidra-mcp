@@ -1242,6 +1242,18 @@ pub struct ProgramName {
     pub name: String,
 }
 
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct SearchToolsArgs {
+    pub query: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct ToolName {
+    pub name: String,
+}
+
 impl ToParams for ProgramName {
     fn into_params(self) -> Params {
         vec![("name", self.name)]
@@ -2871,6 +2883,74 @@ impl GhidraServer {
         }
         self.post("struct_delete_field", p).await
     }
+
+    #[tool(
+        description = "Progressive disclosure: search this server's own tool catalog by keyword (matched against tool names and descriptions) and return matching name + description pairs. Use it to discover the right tool among the full set without loading every schema, then call get_tool_schema for the exact parameters. limit caps results (default 30)",
+        annotations(read_only_hint = true)
+    )]
+    async fn search_tools(
+        &self,
+        Parameters(p): Parameters<SearchToolsArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let q = p.query.trim().to_lowercase();
+        if q.is_empty() {
+            return Err(ErrorData::invalid_params("query is required", None));
+        }
+        let limit = p.limit.unwrap_or(30).max(1) as usize;
+        let mut matches: Vec<String> = Self::tool_router()
+            .list_all()
+            .into_iter()
+            .filter(|t| {
+                t.name.to_lowercase().contains(&q)
+                    || t.description
+                        .as_deref()
+                        .is_some_and(|d| d.to_lowercase().contains(&q))
+            })
+            .map(|t| format!("{}\t{}", t.name, t.description.as_deref().unwrap_or("")))
+            .collect();
+        matches.sort();
+        let total = matches.len();
+        matches.truncate(limit);
+        Ok(ok_text(format!(
+            "# {total} match(es){}\nname\tdescription\n{}",
+            if total > matches.len() {
+                format!(" (showing {})", matches.len())
+            } else {
+                String::new()
+            },
+            matches.join("\n")
+        )))
+    }
+
+    #[tool(
+        description = "Progressive disclosure: return the full JSON input schema (parameters, types, descriptions) for a single tool by name, plus its description. Pair with search_tools to inspect a candidate tool's exact arguments on demand",
+        annotations(read_only_hint = true)
+    )]
+    async fn get_tool_schema(
+        &self,
+        Parameters(p): Parameters<ToolName>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let name = p.name.trim();
+        match Self::tool_router()
+            .list_all()
+            .into_iter()
+            .find(|t| t.name == name)
+        {
+            Some(t) => {
+                let schema = serde_json::to_string_pretty(&*t.input_schema)
+                    .unwrap_or_else(|_| "{}".to_owned());
+                Ok(ok_text(format!(
+                    "{}\n{}\n\n{schema}",
+                    t.name,
+                    t.description.as_deref().unwrap_or("")
+                )))
+            }
+            None => Err(ErrorData::invalid_params(
+                format!("unknown tool: {name} (use search_tools to discover names)"),
+                None,
+            )),
+        }
+    }
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
@@ -3164,6 +3244,23 @@ mod tests {
                 ("namespace", "Crypto".to_owned()),
                 ("apply", "0".to_owned()),
             ]
+        );
+    }
+
+    #[test]
+    fn tool_router_introspects_catalog() {
+        let names: Vec<String> = GhidraServer::tool_router()
+            .list_all()
+            .into_iter()
+            .map(|t| t.name.to_string())
+            .collect();
+        assert!(names.iter().any(|n| n == "list_methods"));
+        assert!(names.iter().any(|n| n == "search_tools"));
+        assert!(names.iter().any(|n| n == "get_tool_schema"));
+        assert!(
+            names.len() >= 140,
+            "expected full catalog, got {}",
+            names.len()
         );
     }
 
