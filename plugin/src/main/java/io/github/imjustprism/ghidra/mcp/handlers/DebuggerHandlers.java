@@ -994,8 +994,8 @@ public final class DebuggerHandlers {
                 }
             }
         } finally {
-            session.done = true;
             session.touch();
+            session.done = true;
         }
     }
 
