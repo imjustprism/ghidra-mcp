@@ -56,7 +56,7 @@ public final class BytesHandlers {
         routes.getQuery("/search_bytes", q -> searchBytes(q.get("pattern"), Page.from(q), q));
         routes.getQuery("/find_string", q -> findString(q.get("value"), Page.from(q), q));
         routes.postForm("/patch_bytes", p -> patchBytes(p.get("address"), p.get("hex"),
-                Http.parseIntOrDefault(p.get("disassemble"), 0) != 0));
+                Http.parseBool(p.get("disassemble"), false)));
         routes.postForm("/nop_range", p -> nopRange(p.get("address"), Http.parseIntOrDefault(p.get("length"), 0)));
         routes.postForm("/export_binary", p -> exportBinary(p.get("path")));
         routes.postForm("/save_program", p -> saveProgram());
@@ -154,7 +154,7 @@ public final class BytesHandlers {
                 cursor = next.next();
             }
             var body = t.total(found).build();
-            if (resume != null && Responses.pickFmt(q) != Responses.Fmt.JSON) {
+            if (resume != null) {
                 body += "# next_cursor: " + resume + "\n";
             }
             return body;
@@ -197,6 +197,7 @@ public final class BytesHandlers {
         var program = ctx.currentProgram();
         if (program == null) throw new IllegalArgumentException("No program loaded");
         var error = new String[1];
+        var disasmFailed = new boolean[1];
         var ok = ctx.runOnSwingTx(program, "Patch bytes", () -> {
             try {
                 var a = program.getAddressFactory().getAddress(addr);
@@ -212,7 +213,7 @@ public final class BytesHandlers {
                     program.getMemory().setBytes(a, bytes);
                     if (disassemble) {
                         var disasm = new ghidra.app.cmd.disassemble.DisassembleCommand(a, null, true);
-                        disasm.applyTo(program, new ConsoleTaskMonitor());
+                        disasmFailed[0] = !disasm.applyTo(program, new ConsoleTaskMonitor());
                     }
                     return true;
                 } finally {
@@ -228,8 +229,8 @@ public final class BytesHandlers {
             throw new IllegalStateException(
                     "Failed to patch bytes: " + (error[0] != null ? error[0] : "unknown"));
         }
-        return "Patched %d bytes at %s%s".formatted(bytes.length, addr,
-                disassemble ? " (re-disassembled)" : "");
+        var note = !disassemble ? "" : disasmFailed[0] ? " (re-disassembly failed)" : " (re-disassembled)";
+        return "Patched %d bytes at %s%s".formatted(bytes.length, addr, note);
     }
 
     public String nopRange(String addr, int length) {
