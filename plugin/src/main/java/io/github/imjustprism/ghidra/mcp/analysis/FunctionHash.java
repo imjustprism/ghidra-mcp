@@ -26,7 +26,7 @@ public final class FunctionHash {
                 var insn = it.next();
                 var m = insn.getMnemonicString();
                 mnemonics.append(m).append(';');
-                shape.append(m);
+                shape.append(m).append(':');
                 for (int i = 0; i < insn.getNumOperands(); i++) shape.append(operandClass(insn, i));
                 shape.append(';');
                 count++;
@@ -42,8 +42,8 @@ public final class FunctionHash {
 
     private static char operandClass(Instruction insn, int i) {
         if (insn.getRegister(i) != null) return 'R';
-        if (insn.getScalar(i) != null) return 'S';
         if (insn.getAddress(i) != null) return 'A';
+        if (insn.getScalar(i) != null) return 'S';
         return 'M';
     }
 
