@@ -57,7 +57,8 @@ Legend: `[x]` shipped · `[~]` in progress (open PR) · `[ ]` planned · API sta
 - [ ] Coverage: `load_coverage` / `trace_to_coverage` / `coverage_report` / `coverage_diff` `[N]`
 - [x] `xref_graph` — Mermaid one-hop reference graph
 - [x] `namespace_graph` — Mermaid namespace/class hierarchy
-- [ ] Interactive HTML graph + `dominator_tree`/`cfg_metrics` `[V]`
+- [x] `cfg_metrics` — block/edge/cyclomatic/loop complexity
+- [ ] Interactive HTML graph + `dominator_tree` `[V]`
 - [x] `find_crypto_constants` — AES/SHA/MD5 constant detection
 - [x] `find_syscalls` — direct syscall/sysenter/int2e stub detection + SSN
 - [x] `find_anti_vm` — VM/sandbox artifact string detection
@@ -71,5 +72,5 @@ Legend: `[x]` shipped · `[~]` in progress (open PR) · `[ ]` planned · API sta
 - [ ] File-IO sandbox + mutation audit log `[V]`
 - [ ] Bound executor / program lock for off-EDT reads `[V]`
 - [ ] `patch_bytes` opt-in disassembly + `search_bytes` cursor `[V]`
-- [ ] Rust connect-vs-upstream error classification `[V]`
+- [x] Rust connect-vs-upstream error classification (map_err: connect/timeout/4xx with hints)
 - [ ] README auto-gen from route table + handler/e2e tests `[V]`
