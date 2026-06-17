@@ -2543,8 +2543,8 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Apply many data types in one call and one transaction. items is a JSON array of {address, type, clear?} (clear defaults to 1). Best-effort: a failing item is reported but does not roll back the others. Returns a per-item ok/fail report",
-        annotations(destructive_hint = false)
+        description = "Apply many data types in one call and one transaction. items is a JSON array of {address, type, clear?} where clear (default true) clears conflicting code/data at the address. Best-effort: a failing item is reported but does not roll back the others. Returns a per-item ok/fail report",
+        annotations(destructive_hint = true)
     )]
     async fn batch_apply_data_type(
         &self,

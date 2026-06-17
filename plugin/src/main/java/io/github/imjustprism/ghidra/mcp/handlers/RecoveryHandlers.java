@@ -126,7 +126,8 @@ public final class RecoveryHandlers {
                     if (a == null) throw new IllegalArgumentException("invalid address");
                     var dt = DataTypes.resolveDataType(dtm, type);
                     if (dt == null) throw new IllegalArgumentException("unknown type: " + type);
-                    var clear = !"0".equals(it.get("clear"));
+                    var clearVal = it.get("clear");
+                    var clear = clearVal == null || !("0".equals(clearVal) || "false".equalsIgnoreCase(clearVal));
                     var cmd = new CreateDataCmd(a, clear, dt);
                     if (!cmd.applyTo(program)) throw new IllegalStateException(cmd.getStatusMsg());
                     okCount[0]++;
