@@ -1619,6 +1619,17 @@ impl GhidraServer {
     }
 
     #[tool(
+        description = "List the Ghidra scripts (.java/.py) available on the script source directories, with each script's name and directory. Read-only discovery; this server does not execute scripts",
+        annotations(read_only_hint = true)
+    )]
+    async fn list_scripts(
+        &self,
+        Parameters(p): Parameters<Page>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.get("list_scripts", p).await
+    }
+
+    #[tool(
         description = "List all namespace/class names with pagination",
         annotations(read_only_hint = true)
     )]

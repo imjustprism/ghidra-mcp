@@ -37,7 +37,7 @@ Legend: `[x]` shipped · `[~]` in progress (open PR) · `[ ]` planned · API sta
 ## Phase 3 — Headless + scripting + live mastery
 - [ ] Headless server host (no GUI) `[N]`
 - [ ] Docker image `[N]`
-- [ ] Script execution (`run_ghidra_script`/`run_script_source`/`list_scripts`) — gated `[N]`
+- [x] `list_scripts` (read-only script discovery); `run_ghidra_script`/`run_script_source` intentionally omitted (no dynamic code execution from input) `[N]`
 - [ ] **P0 scanner rewrite** — Trace-DB reads, parallel, freshness tags `[N]`
 - [x] `read_pointer_path` — multi-level pointer-chain resolver (CheatEngine-style); `pointer_scan` still TODO
 - [x] `pointer_scan` — static reverse pointer scan (pointer-aligned, budgeted; feeds read_pointer_path)
