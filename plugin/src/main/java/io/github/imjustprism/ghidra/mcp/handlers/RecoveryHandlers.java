@@ -54,6 +54,8 @@ public final class RecoveryHandlers {
                 Http.parseIntOrDefault(p.get("offset"), -1)));
         routes.getQuery("/list_data_type_archives", this::listDataTypeArchives);
         routes.postForm("/apply_gdt", p -> applyGdt(p.get("path")));
+        routes.postForm("/import_dwarf", p -> runAnalyzer(
+                new ghidra.app.plugin.core.analysis.DWARFAnalyzer(), "DWARF import"));
         routes.getQuery("/list_open_programs", this::listOpenPrograms);
         routes.postForm("/select_program", p -> selectProgram(p.get("name")));
     }
@@ -106,6 +108,25 @@ public final class RecoveryHandlers {
         } finally {
             archive.close();
         }
+    }
+
+    private String runAnalyzer(ghidra.app.services.Analyzer analyzer, String label) {
+        var program = ctx.currentProgram();
+        if (program == null) throw new IllegalArgumentException("No program loaded");
+        if (!analyzer.canAnalyze(program)) {
+            return label + ": nothing to do (no applicable data in this program)";
+        }
+        var mgr = AutoAnalysisManager.getAnalysisManager(program);
+        int tx = program.startTransaction(label);
+        boolean ok = false;
+        try {
+            mgr.scheduleOneTimeAnalysis(analyzer, program.getMemory());
+            mgr.startAnalysis(new ConsoleTaskMonitor());
+            ok = true;
+        } finally {
+            program.endTransaction(tx, ok);
+        }
+        return label + " complete on " + program.getName();
     }
 
     private String listOpenPrograms(Map<String, String> q) {

@@ -30,7 +30,8 @@ Legend: `[x]` shipped · `[~]` in progress (open PR) · `[ ]` planned · API sta
 - [ ] `apply_fid_signatures` `[N]`
 - [x] `list_data_type_archives` — list available type archives
 - [x] `apply_gdt` — merge a .gdt type archive into the program (sandboxed path; shared FileGuard)
-- [ ] `import_pdb` / `import_dwarf` `[N]`
+- [x] `import_dwarf` — on-demand DWARF analyzer run (types/sigs from debug info)
+- [ ] `import_pdb` `[N]`
 - [ ] `propose_struct_from_accesses` — locate FillOutStructureCmd jar first `[X]`
 
 ## Phase 3 — Headless + scripting + live mastery

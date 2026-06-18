@@ -3074,6 +3074,14 @@ impl GhidraServer {
     }
 
     #[tool(
+        description = "Run Ghidra's DWARF analyzer on the current program to recover types, function signatures, parameter names, and variables from embedded DWARF debug info (ELF/PE built with debug symbols). On-demand alternative to a full re-analysis; reports if the program has no applicable DWARF data",
+        annotations(destructive_hint = false)
+    )]
+    async fn import_dwarf(&self) -> Result<CallToolResult, ErrorData> {
+        self.post_bare("import_dwarf").await
+    }
+
+    #[tool(
         description = "List all programs currently open in this Ghidra tool, with name, which is active, sha256, and path. Cross-binary work (diffing, matching) needs two programs open here",
         annotations(read_only_hint = true)
     )]
