@@ -14,7 +14,8 @@ $requiredJars = @(
     "Ghidra\Framework\SoftwareModeling\lib\SoftwareModeling.jar",
     "Ghidra\Framework\Utility\lib\Utility.jar",
     "Ghidra\Framework\Gui\lib\Gui.jar",
-    "Ghidra\Framework\Emulation\lib\Emulation.jar"
+    "Ghidra\Framework\Emulation\lib\Emulation.jar",
+    "Ghidra\Features\FunctionID\lib\FunctionID.jar"
 )
 
 $optionalJars = @(

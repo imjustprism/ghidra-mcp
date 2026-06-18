@@ -27,7 +27,7 @@ Legend: `[x]` shipped · `[~]` in progress (open PR) · `[ ]` planned · API sta
 - [x] `find_undocumented` — least-documented work queue
 - [x] `apply_naming_convention` (snake/screaming_snake/camel/pascal, dry-run by default)
 - [x] `recover_rtti_classes` — list recovered C++ classes + vftables + method counts
-- [ ] `apply_fid_signatures` `[N]`
+- [x] `apply_fid_signatures` — on-demand Function ID analyzer run (names matched library functions)
 - [x] `list_data_type_archives` — list available type archives
 - [x] `apply_gdt` — merge a .gdt type archive into the program (sandboxed path; shared FileGuard)
 - [x] `import_dwarf` — on-demand DWARF analyzer run (types/sigs from debug info)

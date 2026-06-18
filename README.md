@@ -60,7 +60,7 @@ MCP server for Ghidra. Rust bridge + Ghidra Java plugin. Wires any MCP client (C
 
 ## Tools
 
-156 tools total.
+157 tools total.
 
 Every paginated read tool accepts an optional `fmt` argument — `tsv` (default), `csv`, `json`, or `verbose` — alongside `offset`/`limit`.
 
@@ -179,7 +179,7 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 </details>
 
 <details>
-<summary><b>Type recovery / analysis control</b> (16)</summary>
+<summary><b>Type recovery / analysis control</b> (17)</summary>
 
 | tool | purpose |
 | --- | --- |
@@ -193,6 +193,7 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 | `list_data_type_archives` | available type archives (program/builtin/GDT) |
 | `apply_gdt` | merge a .gdt type archive into the program (sandboxed path) |
 | `import_dwarf` | run the DWARF analyzer to recover types/sigs from debug info |
+| `apply_fid_signatures` | run Function ID to name matched library/runtime functions |
 | `list_open_programs` | all open programs (name, active, sha256) |
 | `select_program` | switch the active program by name/sha256 |
 | `struct_set_field` | replace/insert a field in an existing struct |

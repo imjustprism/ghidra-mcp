@@ -68,6 +68,13 @@
     </dependency>
     <dependency>
       <groupId>ghidra</groupId>
+      <artifactId>FunctionID</artifactId>
+      <version>12.0.1</version>
+      <scope>system</scope>
+      <systemPath>${project.basedir}/lib/FunctionID.jar</systemPath>
+    </dependency>
+    <dependency>
+      <groupId>ghidra</groupId>
       <artifactId>Gui</artifactId>
       <version>12.0.1</version>
       <scope>system</scope>

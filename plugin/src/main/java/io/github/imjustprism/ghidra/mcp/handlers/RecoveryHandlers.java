@@ -56,6 +56,8 @@ public final class RecoveryHandlers {
         routes.postForm("/apply_gdt", p -> applyGdt(p.get("path")));
         routes.postForm("/import_dwarf", p -> runAnalyzer(
                 new ghidra.app.plugin.core.analysis.DWARFAnalyzer(), "DWARF import"));
+        routes.postForm("/apply_fid_signatures", p -> runAnalyzer(
+                new ghidra.feature.fid.analyzer.FidAnalyzer(), "FID signature application"));
         routes.getQuery("/list_open_programs", this::listOpenPrograms);
         routes.postForm("/select_program", p -> selectProgram(p.get("name")));
     }
@@ -126,6 +128,7 @@ public final class RecoveryHandlers {
         var log = new ghidra.app.util.importer.MessageLog();
         var imported = new boolean[1];
         var error = new String[1];
+        var namesBefore = snapshotFunctionNames(program);
         boolean committed = ctx.runOnSwingTx(program, label, () -> {
             try {
                 imported[0] = analyzer.added(program, program.getMemory(), new ConsoleTaskMonitor(), log);
@@ -142,8 +145,32 @@ public final class RecoveryHandlers {
         if (!committed) {
             throw new IllegalStateException(label + " did not complete (transaction was not committed)");
         }
-        var summary = label + (imported[0] ? " complete" : " ran but imported nothing") + " on " + program.getName();
+        long renamed = countRenamedFunctions(program, namesBefore);
+        var summary = label + (imported[0] ? " ran" : " ran but reported no work") + " on "
+                + program.getName() + "; renamed " + renamed + " function(s)";
         return log.hasMessages() ? summary + "\n" + log : summary;
+    }
+
+    private java.util.Map<ghidra.program.model.address.Address, String> snapshotFunctionNames(Program program) {
+        var names = new java.util.HashMap<ghidra.program.model.address.Address, String>();
+        for (var f : program.getFunctionManager().getFunctions(true)) {
+            names.put(f.getEntryPoint(), f.getName());
+        }
+        return names;
+    }
+
+    private long countRenamedFunctions(Program program,
+            java.util.Map<ghidra.program.model.address.Address, String> before) {
+        long n = 0;
+        for (var f : program.getFunctionManager().getFunctions(true)) {
+            var prev = before.get(f.getEntryPoint());
+            if (prev == null) {
+                if (f.getSymbol().getSource() != SourceType.DEFAULT) n++;
+            } else if (!prev.equals(f.getName())) {
+                n++;
+            }
+        }
+        return n;
     }
 
     private String listOpenPrograms(Map<String, String> q) {
