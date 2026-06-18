@@ -1820,7 +1820,7 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Forward data-flow (taint) slice from an instruction: decompiles the containing function and follows the value(s) produced at the given address through the decompiler's p-code def-use graph, returning every instruction the value flows into. Intra-procedural; capped. Use to see where a decrypted/computed value ends up",
+        description = "Forward data-flow (taint) slice from an instruction: decompiles the containing function and follows the value(s) produced at the given address through the decompiler's p-code def-use graph, returning every instruction the value flows into. Intra-procedural, def-use only (not followed through memory); capped. Use to see where a decrypted/computed value ends up",
         annotations(read_only_hint = true)
     )]
     async fn taint_forward(
@@ -1834,7 +1834,7 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Backward data-flow (taint) slice from an instruction: decompiles the containing function and walks the value(s) used at the given address back through the p-code def-use graph, returning every instruction that contributes to them. Intra-procedural; capped. Use to find what feeds a check/key/branch",
+        description = "Backward data-flow (taint) slice from an instruction: decompiles the containing function and walks the value(s) used at the given address back through the p-code def-use graph, returning every instruction that contributes to them. Intra-procedural, def-use only (not followed through memory); capped. Use to find what feeds a check/key/branch",
         annotations(read_only_hint = true)
     )]
     async fn taint_backward(

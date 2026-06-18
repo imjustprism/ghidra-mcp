@@ -35,8 +35,10 @@ public final class Taint {
                 if (high == null) throw new IllegalStateException("decompilation failed for " + func.getName());
 
                 var queue = new ArrayDeque<ghidra.program.model.pcode.Varnode>();
+                int seedOps = 0;
                 for (var it = high.getPcodeOps(addr); it.hasNext(); ) {
                     var op = it.next();
+                    seedOps++;
                     if (forward) {
                         if (op.getOutput() != null) queue.add(op.getOutput());
                     } else {
@@ -44,6 +46,15 @@ public final class Taint {
                             if (in != null) queue.add(in);
                         }
                     }
+                }
+                if (seedOps == 0) {
+                    return "# no p-code operations at " + Responses.addr(addr) + " in " + func.getName()
+                            + " (not a modeled instruction target; pick the address of an instruction the decompiler represents)";
+                }
+                if (queue.isEmpty()) {
+                    return "# instruction at " + Responses.addr(addr) + " has no "
+                            + (forward ? "output value to slice forward (e.g. a store, branch, or void call)"
+                                       : "input values to slice backward") + "; nothing to trace";
                 }
 
                 var visited = new HashSet<ghidra.program.model.pcode.Varnode>();
@@ -75,8 +86,8 @@ public final class Taint {
                     t.row(Responses.addr(e.getKey()), Responses.cell(e.getValue()));
                 }
                 return "# taint " + (forward ? "forward" : "backward") + " from " + Responses.addr(addr)
-                        + " in " + func.getName() + " (intra-procedural"
-                        + (reached.size() >= MAX_REACHED ? ", capped at " + MAX_REACHED : "") + ")\n"
+                        + " in " + func.getName() + " (intra-procedural; def-use only, not followed through memory"
+                        + (reached.size() >= MAX_REACHED ? "; capped at " + MAX_REACHED : "") + ")\n"
                         + t.total(w.total()).build();
             } finally {
                 decomp.dispose();
