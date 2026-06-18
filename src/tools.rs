@@ -1205,6 +1205,21 @@ pub struct VariableEdit {
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct ProposeStruct {
+    pub function_address: String,
+    pub variable: String,
+}
+
+impl ToParams for ProposeStruct {
+    fn into_params(self) -> Params {
+        vec![
+            ("function_address", self.function_address),
+            ("variable", self.variable),
+        ]
+    }
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
 pub struct SetVariables {
     pub function_address: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3090,6 +3105,26 @@ impl GhidraServer {
     }
 
     #[tool(
+        description = "Infer a struct layout from how a pointer variable is used. Decompiles the function, follows every load/store through the named pointer variable (a parameter or local), and builds a struct whose fields match the accessed offsets, sizes, and types. Returns the proposed layout (offset/length/type/field). Great for recovering an unknown structure from the code that touches it",
+        annotations(destructive_hint = true)
+    )]
+    async fn propose_struct_from_accesses(
+        &self,
+        Parameters(p): Parameters<ProposeStruct>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if p.function_address.trim().is_empty() {
+            return Err(ErrorData::invalid_params(
+                "function_address is required",
+                None,
+            ));
+        }
+        if p.variable.trim().is_empty() {
+            return Err(ErrorData::invalid_params("variable is required", None));
+        }
+        self.post("propose_struct_from_accesses", p).await
+    }
+
+    #[tool(
         description = "List all programs currently open in this Ghidra tool, with name, which is active, sha256, and path. Cross-binary work (diffing, matching) needs two programs open here",
         annotations(read_only_hint = true)
     )]
@@ -3693,6 +3728,21 @@ mod tests {
             names.len() >= 140,
             "expected full catalog, got {}",
             names.len()
+        );
+    }
+
+    #[test]
+    fn propose_struct_emits_function_and_variable() {
+        let p = ProposeStruct {
+            function_address: "0x401000".to_owned(),
+            variable: "param_1".to_owned(),
+        };
+        assert_eq!(
+            p.into_params(),
+            vec![
+                ("function_address", "0x401000".to_owned()),
+                ("variable", "param_1".to_owned()),
+            ]
         );
     }
 
