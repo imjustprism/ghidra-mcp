@@ -102,11 +102,15 @@ public final class Emulator {
             }
             if (captureAddr != null && !captureAddr.isBlank() && captureLen > 0) {
                 if (captureLen > 0x200000) throw new IllegalArgumentException("capture_length too large (max 2097152)");
-                var a = program.getAddressFactory().getAddress(captureAddr.trim());
-                if (a == null) throw new IllegalArgumentException("invalid capture address");
-                var data = emu.readMemory(a, captureLen);
-                out.append("captured ").append(Responses.addr(a)).append(": ")
-                        .append(data == null ? "unavailable" : Bufs.hex(data)).append('\n');
+                if (!reason.equals("returned")) {
+                    out.append("memory capture skipped (function did not return)\n");
+                } else {
+                    var a = program.getAddressFactory().getAddress(captureAddr.trim());
+                    if (a == null) throw new IllegalArgumentException("invalid capture address");
+                    var data = emu.readMemory(a, captureLen);
+                    out.append("captured ").append(Responses.addr(a)).append(": ")
+                            .append(data == null ? "unavailable" : Bufs.hex(data)).append('\n');
+                }
             }
             return out.toString();
         } catch (IllegalArgumentException e) {
