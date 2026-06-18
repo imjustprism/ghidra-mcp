@@ -37,6 +37,17 @@ public final class FunctionHash {
         });
     }
 
+    public static long shapeHash(ghidra.program.model.listing.Program program,
+            ghidra.program.model.listing.Function func) {
+        var shape = new StringBuilder();
+        var it = program.getListing().getInstructions(func.getBody(), true);
+        while (it.hasNext()) {
+            var insn = it.next();
+            shape.append(insn.getMnemonicString()).append(':').append(insn.getNumOperands()).append(';');
+        }
+        return fnv1a(shape);
+    }
+
     private static long fnv1a(CharSequence s) {
         long h = FNV_OFFSET;
         for (int i = 0; i < s.length(); i++) {

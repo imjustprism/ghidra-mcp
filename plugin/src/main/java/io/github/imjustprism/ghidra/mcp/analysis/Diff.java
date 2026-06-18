@@ -60,6 +60,60 @@ public final class Diff {
         return t.build();
     }
 
+    public static String diffPrograms(PluginContext ctx, String programBName,
+            io.github.imjustprism.ghidra.mcp.http.Page p, Map<String, String> q) {
+        if (programBName == null || programBName.isBlank()) throw new IllegalArgumentException("program_b is required");
+        var program = ctx.currentProgram();
+        if (program == null) throw new IllegalArgumentException("No program loaded");
+        var programB = findOpenProgram(ctx, programBName.trim());
+        if (programB == null) throw new IllegalArgumentException("program_b is not open: " + programBName);
+        if (programB == program) throw new IllegalArgumentException("program_b must differ from the active program");
+
+        var aByHash = hashFunctions(program);
+        var bByHash = hashFunctions(programB);
+        int totalA = aByHash.values().stream().mapToInt(java.util.List::size).sum();
+        int totalB = bByHash.values().stream().mapToInt(java.util.List::size).sum();
+
+        var pairs = new java.util.ArrayList<String[]>();
+        int aOnly = 0;
+        int bOnly = 0;
+        var hashes = new LinkedHashSet<Long>(aByHash.keySet());
+        hashes.addAll(bByHash.keySet());
+        for (var h : hashes) {
+            var la = aByHash.getOrDefault(h, java.util.List.of());
+            var lb = bByHash.getOrDefault(h, java.util.List.of());
+            int m = Math.min(la.size(), lb.size());
+            for (int i = 0; i < m; i++) {
+                pairs.add(new String[]{"0x" + Long.toHexString(h), desc(la.get(i)), desc(lb.get(i))});
+            }
+            aOnly += la.size() - m;
+            bOnly += lb.size() - m;
+        }
+
+        var t = Responses.table(p, q, new String[]{"shape_hash", "a", "b"});
+        var w = new Responses.Window(p);
+        for (var pr : pairs) {
+            if (w.take()) t.row(pr[0], pr[1], pr[2]);
+        }
+        return "# diff_programs " + program.getName() + " vs " + programB.getName()
+                + ": matched=" + pairs.size() + " a_only=" + aOnly + " b_only=" + bOnly
+                + " (A=" + totalA + ", B=" + totalB + ")\n" + t.total(w.total()).build();
+    }
+
+    private static Map<Long, java.util.List<Function>> hashFunctions(Program program) {
+        var byHash = new HashMap<Long, java.util.List<Function>>();
+        for (var f : program.getFunctionManager().getFunctions(true)) {
+            if (f.isExternal() || f.isThunk()) continue;
+            if (!program.getListing().getInstructions(f.getBody(), true).hasNext()) continue;
+            byHash.computeIfAbsent(FunctionHash.shapeHash(program, f), k -> new java.util.ArrayList<>()).add(f);
+        }
+        return byHash;
+    }
+
+    private static String desc(Function f) {
+        return f.getName() + "@" + f.getEntryPoint();
+    }
+
     private static Function functionAt(Program program, String addrStr, String label) {
         var a = program.getAddressFactory().getAddress(addrStr.trim());
         if (a == null) throw new IllegalArgumentException("invalid " + label + ": " + addrStr);
