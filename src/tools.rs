@@ -1222,6 +1222,21 @@ pub struct VariableEdit {
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct DiffPrograms {
+    pub program_b: String,
+    #[serde(flatten)]
+    pub page: Page,
+}
+
+impl ToParams for DiffPrograms {
+    fn into_params(self) -> Params {
+        let mut p = self.page.into_params();
+        p.push(("program_b", self.program_b));
+        p
+    }
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
 pub struct DiffFunctions {
     pub address_a: String,
     pub address_b: String,
@@ -1880,6 +1895,20 @@ impl GhidraServer {
             ));
         }
         self.get("diff_functions", p).await
+    }
+
+    #[tool(
+        description = "Whole-program structural diff (bindiff-lite): matches every function in the active program against another open program (program_b, by name/sha256) using structural shape hashes (mnemonic + operand-count sequence). Reports matched count, functions only in A, only in B, and the matched function pairs (shape_hash, name@addr in each). Use to map functions across two malware variants or builds",
+        annotations(read_only_hint = true)
+    )]
+    async fn diff_programs(
+        &self,
+        Parameters(p): Parameters<DiffPrograms>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if p.program_b.is_empty() {
+            return Err(ErrorData::invalid_params("program_b is required", None));
+        }
+        self.get("diff_programs", p).await
     }
 
     #[tool(
@@ -3854,6 +3883,26 @@ mod tests {
             names.len() >= 140,
             "expected full catalog, got {}",
             names.len()
+        );
+    }
+
+    #[test]
+    fn diff_programs_emits_program_b_with_page() {
+        let p = DiffPrograms {
+            program_b: "variant_b.exe".to_owned(),
+            page: Page {
+                offset: 0,
+                limit: 100,
+                fmt: None,
+            },
+        };
+        assert_eq!(
+            p.into_params(),
+            vec![
+                ("offset", "0".to_owned()),
+                ("limit", "100".to_owned()),
+                ("program_b", "variant_b.exe".to_owned()),
+            ]
         );
     }
 
