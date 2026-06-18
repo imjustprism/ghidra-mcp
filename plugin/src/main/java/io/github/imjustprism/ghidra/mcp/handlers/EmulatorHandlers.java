@@ -62,6 +62,10 @@ public final class EmulatorHandlers {
         if (program == null) throw new IllegalArgumentException("No program loaded");
         var start = program.getAddressFactory().getAddress(startStr.trim());
         if (start == null) throw new IllegalArgumentException("invalid start address: " + startStr);
+        if (!start.getAddressSpace().equals(program.getAddressFactory().getDefaultAddressSpace())) {
+            throw new IllegalArgumentException(
+                    "emulator start must be in the default address space (not overlay/other): " + startStr);
+        }
         long stack = DEFAULT_STACK;
         if (stackStr != null && !stackStr.isBlank()) {
             var big = parseBig(stackStr);
