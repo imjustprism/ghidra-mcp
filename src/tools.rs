@@ -468,6 +468,19 @@ impl ToParams for DebuggerReadMemory {
     }
 }
 
+impl ToParams for ReadPointerPath {
+    fn into_params(self) -> Params {
+        let mut p = vec![("base", self.base)];
+        if let Some(o) = self.offsets {
+            p.push(("offsets", o));
+        }
+        if let Some(v) = self.value_len {
+            p.push(("value_len", v.to_string()));
+        }
+        p
+    }
+}
+
 impl ToParams for DebuggerSetBreakpoint {
     fn into_params(self) -> Params {
         let mut p = vec![("address", self.address)];
@@ -936,6 +949,15 @@ pub struct DebuggerReadMemory {
     pub address: String,
     #[serde(default = "default_read_length")]
     pub length: u32,
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct ReadPointerPath {
+    pub base: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub offsets: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value_len: Option<u32>,
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
@@ -2199,6 +2221,20 @@ impl GhidraServer {
     }
 
     #[tool(
+        description = "Resolve a multi-level pointer chain in the live target (CheatEngine-style). Starting from base (a static program address, automatically slid to the live target, or a raw dynamic address), dereferences a pointer and adds each offset in turn: final = [...[[base]+off0]+off1...]+offN. offsets is a comma-separated list of hex values (with or without 0x; negatives allowed), e.g. \"0x18,0x40,-0x8\"; omit for a single dereference. value_len optionally reads that many bytes at the final address. Returns each step's address and the resolved final address",
+        annotations(read_only_hint = true)
+    )]
+    async fn read_pointer_path(
+        &self,
+        Parameters(p): Parameters<ReadPointerPath>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if p.base.is_empty() {
+            return Err(ErrorData::invalid_params("base is required", None));
+        }
+        self.get("read_pointer_path", p).await
+    }
+
+    #[tool(
         description = "List all logical breakpoints known to the debugger",
         annotations(read_only_hint = true)
     )]
@@ -3323,6 +3359,33 @@ mod tests {
             "expected full catalog, got {}",
             names.len()
         );
+    }
+
+    #[test]
+    fn read_pointer_path_emits_base_offsets_value_len() {
+        let p = ReadPointerPath {
+            base: "0x140000000".to_owned(),
+            offsets: Some("0x18,0x40".to_owned()),
+            value_len: Some(8),
+        };
+        assert_eq!(
+            p.into_params(),
+            vec![
+                ("base", "0x140000000".to_owned()),
+                ("offsets", "0x18,0x40".to_owned()),
+                ("value_len", "8".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn read_pointer_path_omits_optional_fields() {
+        let p = ReadPointerPath {
+            base: "0x140001000".to_owned(),
+            offsets: None,
+            value_len: None,
+        };
+        assert_eq!(p.into_params(), vec![("base", "0x140001000".to_owned())]);
     }
 
     #[test]
