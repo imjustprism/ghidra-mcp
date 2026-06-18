@@ -51,7 +51,7 @@ Legend: `[x]` shipped · `[~]` in progress (open PR) · `[ ]` planned · API sta
 - [x] `function_hash` — structural mnemonic/shape hash for matching/dedup
 - [x] multi-program basics (`list_open_programs`, `select_program`)
 - [ ] cross-binary `program` param / `open_program` from disk `[N]`
-- [ ] `diff_functions` / `diff_programs` (Version Tracking) `[X]`
+- [x] `diff_functions` — structural similarity score (mnemonic/call/size Jaccard; cross-program); diff_programs TODO
 - [ ] BSim: `bsim_index_program` / `bsim_query_function` / `bsim_query_program` `[X]`
 - [ ] `propagate_matches` (copy names/types across matched binaries) `[N]`
 - [ ] Z3 concolic: `solve_branch_constraints` / `find_path_to_address` `[X]`

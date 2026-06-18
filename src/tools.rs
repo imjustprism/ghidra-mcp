@@ -1222,6 +1222,24 @@ pub struct VariableEdit {
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct DiffFunctions {
+    pub address_a: String,
+    pub address_b: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub program_b: Option<String>,
+}
+
+impl ToParams for DiffFunctions {
+    fn into_params(self) -> Params {
+        let mut p = vec![("address_a", self.address_a), ("address_b", self.address_b)];
+        if let Some(b) = self.program_b {
+            p.push(("program_b", b));
+        }
+        p
+    }
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
 pub struct CoverageReport {
     pub path: String,
     #[serde(flatten)]
@@ -1845,6 +1863,23 @@ impl GhidraServer {
             return Err(ErrorData::invalid_params("address is required", None));
         }
         self.get("taint_backward", p).await
+    }
+
+    #[tool(
+        description = "Structurally compare two functions and score their similarity 0-100. Compares instruction-mnemonic multisets (Jaccard), called-function-name sets, and size ratio. address_a is in the active program; address_b is in program_b if given (an open program by name/sha256, e.g. for cross-binary variant matching) else the active program. Returns the score plus the per-metric breakdown and each function's call set",
+        annotations(read_only_hint = true)
+    )]
+    async fn diff_functions(
+        &self,
+        Parameters(p): Parameters<DiffFunctions>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if p.address_a.is_empty() || p.address_b.is_empty() {
+            return Err(ErrorData::invalid_params(
+                "address_a and address_b are required",
+                None,
+            ));
+        }
+        self.get("diff_functions", p).await
     }
 
     #[tool(
@@ -3819,6 +3854,39 @@ mod tests {
             names.len() >= 140,
             "expected full catalog, got {}",
             names.len()
+        );
+    }
+
+    #[test]
+    fn diff_functions_emits_addresses_and_optional_program() {
+        let p = DiffFunctions {
+            address_a: "0x401000".to_owned(),
+            address_b: "0x401500".to_owned(),
+            program_b: Some("variant_b.exe".to_owned()),
+        };
+        assert_eq!(
+            p.into_params(),
+            vec![
+                ("address_a", "0x401000".to_owned()),
+                ("address_b", "0x401500".to_owned()),
+                ("program_b", "variant_b.exe".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn diff_functions_omits_program_b_when_same_program() {
+        let p = DiffFunctions {
+            address_a: "0x401000".to_owned(),
+            address_b: "0x402000".to_owned(),
+            program_b: None,
+        };
+        assert_eq!(
+            p.into_params(),
+            vec![
+                ("address_a", "0x401000".to_owned()),
+                ("address_b", "0x402000".to_owned()),
+            ]
         );
     }
 
