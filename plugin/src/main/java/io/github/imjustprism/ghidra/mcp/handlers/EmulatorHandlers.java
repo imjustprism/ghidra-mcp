@@ -124,6 +124,10 @@ public final class EmulatorHandlers {
         return withSession(id, session -> {
             var emu = session.emu;
             var stop = addr(session.program, stopStr);
+            if (!stop.getAddressSpace().equals(session.program.getAddressFactory().getDefaultAddressSpace())) {
+                throw new IllegalArgumentException(
+                        "stop must be in the default address space (not overlay/other): " + stopStr);
+            }
             int steps = 0;
             String reason = "max_steps";
             for (; steps < limit; steps++) {
