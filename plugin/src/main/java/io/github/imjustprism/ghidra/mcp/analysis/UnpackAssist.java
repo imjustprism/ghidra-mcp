@@ -51,11 +51,10 @@ public final class UnpackAssist {
 
         String oepBlock = null;
         for (var sym : program.getSymbolTable().getGlobalSymbols("entry")) {
+            if (!sym.isExternalEntryPoint()) continue;
             var block = program.getMemory().getBlock(sym.getAddress());
-            if (block != null && block.isWrite()) {
-                oepBlock = block.getName();
-                break;
-            }
+            if (block != null && block.isWrite()) oepBlock = block.getName();
+            break;
         }
 
         if (packer != null) {
