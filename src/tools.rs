@@ -2766,8 +2766,8 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Apply a Ghidra data-type archive (.gdt) to the current program: opens the archive from disk and merges all its data types into the program's type manager (conflicts resolved with Ghidra's default handler), making library/SDK structs and typedefs available to apply. The path must resolve under the allow-listed File IO Directory (Tool Options), which is disabled by default",
-        annotations(destructive_hint = false)
+        description = "Apply a Ghidra data-type archive (.gdt) to the current program: opens the archive from disk and merges all its data types into the program's type manager (conflicts resolved with Ghidra's default handler, which may modify existing types), making library/SDK structs and typedefs available to apply. The path must resolve under the allow-listed File IO Directory (Tool Options), which is disabled by default",
+        annotations(destructive_hint = true)
     )]
     async fn apply_gdt(
         &self,

@@ -89,7 +89,7 @@ public final class RecoveryHandlers {
             var types = new java.util.ArrayList<ghidra.program.model.data.DataType>();
             for (var it = archive.getAllDataTypes(); it.hasNext(); ) types.add(it.next());
             var added = new int[1];
-            ctx.runOnSwingTx(program, "Apply GDT " + file.getName(), () -> {
+            var ok = ctx.runOnSwingTx(program, "Apply GDT " + file.getName(), () -> {
                 try {
                     var dtm = program.getDataTypeManager();
                     dtm.addDataTypes(types, DataTypeConflictHandler.DEFAULT_HANDLER, new ConsoleTaskMonitor());
@@ -100,6 +100,7 @@ public final class RecoveryHandlers {
                     return false;
                 }
             });
+            if (!ok) throw new IllegalStateException("apply_gdt failed or was cancelled; no types were merged");
             return "Applied " + added[0] + " data type(s) from " + file.getName()
                     + " (archive: " + archive.getName() + ")";
         } finally {
