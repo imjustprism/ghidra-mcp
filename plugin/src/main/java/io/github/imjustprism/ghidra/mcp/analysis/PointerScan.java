@@ -21,7 +21,11 @@ public final class PointerScan {
         return ctx.withProgram(program -> {
             var target = program.getAddressFactory().getAddress(targetStr);
             if (target == null) throw new IllegalArgumentException("invalid target address: " + targetStr);
-            int ptr = target.getAddressSpace().getPointerSize();
+            var space = target.getAddressSpace();
+            int ptr = space.getPointerSize();
+            if (ptr <= 0 || ptr > 8) {
+                throw new IllegalArgumentException("unsupported pointer size for target space: " + ptr);
+            }
             boolean bigEndian = program.getLanguage().isBigEndian();
             long targetOff = target.getOffset();
             long lo = Long.compareUnsigned(targetOff, off) < 0 ? 0 : targetOff - off;
@@ -37,13 +41,16 @@ public final class PointerScan {
             long scanned = 0;
             boolean truncated = false;
             for (var block : memory.getBlocks()) {
-                if (!block.isInitialized()) continue;
+                if (!block.isInitialized() || !block.getStart().getAddressSpace().equals(space)) continue;
                 long size = block.getSize();
-                long blockStart = block.getStart().getOffset();
-                long pos = Math.floorMod(-blockStart, ptr);
+                long pos = Math.floorMod(-block.getStart().getOffset(), ptr);
                 while (pos + ptr <= size) {
-                    if (scanned >= SCAN_BUDGET) { truncated = true; break; }
-                    int chunkLen = (int) Math.min(size - pos, CHUNK);
+                    long remaining = SCAN_BUDGET - scanned;
+                    if (remaining < ptr) { truncated = true; break; }
+                    long want = Math.min(size - pos, Math.min(CHUNK, remaining));
+                    if (pos + want < size) want -= want % ptr;
+                    if (want < ptr) { truncated = true; break; }
+                    int chunkLen = (int) want;
                     var buf = new byte[chunkLen];
                     try {
                         memory.getBytes(block.getStart().add(pos), buf);
@@ -67,7 +74,7 @@ public final class PointerScan {
             }
             sb.append("# ").append(found).append(" result(s)");
             if (truncated) sb.append(found >= cap ? ", capped at " + cap : ", scan budget reached");
-            sb.append(". Feed base+offset into read_pointer_path.\n");
+            sb.append(". Each row is a base address + offset that reaches the target.\n");
             return sb.toString();
         });
     }

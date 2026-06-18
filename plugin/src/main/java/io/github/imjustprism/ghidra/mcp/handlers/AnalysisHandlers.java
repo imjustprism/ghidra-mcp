@@ -99,7 +99,7 @@ public final class AnalysisHandlers {
         routes.getQuery("/cfg_obfuscation_score", q -> CfgObfuscation.score(ctx, q.get("address"), q));
         routes.getQuery("/unpack_assist", q -> UnpackAssist.report(ctx));
         routes.getQuery("/pointer_scan", q -> PointerScan.scan(ctx, q.get("target"),
-                Http.parseIntOrDefault(q.get("max_offset"), 1024), Http.parseIntOrDefault(q.get("limit"), 100)));
+                Http.parseFlexibleInt(q.get("max_offset"), 1024), Http.parseIntOrDefault(q.get("limit"), 100)));
         routes.getQuery("/function_hash", q -> FunctionHash.hash(ctx, q.get("address"), q));
         routes.getQuery("/recover_rtti_classes", q -> Rtti.recover(ctx, Page.from(q), q));
         routes.getQuery("/find_dynamic_api_resolution", q -> DynamicApi.find(ctx, Page.from(q), q));

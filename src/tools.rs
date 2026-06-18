@@ -2268,7 +2268,7 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Reverse pointer scan over the static program image: finds pointer-aligned words whose value lands in [target - max_offset, target], i.e. addresses that point at or just before the target. Each result is a base address + the offset that reaches target, ready to feed straight into read_pointer_path. max_offset (default 1024, hard cap 0x4000) widens the window; limit caps results (default 100, max 1000). Bounded by a 256MB scan budget",
+        description = "Reverse pointer scan over the static program image: finds pointer-aligned words whose value lands in [target - max_offset, target], i.e. addresses that point at or just before the target. Each result is a base address + the offset that reaches target (resolve it on a live target with read_pointer_path). max_offset (default 1024, hard cap 0x4000) widens the window; limit caps results (default 100, max 1000). Bounded by a 256MB scan budget",
         annotations(read_only_hint = true)
     )]
     async fn pointer_scan(
