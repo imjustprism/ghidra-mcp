@@ -11,6 +11,7 @@ import io.github.imjustprism.ghidra.mcp.analysis.CfgObfuscation;
 import io.github.imjustprism.ghidra.mcp.analysis.CheckFunction;
 import io.github.imjustprism.ghidra.mcp.analysis.Completeness;
 import io.github.imjustprism.ghidra.mcp.analysis.Constraints;
+import io.github.imjustprism.ghidra.mcp.analysis.Coverage;
 import io.github.imjustprism.ghidra.mcp.analysis.DecodeStrings;
 import io.github.imjustprism.ghidra.mcp.analysis.DynamicApi;
 import io.github.imjustprism.ghidra.mcp.analysis.CryptoConstants;
@@ -102,6 +103,8 @@ public final class AnalysisHandlers {
         routes.getQuery("/find_anti_vm", q -> AntiVm.find(ctx, Page.from(q), q));
         routes.getQuery("/cfg_obfuscation_score", q -> CfgObfuscation.score(ctx, q.get("address"), q));
         routes.getQuery("/unpack_assist", q -> UnpackAssist.report(ctx));
+        routes.getPage("/coverage_report", (p, q) -> Coverage.report(ctx, q.get("path"), p, q));
+        routes.getPage("/coverage_diff", (p, q) -> Coverage.diff(ctx, q.get("path_a"), q.get("path_b"), p, q));
         routes.getQuery("/pointer_scan", q -> PointerScan.scan(ctx, q.get("target"),
                 Http.parseFlexibleLong(q.get("max_offset"), 1024), Http.parseFlexibleLong(q.get("limit"), 100)));
         routes.getQuery("/function_hash", q -> FunctionHash.hash(ctx, q.get("address"), q));

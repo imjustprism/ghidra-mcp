@@ -56,7 +56,7 @@ Legend: `[x]` shipped · `[~]` in progress (open PR) · `[ ]` planned · API sta
 - [ ] `propagate_matches` (copy names/types across matched binaries) `[N]`
 - [ ] Z3 concolic: `solve_branch_constraints` / `find_path_to_address` `[X]`
 - [ ] Taint: `taint_forward` / `taint_backward` `[N]`
-- [ ] Coverage: `load_coverage` / `trace_to_coverage` / `coverage_report` / `coverage_diff` `[N]`
+- [x] Coverage: `coverage_report` + `coverage_diff` (address-list file -> covered functions); trace_to_coverage/load session TODO
 - [x] `xref_graph` — Mermaid one-hop reference graph
 - [x] `namespace_graph` — Mermaid namespace/class hierarchy
 - [x] `cfg_metrics` — block/edge/cyclomatic/loop complexity
