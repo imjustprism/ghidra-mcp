@@ -48,13 +48,13 @@ public final class Http {
         }
     }
 
-    public static int parseFlexibleInt(String s, int d) {
+    public static long parseFlexibleLong(String s, long d) {
         if (s == null || s.isBlank()) return d;
         var v = s.trim();
         try {
             return v.startsWith("0x") || v.startsWith("0X")
-                    ? Integer.parseInt(v.substring(2), 16)
-                    : Integer.parseInt(v);
+                    ? Long.parseLong(v.substring(2), 16)
+                    : Long.parseLong(v);
         } catch (NumberFormatException e) {
             return d;
         }

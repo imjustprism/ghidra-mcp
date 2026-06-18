@@ -14,10 +14,10 @@ public final class PointerScan {
 
     private PointerScan() {}
 
-    public static String scan(PluginContext ctx, String targetStr, int maxOffset, int limit) {
+    public static String scan(PluginContext ctx, String targetStr, long maxOffset, long limit) {
         if (targetStr == null || targetStr.isBlank()) throw new IllegalArgumentException("target is required");
-        int off = Math.min(Math.max(maxOffset, 0), MAX_OFFSET);
-        int cap = Math.min(Math.max(limit, 1), MAX_RESULTS);
+        int off = (int) Math.min(Math.max(maxOffset, 0L), MAX_OFFSET);
+        int cap = (int) Math.min(Math.max(limit, 1L), MAX_RESULTS);
         return ctx.withProgram(program -> {
             var target = program.getAddressFactory().getAddress(targetStr);
             if (target == null) throw new IllegalArgumentException("invalid target address: " + targetStr);
