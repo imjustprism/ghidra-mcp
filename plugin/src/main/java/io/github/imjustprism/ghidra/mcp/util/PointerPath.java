@@ -25,12 +25,18 @@ public final class PointerPath {
     }
 
     public static long toUnsignedLong(byte[] b, int len, boolean bigEndian) {
-        if (b.length < len) throw new IllegalArgumentException("need " + len + " bytes, got " + b.length);
+        return toUnsignedLong(b, 0, len, bigEndian);
+    }
+
+    public static long toUnsignedLong(byte[] b, int off, int len, boolean bigEndian) {
+        if (b.length < off + len) {
+            throw new IllegalArgumentException("need " + len + " bytes at " + off + ", have " + b.length);
+        }
         long v = 0;
         if (bigEndian) {
-            for (int i = 0; i < len; i++) v = (v << 8) | (b[i] & 0xFFL);
+            for (int i = 0; i < len; i++) v = (v << 8) | (b[off + i] & 0xFFL);
         } else {
-            for (int i = len - 1; i >= 0; i--) v = (v << 8) | (b[i] & 0xFFL);
+            for (int i = len - 1; i >= 0; i--) v = (v << 8) | (b[off + i] & 0xFFL);
         }
         return v;
     }
