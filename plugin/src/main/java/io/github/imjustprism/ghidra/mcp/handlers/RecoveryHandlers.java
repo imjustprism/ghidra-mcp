@@ -126,7 +126,7 @@ public final class RecoveryHandlers {
         var log = new ghidra.app.util.importer.MessageLog();
         var imported = new boolean[1];
         var error = new String[1];
-        ctx.runOnSwingTx(program, label, () -> {
+        boolean committed = ctx.runOnSwingTx(program, label, () -> {
             try {
                 imported[0] = analyzer.added(program, program.getMemory(), new ConsoleTaskMonitor(), log);
                 return true;
@@ -138,6 +138,9 @@ public final class RecoveryHandlers {
         });
         if (error[0] != null) {
             throw new IllegalStateException(label + " failed: " + error[0]);
+        }
+        if (!committed) {
+            throw new IllegalStateException(label + " did not complete (transaction was not committed)");
         }
         var summary = label + (imported[0] ? " complete" : " ran but imported nothing") + " on " + program.getName();
         return log.hasMessages() ? summary + "\n" + log : summary;
