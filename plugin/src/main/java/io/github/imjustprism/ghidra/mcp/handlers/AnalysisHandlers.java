@@ -89,6 +89,10 @@ public final class AnalysisHandlers {
                 p.getOrDefault("skip_calls", ""), p.getOrDefault("capture_addr", ""),
                 Http.parseIntOrDefault(p.get("capture_length"), 0),
                 Http.parseIntOrDefault(p.get("commit"), 0) != 0));
+        routes.postForm("/emulate_function", p -> Emulator.emulateFunction(ctx,
+                p.get("function_address"), p.getOrDefault("args", ""),
+                Http.parseIntOrDefault(p.get("max_steps"), 200000),
+                p.getOrDefault("capture_addr", ""), Http.parseIntOrDefault(p.get("capture_length"), 0)));
         routes.getPage("/find_check_function", (p, q) -> CheckFunction.find(ctx, p, q));
         routes.getQuery("/extract_constraints", q -> Constraints.extract(ctx, q.get("address"), q));
         routes.getQuery("/function_completeness", q -> Completeness.single(ctx, q.get("address"), q));

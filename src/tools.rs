@@ -360,6 +360,25 @@ impl ToParams for EmuStart {
     }
 }
 
+impl ToParams for EmulateFunction {
+    fn into_params(self) -> Params {
+        let mut p = vec![
+            ("function_address", self.function_address),
+            ("capture_length", self.capture_length.to_string()),
+        ];
+        if let Some(a) = self.args {
+            p.push(("args", a));
+        }
+        if let Some(m) = self.max_steps {
+            p.push(("max_steps", m.to_string()));
+        }
+        if let Some(c) = self.capture_addr {
+            p.push(("capture_addr", c));
+        }
+        p
+    }
+}
+
 impl ToParams for EmuStep {
     fn into_params(self) -> Params {
         let mut p = vec![("emu_id", self.emu_id)];
@@ -868,6 +887,19 @@ pub struct EmuStart {
     pub start: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stack: Option<String>,
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct EmulateFunction {
+    pub function_address: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub args: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_steps: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capture_addr: Option<String>,
+    #[serde(default)]
+    pub capture_length: u32,
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
@@ -1967,6 +1999,23 @@ impl GhidraServer {
         Parameters(p): Parameters<Emulate>,
     ) -> Result<CallToolResult, ErrorData> {
         self.post("emulate", p).await
+    }
+
+    #[tool(
+        description = "Emulate a single function with arguments and read its return value. Sets up a fresh stack, places each comma-separated integer in args (hex or decimal) into the function's parameter storage per its calling convention, runs from the entry until it returns (a sentinel return address) or max_steps (default 200000), then reports the return register. capture_addr+capture_length optionally dumps emulator memory after it returns (e.g. an output buffer the function filled). The one-call way to run a decode/checksum/transform routine and see what it produces",
+        annotations(read_only_hint = true)
+    )]
+    async fn emulate_function(
+        &self,
+        Parameters(p): Parameters<EmulateFunction>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if p.function_address.trim().is_empty() {
+            return Err(ErrorData::invalid_params(
+                "function_address is required",
+                None,
+            ));
+        }
+        self.post("emulate_function", p).await
     }
 
     #[tool(
@@ -3628,6 +3677,26 @@ mod tests {
             names.len() >= 140,
             "expected full catalog, got {}",
             names.len()
+        );
+    }
+
+    #[test]
+    fn emulate_function_emits_address_args_capture() {
+        let p = EmulateFunction {
+            function_address: "0x401000".to_owned(),
+            args: Some("0x10,42".to_owned()),
+            max_steps: None,
+            capture_addr: Some("0x40a000".to_owned()),
+            capture_length: 32,
+        };
+        assert_eq!(
+            p.into_params(),
+            vec![
+                ("function_address", "0x401000".to_owned()),
+                ("capture_length", "32".to_owned()),
+                ("args", "0x10,42".to_owned()),
+                ("capture_addr", "0x40a000".to_owned()),
+            ]
         );
     }
 
