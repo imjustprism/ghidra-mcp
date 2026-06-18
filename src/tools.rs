@@ -3105,7 +3105,7 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Infer a struct layout from how a pointer variable is used. Decompiles the function, follows every load/store through the named pointer variable (a parameter or local), and builds a struct whose fields match the accessed offsets, sizes, and types. Returns the proposed layout (offset/length/type/field). Great for recovering an unknown structure from the code that touches it",
+        description = "Infer a struct layout from how a pointer variable is used. Decompiles the function, follows every load/store through the named pointer variable (a parameter or local), and creates a new struct data type whose fields match the accessed offsets, sizes, and types. Returns the proposed layout (offset/length/type/field). Great for recovering an unknown structure from the code that touches it",
         annotations(destructive_hint = true)
     )]
     async fn propose_struct_from_accesses(
