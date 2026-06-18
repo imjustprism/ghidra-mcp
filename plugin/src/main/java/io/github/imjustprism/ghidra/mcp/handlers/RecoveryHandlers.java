@@ -58,6 +58,8 @@ public final class RecoveryHandlers {
                 new ghidra.app.plugin.core.analysis.DWARFAnalyzer(), "DWARF import"));
         routes.postForm("/apply_fid_signatures", p -> runAnalyzer(
                 new ghidra.feature.fid.analyzer.FidAnalyzer(), "FID signature application"));
+        routes.postForm("/propose_struct_from_accesses", p -> proposeStruct(
+                p.get("function_address"), p.get("variable")));
         routes.getQuery("/list_open_programs", this::listOpenPrograms);
         routes.postForm("/select_program", p -> selectProgram(p.get("name")));
     }
@@ -109,6 +111,61 @@ public final class RecoveryHandlers {
                     + " (archive: " + archive.getName() + ")";
         } finally {
             archive.close();
+        }
+    }
+
+    private String proposeStruct(String funcAddr, String varName) {
+        if (funcAddr == null || funcAddr.isBlank()) throw new IllegalArgumentException("function_address is required");
+        if (varName == null || varName.isBlank()) throw new IllegalArgumentException("variable is required");
+        var program = ctx.currentProgram();
+        if (program == null) throw new IllegalArgumentException("No program loaded");
+        var a = program.getAddressFactory().getAddress(funcAddr.trim());
+        if (a == null) throw new IllegalArgumentException("invalid function_address: " + funcAddr);
+        var func = Addresses.functionAtOrContaining(program, a);
+        if (func == null) throw new IllegalArgumentException("no function at " + funcAddr);
+
+        var name = varName.trim();
+        ghidra.program.model.listing.Variable target = null;
+        for (var p : func.getParameters()) {
+            if (p.getName().equals(name)) { target = p; break; }
+        }
+        if (target == null) {
+            for (var v : func.getAllVariables()) {
+                if (v.getName().equals(name)) { target = v; break; }
+            }
+        }
+        if (target == null) throw new IllegalArgumentException("variable '" + name + "' not found in " + func.getName());
+        var storageAddr = target.getVariableStorage().getMinAddress();
+        if (storageAddr == null) throw new IllegalArgumentException("variable '" + name + "' has no addressable storage");
+
+        var helper = new ghidra.app.decompiler.util.FillOutStructureHelper(program, new ConsoleTaskMonitor());
+        var decomp = helper.setUpDecompiler(new ghidra.app.decompiler.DecompileOptions());
+        if (decomp == null) throw new IllegalStateException("decompiler could not open the program");
+        try {
+            var highVar = helper.computeHighVariable(storageAddr, func, decomp);
+            if (highVar == null) {
+                return "Could not resolve '" + name + "' as a dereferenced pointer (no high-variable)";
+            }
+            var result = new ghidra.program.model.data.Structure[1];
+            ctx.runOnSwingTx(program, "Propose struct from accesses",
+                    () -> (result[0] = helper.processStructure(highVar, func, true, false, decomp)) != null);
+            var struct = result[0];
+            if (struct == null) {
+                return "No structure could be inferred from the accesses of '" + name + "'";
+            }
+            var sb = new StringBuilder();
+            sb.append("# proposed struct ").append(struct.getName())
+                    .append(" (size ").append(struct.getLength()).append(")\n");
+            sb.append("offset\tlength\ttype\tfield\n");
+            for (var c : struct.getDefinedComponents()) {
+                sb.append("0x").append(Integer.toHexString(c.getOffset())).append('\t')
+                        .append(c.getLength()).append('\t')
+                        .append(Responses.cell(c.getDataType().getName())).append('\t')
+                        .append(Responses.cell(c.getFieldName() == null ? "" : c.getFieldName())).append('\n');
+            }
+            return sb.toString();
+        } finally {
+            decomp.dispose();
         }
     }
 
