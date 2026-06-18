@@ -60,7 +60,7 @@ MCP server for Ghidra. Rust bridge + Ghidra Java plugin. Wires any MCP client (C
 
 ## Tools
 
-167 tools total.
+168 tools total.
 
 Every paginated read tool accepts an optional `fmt` argument — `tsv` (default), `csv`, `json`, or `verbose` — alongside `offset`/`limit`.
 
@@ -244,7 +244,7 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 </details>
 
 <details>
-<summary><b>Malware triage / analysis</b> (22)</summary>
+<summary><b>Malware triage / analysis</b> (23)</summary>
 
 | tool | purpose |
 | --- | --- |
@@ -268,6 +268,7 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 | `unpack_assist` | packer/protector detection score (entropy, RWX, imports, packer sections) |
 | `coverage_report` | map an execution-coverage address file to covered functions |
 | `coverage_diff` | diff two coverage files at function granularity |
+| `trace_to_coverage` | block-level coverage from a trace (how deeply each function ran) |
 | `decode_strings_auto` | brute-force XOR/ADD/SUB key to recover encoded strings |
 | `find_dynamic_api_resolution` | call sites of GetProcAddress/LoadLibrary/… |
 

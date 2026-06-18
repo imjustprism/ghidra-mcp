@@ -1,7 +1,10 @@
 package io.github.imjustprism.ghidra.mcp.analysis;
 
+import ghidra.program.model.address.Address;
+import ghidra.program.model.block.BasicBlockModel;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.Program;
+import ghidra.util.task.ConsoleTaskMonitor;
 import io.github.imjustprism.ghidra.mcp.http.Page;
 import io.github.imjustprism.ghidra.mcp.util.FileGuard;
 import io.github.imjustprism.ghidra.mcp.util.PluginContext;
@@ -9,9 +12,13 @@ import io.github.imjustprism.ghidra.mcp.util.Responses;
 
 import java.io.IOException;
 import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Consumer;
 
 public final class Coverage {
 
@@ -70,12 +77,70 @@ public final class Coverage {
         return s.substring(0, end);
     }
 
+    public static String traceToCoverage(PluginContext ctx, String path, Page p, Map<String, String> q) {
+        return ctx.withProgram(program -> {
+            var file = FileGuard.requireAllowedPath(ctx, path);
+            if (!file.isFile()) throw new IllegalArgumentException("not a file: " + file);
+            var bbm = new BasicBlockModel(program);
+            var monitor = new ConsoleTaskMonitor();
+            var coveredBlocks = new HashSet<Address>();
+            forEachAddress(file, program, addr -> {
+                try {
+                    var b = bbm.getFirstCodeBlockContaining(addr, monitor);
+                    if (b != null) coveredBlocks.add(b.getFirstStartAddress());
+                } catch (Exception ignored) {
+                    // monitor is never cancelled here
+                }
+            });
+
+            record Cov(Function fn, int covered, int total) {}
+            var rows = new ArrayList<Cov>();
+            for (var fn : program.getFunctionManager().getFunctions(true)) {
+                if (fn.isExternal()) continue;
+                int total = 0;
+                int cov = 0;
+                try {
+                    var it = bbm.getCodeBlocksContaining(fn.getBody(), monitor);
+                    while (it.hasNext()) {
+                        var b = it.next();
+                        total++;
+                        if (coveredBlocks.contains(b.getFirstStartAddress())) cov++;
+                    }
+                } catch (Exception ignored) {
+                    continue;
+                }
+                if (cov > 0) rows.add(new Cov(fn, cov, total));
+            }
+            rows.sort(Comparator.comparing(c -> c.fn().getEntryPoint()));
+
+            var t = Responses.table(p, q,
+                    new String[]{"function", "entry", "blocks_covered", "blocks_total", "pct"});
+            var w = new Responses.Window(p);
+            for (var r : rows) {
+                if (!w.take()) continue;
+                int pct = r.total() == 0 ? 0 : (int) Math.round(100.0 * r.covered() / r.total());
+                t.row(r.fn().getName(), Responses.addr(r.fn().getEntryPoint()),
+                        r.covered(), r.total(), pct + "%");
+            }
+            return "# block coverage: " + rows.size() + " function(s) hit, "
+                    + coveredBlocks.size() + " unique blocks covered\n" + t.total(w.total()).build();
+        });
+    }
+
     private static Set<Function> coveredFunctions(PluginContext ctx, Program program, String path) {
         var file = FileGuard.requireAllowedPath(ctx, path);
         if (!file.isFile()) throw new IllegalArgumentException("not a file: " + file);
         var fm = program.getFunctionManager();
-        var af = program.getAddressFactory();
         var covered = new LinkedHashSet<Function>();
+        forEachAddress(file, program, addr -> {
+            var f = fm.getFunctionContaining(addr);
+            if (f != null) covered.add(f);
+        });
+        return covered;
+    }
+
+    private static void forEachAddress(java.io.File file, Program program, Consumer<Address> consumer) {
+        var af = program.getAddressFactory();
         try (var reader = Files.newBufferedReader(file.toPath())) {
             String line;
             long n = 0;
@@ -83,13 +148,10 @@ public final class Coverage {
                 var token = addressToken(line);
                 if (token.isEmpty()) continue;
                 var addr = af.getAddress(token);
-                if (addr == null) continue;
-                var f = fm.getFunctionContaining(addr);
-                if (f != null) covered.add(f);
+                if (addr != null) consumer.accept(addr);
             }
         } catch (IOException e) {
             throw new IllegalStateException("failed to read coverage file: " + e.getMessage(), e);
         }
-        return covered;
     }
 }
