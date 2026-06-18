@@ -56,7 +56,7 @@ public final class Emulator {
                 var storage = params[i].getVariableStorage();
                 if (storage == null || !storage.isValid()) continue;
                 if (storage.isRegisterStorage() && storage.getRegister() != null) {
-                    emu.writeRegister(storage.getRegister(), BigInteger.valueOf(args[i]));
+                    emu.writeRegister(storage.getRegister(), unsigned64(args[i]));
                     placed++;
                 } else if (storage.isStackStorage()) {
                     long at = entrySp + storage.getStackOffset();
@@ -121,6 +121,11 @@ public final class Emulator {
         } finally {
             emu.dispose();
         }
+    }
+
+    private static BigInteger unsigned64(long v) {
+        var b = BigInteger.valueOf(v);
+        return b.signum() < 0 ? b.add(BigInteger.ONE.shiftLeft(64)) : b;
     }
 
     private static long[] parseArgs(String csv) {
