@@ -104,6 +104,7 @@ public final class Diff {
         var byHash = new HashMap<Long, java.util.List<Function>>();
         for (var f : program.getFunctionManager().getFunctions(true)) {
             if (f.isExternal() || f.isThunk()) continue;
+            if (!program.getListing().getInstructions(f.getBody(), true).hasNext()) continue;
             byHash.computeIfAbsent(FunctionHash.shapeHash(program, f), k -> new java.util.ArrayList<>()).add(f);
         }
         return byHash;
