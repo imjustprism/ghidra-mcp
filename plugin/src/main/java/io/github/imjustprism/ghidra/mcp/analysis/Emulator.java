@@ -106,10 +106,14 @@ public final class Emulator {
                 out.append("return value not reported (function did not return)\n");
             } else if (ret != null && ret.getVariableStorage() != null
                     && ret.getVariableStorage().isRegisterStorage()
+                    && ret.getVariableStorage().getRegisters().size() == 1
                     && ret.getVariableStorage().getRegister() != null) {
                 var rv = emu.readRegister(ret.getVariableStorage().getRegister());
                 out.append("return ").append(ret.getVariableStorage().getRegister().getName())
                         .append("=0x").append(rv == null ? "?" : rv.toString(16)).append('\n');
+            } else if (ret != null && ret.getVariableStorage() != null
+                    && ret.getVariableStorage().isRegisterStorage()) {
+                out.append("return value in compound register storage (not reported)\n");
             }
             if (captureAddr != null && !captureAddr.isBlank() && captureLen > 0) {
                 if (captureLen > 0x200000) throw new IllegalArgumentException("capture_length too large (max 2097152)");
