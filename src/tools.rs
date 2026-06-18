@@ -90,6 +90,23 @@ impl ToParams for NamePage {
     }
 }
 
+impl ToParams for CoverageReport {
+    fn into_params(self) -> Params {
+        let mut p = self.page.into_params();
+        p.push(("path", self.path));
+        p
+    }
+}
+
+impl ToParams for CoverageDiff {
+    fn into_params(self) -> Params {
+        let mut p = self.page.into_params();
+        p.push(("path_a", self.path_a));
+        p.push(("path_b", self.path_b));
+        p
+    }
+}
+
 impl ToParams for SearchFunctions {
     fn into_params(self) -> Params {
         let mut p = self.page.into_params();
@@ -1202,6 +1219,21 @@ pub struct VariableEdit {
     pub new_name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub new_type: Option<String>,
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct CoverageReport {
+    pub path: String,
+    #[serde(flatten)]
+    pub page: Page,
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct CoverageDiff {
+    pub path_a: String,
+    pub path_b: String,
+    #[serde(flatten)]
+    pub page: Page,
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
@@ -3023,6 +3055,37 @@ impl GhidraServer {
     }
 
     #[tool(
+        description = "Map an execution-coverage file to functions and report which were hit. path points to a text file of executed addresses (one hex address per line; '0x' optional, a trailing space-separated field like a hit count is ignored, '#'/';' comments skipped) under the allow-listed File IO Directory. Returns covered/total function count, percentage, and the covered function list. Use to triage which code a fuzzer/trace exercised",
+        annotations(read_only_hint = true)
+    )]
+    async fn coverage_report(
+        &self,
+        Parameters(p): Parameters<CoverageReport>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if p.path.is_empty() {
+            return Err(ErrorData::invalid_params("path is required", None));
+        }
+        self.get("coverage_report", p).await
+    }
+
+    #[tool(
+        description = "Diff two execution-coverage files (same address-list format as coverage_report) at function granularity: reports functions covered only by A, only by B, and the shared count. Use to see what a new input/trace reached that another didn't",
+        annotations(read_only_hint = true)
+    )]
+    async fn coverage_diff(
+        &self,
+        Parameters(p): Parameters<CoverageDiff>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if p.path_a.is_empty() || p.path_b.is_empty() {
+            return Err(ErrorData::invalid_params(
+                "path_a and path_b are required",
+                None,
+            ));
+        }
+        self.get("coverage_diff", p).await
+    }
+
+    #[tool(
         description = "Brute-force decode an encoded blob at an address: tries single-byte XOR, ADD, and SUB with every key (1-255) and returns the candidates whose output is mostly printable, ranked by printable ratio with a preview. Use to recover obfuscated strings once you've located the blob. length caps the bytes read; min_printable (0-1) and max tune the results",
         annotations(read_only_hint = true)
     )]
@@ -3728,6 +3791,48 @@ mod tests {
             names.len() >= 140,
             "expected full catalog, got {}",
             names.len()
+        );
+    }
+
+    #[test]
+    fn coverage_report_emits_path_with_page() {
+        let p = CoverageReport {
+            path: "cov.txt".to_owned(),
+            page: Page {
+                offset: 0,
+                limit: 100,
+                fmt: None,
+            },
+        };
+        assert_eq!(
+            p.into_params(),
+            vec![
+                ("offset", "0".to_owned()),
+                ("limit", "100".to_owned()),
+                ("path", "cov.txt".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn coverage_diff_emits_both_paths() {
+        let p = CoverageDiff {
+            path_a: "a.txt".to_owned(),
+            path_b: "b.txt".to_owned(),
+            page: Page {
+                offset: 0,
+                limit: 100,
+                fmt: None,
+            },
+        };
+        assert_eq!(
+            p.into_params(),
+            vec![
+                ("offset", "0".to_owned()),
+                ("limit", "100".to_owned()),
+                ("path_a", "a.txt".to_owned()),
+                ("path_b", "b.txt".to_owned()),
+            ]
         );
     }
 
