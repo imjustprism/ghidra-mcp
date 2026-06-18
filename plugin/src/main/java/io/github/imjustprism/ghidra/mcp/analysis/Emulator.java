@@ -149,8 +149,15 @@ public final class Emulator {
             if (neg) p = p.substring(1).trim();
             boolean hex = p.startsWith("0x") || p.startsWith("0X");
             try {
-                long v = hex ? Long.parseUnsignedLong(p.substring(2), 16) : Long.parseUnsignedLong(p);
-                out[i] = neg ? -v : v;
+                long mag = hex ? Long.parseUnsignedLong(p.substring(2), 16) : Long.parseUnsignedLong(p);
+                if (neg) {
+                    if (Long.compareUnsigned(mag, 0x8000000000000000L) > 0) {
+                        throw new IllegalArgumentException("negative argument out of 64-bit range at position " + i);
+                    }
+                    out[i] = -mag;
+                } else {
+                    out[i] = mag;
+                }
             } catch (NumberFormatException e) {
                 throw new IllegalArgumentException("invalid argument at position " + i + ": " + parts[i].trim());
             }
