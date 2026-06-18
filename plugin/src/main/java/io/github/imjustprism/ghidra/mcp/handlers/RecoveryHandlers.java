@@ -116,17 +116,22 @@ public final class RecoveryHandlers {
         if (!analyzer.canAnalyze(program)) {
             return label + ": nothing to do (no applicable data in this program)";
         }
-        var mgr = AutoAnalysisManager.getAnalysisManager(program);
-        int tx = program.startTransaction(label);
-        boolean ok = false;
-        try {
-            mgr.scheduleOneTimeAnalysis(analyzer, program.getMemory());
-            mgr.startAnalysis(new ConsoleTaskMonitor());
-            ok = true;
-        } finally {
-            program.endTransaction(tx, ok);
+        if (!analyzer.getDefaultEnablement(program)) {
+            return label + ": analyzer is disabled by default for this program's architecture (skipped)";
         }
-        return label + " complete on " + program.getName();
+        var log = new ghidra.app.util.importer.MessageLog();
+        var imported = new boolean[1];
+        ctx.runOnSwingTx(program, label, () -> {
+            try {
+                imported[0] = analyzer.added(program, program.getMemory(), new ConsoleTaskMonitor(), log);
+                return true;
+            } catch (Exception e) {
+                Msg.error(ctx.logOwner(), label + " failed", e);
+                return false;
+            }
+        });
+        var summary = label + (imported[0] ? " complete" : " ran but imported nothing") + " on " + program.getName();
+        return log.hasMessages() ? summary + "\n" + log : summary;
     }
 
     private String listOpenPrograms(Map<String, String> q) {

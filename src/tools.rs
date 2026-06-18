@@ -3074,8 +3074,8 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Run Ghidra's DWARF analyzer on the current program to recover types, function signatures, parameter names, and variables from embedded DWARF debug info (ELF/PE built with debug symbols). On-demand alternative to a full re-analysis; reports if the program has no applicable DWARF data",
-        annotations(destructive_hint = false)
+        description = "Run Ghidra's DWARF analyzer on the current program to recover types, function signatures, parameter names, and variables from embedded DWARF debug info (ELF/PE built with debug symbols). On-demand alternative to a full re-analysis; reports if the program has no applicable DWARF data. Mutates the program database",
+        annotations(destructive_hint = true)
     )]
     async fn import_dwarf(&self) -> Result<CallToolResult, ErrorData> {
         self.post_bare("import_dwarf").await
