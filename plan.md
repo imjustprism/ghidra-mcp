@@ -55,7 +55,7 @@ Legend: `[x]` shipped · `[~]` in progress (open PR) · `[ ]` planned · API sta
 - [ ] BSim: `bsim_index_program` / `bsim_query_function` / `bsim_query_program` `[X]`
 - [ ] `propagate_matches` (copy names/types across matched binaries) `[N]`
 - [ ] Z3 concolic: `solve_branch_constraints` / `find_path_to_address` `[X]`
-- [ ] Taint: `taint_forward` / `taint_backward` `[N]`
+- [x] Taint: `taint_forward` + `taint_backward` (intra-procedural p-code def-use slice)
 - [x] Coverage: `coverage_report` + `coverage_diff` (address-list file -> covered functions); trace_to_coverage/load session TODO
 - [x] `xref_graph` — Mermaid one-hop reference graph
 - [x] `namespace_graph` — Mermaid namespace/class hierarchy

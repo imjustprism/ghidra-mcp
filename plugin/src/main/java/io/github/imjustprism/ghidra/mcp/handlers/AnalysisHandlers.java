@@ -33,6 +33,7 @@ import io.github.imjustprism.ghidra.mcp.analysis.Signatures;
 import io.github.imjustprism.ghidra.mcp.analysis.StackStrings;
 import io.github.imjustprism.ghidra.mcp.analysis.StructDiagram;
 import io.github.imjustprism.ghidra.mcp.analysis.Syscalls;
+import io.github.imjustprism.ghidra.mcp.analysis.Taint;
 import io.github.imjustprism.ghidra.mcp.analysis.UnpackAssist;
 import io.github.imjustprism.ghidra.mcp.analysis.VTableScan;
 import io.github.imjustprism.ghidra.mcp.analysis.XrefGraph;
@@ -105,6 +106,8 @@ public final class AnalysisHandlers {
         routes.getQuery("/unpack_assist", q -> UnpackAssist.report(ctx));
         routes.getPage("/coverage_report", (p, q) -> Coverage.report(ctx, q.get("path"), p, q));
         routes.getPage("/coverage_diff", (p, q) -> Coverage.diff(ctx, q.get("path_a"), q.get("path_b"), p, q));
+        routes.getPage("/taint_forward", (p, q) -> Taint.slice(ctx, q.get("address"), true, p, q));
+        routes.getPage("/taint_backward", (p, q) -> Taint.slice(ctx, q.get("address"), false, p, q));
         routes.getQuery("/pointer_scan", q -> PointerScan.scan(ctx, q.get("target"),
                 Http.parseFlexibleLong(q.get("max_offset"), 1024), Http.parseFlexibleLong(q.get("limit"), 100)));
         routes.getQuery("/function_hash", q -> FunctionHash.hash(ctx, q.get("address"), q));
