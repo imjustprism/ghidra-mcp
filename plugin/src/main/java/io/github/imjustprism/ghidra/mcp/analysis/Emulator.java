@@ -38,17 +38,27 @@ public final class Emulator {
         var out = new StringBuilder();
         try {
             int ptr = defaultSpace.getPointerSize();
-            long entrySp = STACK_BASE - ptr;
-            emu.writeRegister(emu.getStackPointerRegister(), entrySp);
-            emu.writeRegister(emu.getPCRegister(), func.getEntryPoint().getOffset());
-            emu.writeMemory(defaultSpace.getAddress(entrySp), encode(RET_MARKER, ptr, bigEndian));
+            ghidra.program.model.lang.Register lrReg = null;
             for (var rn : new String[]{"lr", "LR", "ra"}) {
                 var r = program.getLanguage().getRegister(rn);
                 if (r != null) {
-                    emu.writeRegister(r, BigInteger.valueOf(RET_MARKER));
+                    lrReg = r;
                     break;
                 }
             }
+            // Link-register ABIs (ARM/AArch64/PPC/MIPS) return through LR with no stack return slot;
+            // stack-return ABIs (x86) keep the return address at [SP] so SP is shifted down by one slot.
+            long entrySp;
+            if (lrReg != null) {
+                entrySp = STACK_BASE;
+                emu.writeRegister(emu.getStackPointerRegister(), entrySp);
+                emu.writeRegister(lrReg, unsigned64(RET_MARKER));
+            } else {
+                entrySp = STACK_BASE - ptr;
+                emu.writeRegister(emu.getStackPointerRegister(), entrySp);
+                emu.writeMemory(defaultSpace.getAddress(entrySp), encode(RET_MARKER, ptr, bigEndian));
+            }
+            emu.writeRegister(emu.getPCRegister(), func.getEntryPoint().getOffset());
 
             var params = func.getParameters();
             int placed = 0;
