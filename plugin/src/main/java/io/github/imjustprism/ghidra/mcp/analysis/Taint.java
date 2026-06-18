@@ -79,6 +79,7 @@ public final class Taint {
                     }
                 }
 
+                boolean capped = !queue.isEmpty();
                 var t = Responses.table(p, q, new String[]{"address", "instruction"});
                 var w = new Responses.Window(p);
                 for (var e : reached.entrySet()) {
@@ -87,7 +88,7 @@ public final class Taint {
                 }
                 return "# taint " + (forward ? "forward" : "backward") + " from " + Responses.addr(addr)
                         + " in " + func.getName() + " (intra-procedural; def-use only, not followed through memory"
-                        + (reached.size() >= MAX_REACHED ? "; capped at " + MAX_REACHED : "") + ")\n"
+                        + (capped ? "; capped at " + MAX_REACHED : "") + ")\n"
                         + t.total(w.total()).build();
             } finally {
                 decomp.dispose();
