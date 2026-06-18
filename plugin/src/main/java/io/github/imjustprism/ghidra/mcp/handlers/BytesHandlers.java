@@ -9,6 +9,7 @@ import io.github.imjustprism.ghidra.mcp.http.Page;
 import io.github.imjustprism.ghidra.mcp.http.RouteTable;
 import io.github.imjustprism.ghidra.mcp.util.Bufs;
 import io.github.imjustprism.ghidra.mcp.util.DataTypes;
+import io.github.imjustprism.ghidra.mcp.util.FileGuard;
 import io.github.imjustprism.ghidra.mcp.util.PluginContext;
 import io.github.imjustprism.ghidra.mcp.util.Responses;
 import io.github.imjustprism.ghidra.mcp.util.Strings;
@@ -17,9 +18,6 @@ import java.util.Map;
 
 public final class BytesHandlers {
 
-    private static final String OPTION_CATEGORY = "Ghidra MCP HTTP Server";
-    private static final String FILE_IO_DIR_OPTION = "File IO Directory";
-
     private final PluginContext ctx;
 
     public BytesHandlers(PluginContext ctx) {
@@ -27,27 +25,7 @@ public final class BytesHandlers {
     }
 
     private java.io.File requireAllowedPath(String path) {
-        var allowed = ctx.tool().getOptions(OPTION_CATEGORY).getString(FILE_IO_DIR_OPTION, "");
-        if (allowed == null || allowed.isBlank()) {
-            throw new IllegalStateException("File I/O is disabled. Set '" + FILE_IO_DIR_OPTION
-                    + "' (Edit > Tool Options > " + OPTION_CATEGORY + ") to an allow-listed directory.");
-        }
-        try {
-            var base = new java.io.File(allowed).getCanonicalFile();
-            if (!base.isDirectory()) {
-                throw new IllegalStateException("'" + FILE_IO_DIR_OPTION + "' is not a directory: " + base);
-            }
-            var target = new java.io.File(path).getCanonicalFile();
-            for (var f = target.getParentFile(); f != null; f = f.getParentFile()) {
-                if (f.equals(base)) {
-                    Msg.info(ctx.logOwner(), "MCP file I/O allowed: " + target);
-                    return target;
-                }
-            }
-            throw new IllegalArgumentException("path is outside the allowed directory " + base + ": " + target);
-        } catch (java.io.IOException e) {
-            throw new IllegalStateException("path validation failed: " + e.getMessage(), e);
-        }
+        return FileGuard.requireAllowedPath(ctx, path);
     }
 
     public void register(RouteTable routes) {

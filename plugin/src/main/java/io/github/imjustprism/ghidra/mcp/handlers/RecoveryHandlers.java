@@ -6,22 +6,27 @@ import ghidra.app.decompiler.DecompInterface;
 import ghidra.app.plugin.core.analysis.AutoAnalysisManager;
 import ghidra.app.services.DataTypeManagerService;
 import ghidra.app.services.ProgramManager;
+import ghidra.program.model.data.DataTypeConflictHandler;
 import ghidra.program.model.data.DataTypeManager;
+import ghidra.program.model.data.FileDataTypeManager;
 import ghidra.program.model.data.Structure;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.pcode.HighFunctionDBUtil;
 import ghidra.program.model.pcode.HighFunctionDBUtil.ReturnCommitOption;
 import ghidra.program.model.symbol.SourceType;
 import ghidra.util.Msg;
+import ghidra.util.exception.CancelledException;
 import ghidra.util.task.ConsoleTaskMonitor;
 import io.github.imjustprism.ghidra.mcp.http.Http;
 import io.github.imjustprism.ghidra.mcp.http.RouteTable;
 import io.github.imjustprism.ghidra.mcp.util.Addresses;
 import io.github.imjustprism.ghidra.mcp.util.DataTypes;
+import io.github.imjustprism.ghidra.mcp.util.FileGuard;
 import io.github.imjustprism.ghidra.mcp.util.Json;
 import io.github.imjustprism.ghidra.mcp.util.PluginContext;
 import io.github.imjustprism.ghidra.mcp.util.Responses;
 
+import java.io.IOException;
 import java.util.Map;
 
 public final class RecoveryHandlers {
@@ -48,6 +53,7 @@ public final class RecoveryHandlers {
         routes.postForm("/struct_delete_field", p -> structDeleteField(p.get("struct"),
                 Http.parseIntOrDefault(p.get("offset"), -1)));
         routes.getQuery("/list_data_type_archives", this::listDataTypeArchives);
+        routes.postForm("/apply_gdt", p -> applyGdt(p.get("path")));
         routes.getQuery("/list_open_programs", this::listOpenPrograms);
         routes.postForm("/select_program", p -> selectProgram(p.get("name")));
     }
@@ -66,6 +72,40 @@ public final class RecoveryHandlers {
             t.row(m.getName(), m.getType() != null ? m.getType().toString() : "", m.getDataTypeCount(false));
         }
         return t.total(ordered.size()).build();
+    }
+
+    private String applyGdt(String path) {
+        var program = ctx.currentProgram();
+        if (program == null) throw new IllegalArgumentException("No program loaded");
+        var file = FileGuard.requireAllowedPath(ctx, path);
+        if (!file.isFile()) throw new IllegalArgumentException("not a file: " + file);
+        FileDataTypeManager archive;
+        try {
+            archive = FileDataTypeManager.openFileArchive(file, false);
+        } catch (IOException e) {
+            throw new IllegalStateException("failed to open GDT archive: " + e.getMessage(), e);
+        }
+        try {
+            var types = new java.util.ArrayList<ghidra.program.model.data.DataType>();
+            for (var it = archive.getAllDataTypes(); it.hasNext(); ) types.add(it.next());
+            var added = new int[1];
+            var ok = ctx.runOnSwingTx(program, "Apply GDT " + file.getName(), () -> {
+                try {
+                    var dtm = program.getDataTypeManager();
+                    dtm.addDataTypes(types, DataTypeConflictHandler.DEFAULT_HANDLER, new ConsoleTaskMonitor());
+                    added[0] = types.size();
+                    return true;
+                } catch (CancelledException e) {
+                    Msg.error(ctx.logOwner(), "apply_gdt cancelled", e);
+                    return false;
+                }
+            });
+            if (!ok) throw new IllegalStateException("apply_gdt failed or was cancelled; no types were merged");
+            return "Applied " + added[0] + " data type(s) from " + file.getName()
+                    + " (archive: " + archive.getName() + ")";
+        } finally {
+            archive.close();
+        }
     }
 
     private String listOpenPrograms(Map<String, String> q) {
