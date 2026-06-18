@@ -31,7 +31,7 @@ Legend: `[x]` shipped · `[~]` in progress (open PR) · `[ ]` planned · API sta
 - [x] `list_data_type_archives` — list available type archives
 - [x] `apply_gdt` — merge a .gdt type archive into the program (sandboxed path; shared FileGuard)
 - [x] `import_dwarf` — on-demand DWARF analyzer run (types/sigs from debug info)
-- [ ] `import_pdb` `[N]`
+- [x] `import_pdb` — on-demand PDB analyzer run (loads matching .pdb debug symbols)
 - [x] `propose_struct_from_accesses` — infer struct layout from pointer accesses (FillOutStructureHelper)
 
 ## Phase 3 — Headless + scripting + live mastery

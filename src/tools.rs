@@ -3290,6 +3290,14 @@ impl GhidraServer {
     }
 
     #[tool(
+        description = "Run Ghidra's PDB analyzer to load Microsoft PDB debug symbols and apply recovered names, function signatures, and types (for PE/COFF binaries with a matching .pdb found alongside the binary or on the configured symbol search path). Honors the program's analysis options; reports if PDB is disabled or matches nothing. Mutates the program database",
+        annotations(destructive_hint = true)
+    )]
+    async fn import_pdb(&self) -> Result<CallToolResult, ErrorData> {
+        self.post_bare("import_pdb").await
+    }
+
+    #[tool(
         description = "Run Ghidra's Function ID analyzer to match the program's functions against the active FID databases and apply recovered library/runtime function names (e.g. statically-linked libc/MSVCRT routines). Honors the program's analysis options; reports if FID is disabled or matches nothing. Mutates the program database",
         annotations(destructive_hint = true)
     )]
