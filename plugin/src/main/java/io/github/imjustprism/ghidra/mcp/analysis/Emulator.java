@@ -65,7 +65,8 @@ public final class Emulator {
             for (int i = 0; i < args.length && i < params.length; i++) {
                 var storage = params[i].getVariableStorage();
                 if (storage == null || !storage.isValid()) continue;
-                if (storage.isRegisterStorage() && storage.getRegister() != null) {
+                if (storage.isRegisterStorage() && storage.getRegisters().size() == 1
+                        && storage.getRegister() != null) {
                     emu.writeRegister(storage.getRegister(), unsigned64(args[i]));
                     placed++;
                 } else if (storage.isStackStorage()) {
@@ -117,6 +118,9 @@ public final class Emulator {
                 } else {
                     var a = program.getAddressFactory().getAddress(captureAddr.trim());
                     if (a == null) throw new IllegalArgumentException("invalid capture address");
+                    if (!a.getAddressSpace().equals(defaultSpace)) {
+                        throw new IllegalArgumentException("capture address must be in the default address space");
+                    }
                     var data = emu.readMemory(a, captureLen);
                     out.append("captured ").append(Responses.addr(a)).append(": ")
                             .append(data == null ? "unavailable" : Bufs.hex(data)).append('\n');
