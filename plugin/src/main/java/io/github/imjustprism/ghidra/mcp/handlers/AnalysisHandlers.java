@@ -31,6 +31,7 @@ import io.github.imjustprism.ghidra.mcp.analysis.Signatures;
 import io.github.imjustprism.ghidra.mcp.analysis.StackStrings;
 import io.github.imjustprism.ghidra.mcp.analysis.StructDiagram;
 import io.github.imjustprism.ghidra.mcp.analysis.Syscalls;
+import io.github.imjustprism.ghidra.mcp.analysis.UnpackAssist;
 import io.github.imjustprism.ghidra.mcp.analysis.VTableScan;
 import io.github.imjustprism.ghidra.mcp.analysis.XrefGraph;
 import io.github.imjustprism.ghidra.mcp.http.Http;
@@ -95,6 +96,7 @@ public final class AnalysisHandlers {
         routes.getQuery("/find_syscalls", q -> Syscalls.find(ctx, Page.from(q), q));
         routes.getQuery("/find_anti_vm", q -> AntiVm.find(ctx, Page.from(q), q));
         routes.getQuery("/cfg_obfuscation_score", q -> CfgObfuscation.score(ctx, q.get("address"), q));
+        routes.getQuery("/unpack_assist", q -> UnpackAssist.report(ctx));
         routes.getQuery("/function_hash", q -> FunctionHash.hash(ctx, q.get("address"), q));
         routes.getQuery("/recover_rtti_classes", q -> Rtti.recover(ctx, Page.from(q), q));
         routes.getQuery("/find_dynamic_api_resolution", q -> DynamicApi.find(ctx, Page.from(q), q));

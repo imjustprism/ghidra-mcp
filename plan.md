@@ -67,7 +67,8 @@ Legend: `[x]` shipped · `[~]` in progress (open PR) · `[ ]` planned · API sta
 - [x] `cfg_obfuscation_score` — CFG-flattening / obfuscation scoring
 - [x] `decode_strings_auto` — brute-force single-byte XOR/ADD/SUB string recovery
 - [x] `find_dynamic_api_resolution` — GetProcAddress/LoadLibrary/Ldr*/dlopen call sites
-- [ ] Malware double-down: `unpack_assist`, `iat_rebuild`, `yara_scan` `[N]`
+- [x] `unpack_assist` — packer/protector detection score (entropy + RWX + imports + packer sections)
+- [ ] Malware double-down: `iat_rebuild`, `yara_scan` `[N]`
 - [ ] Optional Frida backend `[X]`
 
 ## Engineering hardening (alongside)

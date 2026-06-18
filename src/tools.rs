@@ -2714,6 +2714,14 @@ impl GhidraServer {
     }
 
     #[tool(
+        description = "Triage whether the loaded program is packed/protected and which packer. Combines heuristics into a 0-100 score with a per-indicator breakdown: known packer section names (UPX/ASPack/VMProtect/Themida/...), high-entropy executable sections, writable+executable (RWX) sections, an unusually small import count, and an entry point sitting in a writable section. Returns score, verdict (likely/possibly/unlikely_packed), and the matched packer if any",
+        annotations(read_only_hint = true)
+    )]
+    async fn unpack_assist(&self) -> Result<CallToolResult, ErrorData> {
+        self.get_bare("unpack_assist").await
+    }
+
+    #[tool(
         description = "Brute-force decode an encoded blob at an address: tries single-byte XOR, ADD, and SUB with every key (1-255) and returns the candidates whose output is mostly printable, ranked by printable ratio with a preview. Use to recover obfuscated strings once you've located the blob. length caps the bytes read; min_printable (0-1) and max tune the results",
         annotations(read_only_hint = true)
     )]
