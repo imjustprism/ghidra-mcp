@@ -29,7 +29,7 @@ Legend: `[x]` shipped · `[~]` in progress (open PR) · `[ ]` planned · API sta
 - [x] `recover_rtti_classes` — list recovered C++ classes + vftables + method counts
 - [ ] `apply_fid_signatures` `[N]`
 - [x] `list_data_type_archives` — list available type archives
-- [ ] `apply_gdt` `[N]`
+- [x] `apply_gdt` — merge a .gdt type archive into the program (sandboxed path; shared FileGuard)
 - [ ] `import_pdb` / `import_dwarf` `[N]`
 - [ ] `propose_struct_from_accesses` — locate FillOutStructureCmd jar first `[X]`
 

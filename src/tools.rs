@@ -289,6 +289,12 @@ impl ToParams for ExportBinary {
     }
 }
 
+impl ToParams for ApplyGdt {
+    fn into_params(self) -> Params {
+        vec![("path", self.path)]
+    }
+}
+
 impl ToParams for XorDecrypt {
     fn into_params(self) -> Params {
         vec![
@@ -691,6 +697,11 @@ pub struct NopRange {
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
 pub struct ExportBinary {
+    pub path: String,
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct ApplyGdt {
     pub path: String,
 }
 
@@ -2752,6 +2763,20 @@ impl GhidraServer {
     )]
     async fn list_data_type_archives(&self) -> Result<CallToolResult, ErrorData> {
         self.get_bare("list_data_type_archives").await
+    }
+
+    #[tool(
+        description = "Apply a Ghidra data-type archive (.gdt) to the current program: opens the archive from disk and merges all its data types into the program's type manager (conflicts resolved with Ghidra's default handler), making library/SDK structs and typedefs available to apply. The path must resolve under the allow-listed File IO Directory (Tool Options), which is disabled by default",
+        annotations(destructive_hint = false)
+    )]
+    async fn apply_gdt(
+        &self,
+        Parameters(p): Parameters<ApplyGdt>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if p.path.is_empty() {
+            return Err(ErrorData::invalid_params("path is required", None));
+        }
+        self.post("apply_gdt", p).await
     }
 
     #[tool(
