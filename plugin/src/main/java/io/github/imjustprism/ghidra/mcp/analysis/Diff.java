@@ -100,6 +100,66 @@ public final class Diff {
                 + " (A=" + totalA + ", B=" + totalB + ")\n" + t.total(w.total()).build();
     }
 
+    private static final int MAX_PREVIEW = 500;
+
+    public static String propagateMatches(PluginContext ctx, String programBName, boolean apply) {
+        if (programBName == null || programBName.isBlank()) throw new IllegalArgumentException("program_b is required");
+        var program = ctx.currentProgram();
+        if (program == null) throw new IllegalArgumentException("No program loaded");
+        var programB = findOpenProgram(ctx, programBName.trim());
+        if (programB == null) throw new IllegalArgumentException("program_b is not open: " + programBName);
+        if (programB == program) throw new IllegalArgumentException("program_b must differ from the active program");
+
+        var aByHash = hashFunctions(program);
+        var bByHash = hashFunctions(programB);
+        record Rename(Function target, String oldName, String newName) {}
+        var renames = new java.util.ArrayList<Rename>();
+        for (var e : aByHash.entrySet()) {
+            var la = e.getValue();
+            var lb = bByHash.getOrDefault(e.getKey(), java.util.List.of());
+            if (la.size() != 1 || lb.size() != 1) continue;
+            var fa = la.get(0);
+            var fb = lb.get(0);
+            if (fa.getSymbol().getSource() != ghidra.program.model.symbol.SourceType.DEFAULT
+                    && fb.getSymbol().getSource() == ghidra.program.model.symbol.SourceType.DEFAULT) {
+                renames.add(new Rename(fb, fb.getName(), fa.getName()));
+            }
+        }
+
+        var statuses = new String[renames.size()];
+        java.util.Arrays.fill(statuses, "preview");
+        if (apply && !renames.isEmpty()) {
+            ctx.runOnSwingTx(programB, "Propagate matched names", () -> {
+                for (int i = 0; i < renames.size(); i++) {
+                    try {
+                        renames.get(i).target().setName(renames.get(i).newName(),
+                                ghidra.program.model.symbol.SourceType.USER_DEFINED);
+                        statuses[i] = "ok";
+                    } catch (Exception ex) {
+                        statuses[i] = "failed: " + (ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage());
+                    }
+                }
+                return true;
+            });
+        }
+
+        var sb = new StringBuilder();
+        sb.append(apply ? "# applied " : "# preview (dry-run, pass apply=1 to commit) ")
+                .append(renames.size()).append(" name(s) from ").append(program.getName())
+                .append(" onto unique matches in ").append(programB.getName()).append('\n');
+        sb.append("address\told\tnew\tstatus\n");
+        int shown = Math.min(renames.size(), MAX_PREVIEW);
+        for (int i = 0; i < shown; i++) {
+            var r = renames.get(i);
+            sb.append(Responses.addr(r.target().getEntryPoint())).append('\t')
+                    .append(Responses.cell(r.oldName())).append('\t')
+                    .append(Responses.cell(r.newName())).append('\t')
+                    .append(Responses.cell(statuses[i])).append('\n');
+        }
+        if (renames.size() > shown) sb.append("# ").append(renames.size() - shown).append(" more not shown\n");
+        return sb.toString();
+    }
+
     private static Map<Long, java.util.List<Function>> hashFunctions(Program program) {
         var byHash = new HashMap<Long, java.util.List<Function>>();
         for (var f : program.getFunctionManager().getFunctions(true)) {

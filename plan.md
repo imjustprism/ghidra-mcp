@@ -53,7 +53,7 @@ Legend: `[x]` shipped · `[~]` in progress (open PR) · `[ ]` planned · API sta
 - [ ] cross-binary `program` param / `open_program` from disk `[N]`
 - [x] `diff_functions` + `diff_programs` — structural function similarity + whole-program matching (shape-hash bindiff-lite)
 - [ ] BSim: `bsim_index_program` / `bsim_query_function` / `bsim_query_program` `[X]`
-- [ ] `propagate_matches` (copy names/types across matched binaries) `[N]`
+- [x] `propagate_matches` — copy names onto unambiguous shape-hash matches in another open program (dry-run default)
 - [ ] Z3 concolic: `solve_branch_constraints` / `find_path_to_address` `[X]`
 - [x] Taint: `taint_forward` + `taint_backward` (intra-procedural p-code def-use slice)
 - [x] Coverage: `coverage_report` + `coverage_diff` (address-list file -> covered functions); trace_to_coverage/load session TODO

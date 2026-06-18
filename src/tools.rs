@@ -1237,6 +1237,19 @@ impl ToParams for DiffPrograms {
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct PropagateMatches {
+    pub program_b: String,
+    #[serde(default)]
+    pub apply: bool,
+}
+
+impl ToParams for PropagateMatches {
+    fn into_params(self) -> Params {
+        vec![("program_b", self.program_b), ("apply", flag(self.apply))]
+    }
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
 pub struct DiffFunctions {
     pub address_a: String,
     pub address_b: String,
@@ -1909,6 +1922,20 @@ impl GhidraServer {
             return Err(ErrorData::invalid_params("program_b is required", None));
         }
         self.get("diff_programs", p).await
+    }
+
+    #[tool(
+        description = "Copy function names from the active program onto matching functions in another open program (program_b). Matches functions by structural shape hash and, for each unambiguous 1-to-1 match where the active program's function is named and program_b's is still default-named (FUN_*), renames program_b's function. Previews by default; pass apply=true to commit. The fast way to port your analysis onto a sibling binary/variant",
+        annotations(destructive_hint = true)
+    )]
+    async fn propagate_matches(
+        &self,
+        Parameters(p): Parameters<PropagateMatches>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if p.program_b.is_empty() {
+            return Err(ErrorData::invalid_params("program_b is required", None));
+        }
+        self.post("propagate_matches", p).await
     }
 
     #[tool(
@@ -3883,6 +3910,21 @@ mod tests {
             names.len() >= 140,
             "expected full catalog, got {}",
             names.len()
+        );
+    }
+
+    #[test]
+    fn propagate_matches_emits_program_and_apply_flag() {
+        let p = PropagateMatches {
+            program_b: "variant_b.exe".to_owned(),
+            apply: true,
+        };
+        assert_eq!(
+            p.into_params(),
+            vec![
+                ("program_b", "variant_b.exe".to_owned()),
+                ("apply", "1".to_owned()),
+            ]
         );
     }
 
