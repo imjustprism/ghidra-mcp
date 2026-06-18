@@ -31,7 +31,7 @@ public final class UnpackAssist {
         boolean rwx = false;
         String rwxBlock = null;
         for (var block : program.getMemory().getBlocks()) {
-            var sig = PACKER_SECTIONS.get(block.getName().trim().toLowerCase(Locale.ROOT));
+            var sig = PACKER_SECTIONS.get(normalizeSection(block.getName()));
             if (sig != null && packer == null) packer = sig;
             if (block.isWrite() && block.isExecute()) {
                 rwx = true;
@@ -47,13 +47,15 @@ public final class UnpackAssist {
         }
 
         int imports = 0;
-        for (var ignored : program.getSymbolTable().getExternalSymbols()) imports++;
+        for (var ignored : program.getFunctionManager().getExternalFunctions()) imports++;
 
         String oepBlock = null;
-        var st = program.getSymbolTable();
-        for (var it = st.getExternalEntryPointIterator(); it.hasNext() && oepBlock == null; ) {
-            var block = program.getMemory().getBlock(it.next());
-            if (block != null && block.isWrite()) oepBlock = block.getName();
+        for (var sym : program.getSymbolTable().getGlobalSymbols("entry")) {
+            var block = program.getMemory().getBlock(sym.getAddress());
+            if (block != null && block.isWrite()) {
+                oepBlock = block.getName();
+                break;
+            }
         }
 
         if (packer != null) {
@@ -93,24 +95,36 @@ public final class UnpackAssist {
         rows.append(indicator).append('\t').append(Responses.cell(detail)).append('\t').append(weight).append('\n');
     }
 
+    static String normalizeSection(String name) {
+        var s = name.trim().toLowerCase(Locale.ROOT);
+        if (s.startsWith(".")) s = s.substring(1);
+        int u = s.lastIndexOf('_');
+        if (u > 0 && u < s.length() - 1 && s.substring(u + 1).chars().allMatch(Character::isDigit)) {
+            s = s.substring(0, u);
+        }
+        return s;
+    }
+
     private static Map<String, String> packerSections() {
+        var raw = new LinkedHashMap<String, String>();
+        for (var n : new String[]{"upx0", "upx1", "upx2"}) raw.put(n, "UPX");
+        for (var n : new String[]{".aspack", ".adata"}) raw.put(n, "ASPack");
+        for (var n : new String[]{".nsp0", ".nsp1", ".nsp2"}) raw.put(n, "NsPack");
+        for (var n : new String[]{".vmp0", ".vmp1", ".vmp2"}) raw.put(n, "VMProtect");
+        raw.put(".petite", "Petite");
+        raw.put(".mpress1", "MPRESS");
+        raw.put(".mpress2", "MPRESS");
+        raw.put("fsg!", "FSG");
+        raw.put(".themida", "Themida");
+        raw.put(".winlice", "Themida");
+        raw.put(".enigma1", "Enigma");
+        raw.put(".enigma2", "Enigma");
+        raw.put(".y0da", "yoda");
+        raw.put(".pec1", "PECompact");
+        raw.put(".rlpack", "RLPack");
+        raw.put(".packed", "generic");
         var m = new LinkedHashMap<String, String>();
-        for (var n : new String[]{"upx0", "upx1", "upx2"}) m.put(n, "UPX");
-        for (var n : new String[]{".aspack", ".adata"}) m.put(n, "ASPack");
-        for (var n : new String[]{".nsp0", ".nsp1", ".nsp2"}) m.put(n, "NsPack");
-        for (var n : new String[]{".vmp0", ".vmp1", ".vmp2"}) m.put(n, "VMProtect");
-        m.put(".petite", "Petite");
-        m.put(".mpress1", "MPRESS");
-        m.put(".mpress2", "MPRESS");
-        m.put("fsg!", "FSG");
-        m.put(".themida", "Themida");
-        m.put(".winlice", "Themida");
-        m.put(".enigma1", "Enigma");
-        m.put(".enigma2", "Enigma");
-        m.put(".y0da", "yoda");
-        m.put(".pec1", "PECompact");
-        m.put(".rlpack", "RLPack");
-        m.put(".packed", "generic");
+        for (var e : raw.entrySet()) m.put(normalizeSection(e.getKey()), e.getValue());
         return m;
     }
 }
