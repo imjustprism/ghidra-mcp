@@ -42,6 +42,13 @@ public final class Emulator {
             emu.writeRegister(emu.getStackPointerRegister(), entrySp);
             emu.writeRegister(emu.getPCRegister(), func.getEntryPoint().getOffset());
             emu.writeMemory(defaultSpace.getAddress(entrySp), encode(RET_MARKER, ptr, bigEndian));
+            for (var rn : new String[]{"lr", "LR", "ra"}) {
+                var r = program.getLanguage().getRegister(rn);
+                if (r != null) {
+                    emu.writeRegister(r, BigInteger.valueOf(RET_MARKER));
+                    break;
+                }
+            }
 
             var params = func.getParameters();
             int placed = 0;
@@ -84,7 +91,9 @@ public final class Emulator {
                     .append('/').append(args.length).append('\n');
             out.append("stopped after ").append(steps).append(" steps (").append(reason).append(")\n");
             var ret = func.getReturn();
-            if (ret != null && ret.getVariableStorage() != null
+            if (!reason.equals("returned")) {
+                out.append("return value not reported (function did not return)\n");
+            } else if (ret != null && ret.getVariableStorage() != null
                     && ret.getVariableStorage().isRegisterStorage()
                     && ret.getVariableStorage().getRegister() != null) {
                 var rv = emu.readRegister(ret.getVariableStorage().getRegister());
@@ -116,11 +125,16 @@ public final class Emulator {
         var out = new long[parts.length];
         for (int i = 0; i < parts.length; i++) {
             var p = parts[i].trim();
+            if (p.isEmpty()) throw new IllegalArgumentException("empty argument at position " + i);
             boolean neg = p.startsWith("-");
             if (neg) p = p.substring(1).trim();
             boolean hex = p.startsWith("0x") || p.startsWith("0X");
-            long v = hex ? Long.parseUnsignedLong(p.substring(2), 16) : Long.parseUnsignedLong(p);
-            out[i] = neg ? -v : v;
+            try {
+                long v = hex ? Long.parseUnsignedLong(p.substring(2), 16) : Long.parseUnsignedLong(p);
+                out[i] = neg ? -v : v;
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException("invalid argument at position " + i + ": " + parts[i].trim());
+            }
         }
         return out;
     }

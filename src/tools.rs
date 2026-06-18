@@ -2009,7 +2009,7 @@ impl GhidraServer {
         &self,
         Parameters(p): Parameters<EmulateFunction>,
     ) -> Result<CallToolResult, ErrorData> {
-        if p.function_address.is_empty() {
+        if p.function_address.trim().is_empty() {
             return Err(ErrorData::invalid_params(
                 "function_address is required",
                 None,
