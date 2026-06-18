@@ -116,9 +116,13 @@ public final class RecoveryHandlers {
         if (!analyzer.canAnalyze(program)) {
             return label + ": nothing to do (no applicable data in this program)";
         }
-        if (!analyzer.getDefaultEnablement(program)) {
-            return label + ": analyzer is disabled by default for this program's architecture (skipped)";
+        var analysisOptions = program.getOptions(Program.ANALYSIS_PROPERTIES);
+        if (!analysisOptions.getBoolean(analyzer.getName(), analyzer.getDefaultEnablement(program))) {
+            return label + ": disabled in this program's analysis options (skipped)";
         }
+        var analyzerOptions = analysisOptions.getOptions(analyzer.getName());
+        analyzer.registerOptions(analyzerOptions, program);
+        analyzer.optionsChanged(analyzerOptions, program);
         var log = new ghidra.app.util.importer.MessageLog();
         var imported = new boolean[1];
         var error = new String[1];
