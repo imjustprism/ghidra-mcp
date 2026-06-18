@@ -13,6 +13,7 @@ import io.github.imjustprism.ghidra.mcp.handlers.DebuggerHandlers;
 import io.github.imjustprism.ghidra.mcp.handlers.DebuggerUnavailableHandlers;
 import io.github.imjustprism.ghidra.mcp.handlers.DecompileHandlers;
 import io.github.imjustprism.ghidra.mcp.handlers.EditHandlers;
+import io.github.imjustprism.ghidra.mcp.handlers.EmulatorHandlers;
 import io.github.imjustprism.ghidra.mcp.handlers.FunctionHandlers;
 import io.github.imjustprism.ghidra.mcp.handlers.ListingHandlers;
 import io.github.imjustprism.ghidra.mcp.handlers.RecoveryHandlers;
@@ -53,6 +54,7 @@ public final class GhidraMcpPlugin extends Plugin {
 
     private final RouteTable routes = new RouteTable(this);
     private DebuggerHandlers debuggerHandlers;
+    private EmulatorHandlers emulatorHandlers;
 
     public GhidraMcpPlugin(PluginTool tool) {
         super(tool);
@@ -77,6 +79,7 @@ public final class GhidraMcpPlugin extends Plugin {
     @Override
     public void dispose() {
         if (debuggerHandlers != null) debuggerHandlers.close();
+        if (emulatorHandlers != null) emulatorHandlers.close();
         routes.stop();
         super.dispose();
     }
@@ -105,6 +108,9 @@ public final class GhidraMcpPlugin extends Plugin {
         edits.register(routes);
         analysis.register(routes);
         recovery.register(routes);
+
+        emulatorHandlers = new EmulatorHandlers(ctx);
+        emulatorHandlers.register(routes);
 
         try {
             debuggerHandlers = new DebuggerHandlers(ctx);
