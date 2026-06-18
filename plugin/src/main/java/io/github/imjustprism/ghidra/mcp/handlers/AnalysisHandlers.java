@@ -112,6 +112,8 @@ public final class AnalysisHandlers {
         routes.getQuery("/diff_functions", q -> Diff.compare(ctx,
                 q.get("address_a"), q.get("address_b"), q.get("program_b"), q));
         routes.getPage("/diff_programs", (p, q) -> Diff.diffPrograms(ctx, q.get("program_b"), p, q));
+        routes.postForm("/propagate_matches", p -> Diff.propagateMatches(ctx,
+                p.get("program_b"), Http.parseBool(p.get("apply"), false)));
         routes.getQuery("/pointer_scan", q -> PointerScan.scan(ctx, q.get("target"),
                 Http.parseFlexibleLong(q.get("max_offset"), 1024), Http.parseFlexibleLong(q.get("limit"), 100)));
         routes.getQuery("/function_hash", q -> FunctionHash.hash(ctx, q.get("address"), q));
