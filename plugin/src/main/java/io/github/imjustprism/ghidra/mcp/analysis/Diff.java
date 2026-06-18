@@ -20,7 +20,8 @@ public final class Diff {
 
     private record Metrics(int instructions, int blocks, Map<String, Integer> mnemonics, Set<String> calls) {}
 
-    public static String compare(PluginContext ctx, String addrA, String addrB, String programBName) {
+    public static String compare(PluginContext ctx, String addrA, String addrB, String programBName,
+            Map<String, String> q) {
         if (addrA == null || addrA.isBlank()) throw new IllegalArgumentException("address_a is required");
         if (addrB == null || addrB.isBlank()) throw new IllegalArgumentException("address_b is required");
         var program = ctx.currentProgram();
@@ -45,19 +46,18 @@ public final class Diff {
                         / Math.max(ma.instructions(), mb.instructions());
         int score = (int) Math.round(100 * (0.6 * mnem + 0.25 * calls + 0.15 * size));
 
-        var sb = new StringBuilder();
-        sb.append("# diff ").append(funcA.getName()).append(" (").append(program.getName())
-                .append(") vs ").append(funcB.getName()).append(" (").append(programB.getName()).append(")\n");
-        sb.append("score=").append(score).append("/100\n");
-        sb.append("metric\ta\tb\n");
-        sb.append("instructions\t").append(ma.instructions()).append('\t').append(mb.instructions()).append('\n');
-        sb.append("basic_blocks\t").append(ma.blocks()).append('\t').append(mb.blocks()).append('\n');
-        sb.append("mnemonic_jaccard\t").append(pct(mnem)).append("%\n");
-        sb.append("call_jaccard\t").append(pct(calls)).append("%\n");
-        sb.append("size_ratio\t").append(pct(size)).append("%\n");
-        sb.append("calls_a\t").append(Responses.cell(String.join(",", ma.calls()))).append('\n');
-        sb.append("calls_b\t").append(Responses.cell(String.join(",", mb.calls()))).append('\n');
-        return sb.toString();
+        var t = Responses.table(q, new String[]{"metric", "value"}, 10);
+        t.row("function_a", funcA.getName() + " (" + program.getName() + ")");
+        t.row("function_b", funcB.getName() + " (" + programB.getName() + ")");
+        t.row("score", score + "/100");
+        t.row("instructions", ma.instructions() + " vs " + mb.instructions());
+        t.row("basic_blocks", ma.blocks() + " vs " + mb.blocks());
+        t.row("mnemonic_jaccard", pct(mnem) + "%");
+        t.row("call_jaccard", pct(calls) + "%");
+        t.row("size_ratio", pct(size) + "%");
+        t.row("calls_a", String.join(",", ma.calls()));
+        t.row("calls_b", String.join(",", mb.calls()));
+        return t.build();
     }
 
     private static Function functionAt(Program program, String addrStr, String label) {

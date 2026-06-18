@@ -110,7 +110,7 @@ public final class AnalysisHandlers {
         routes.getPage("/taint_forward", (p, q) -> Taint.slice(ctx, q.get("address"), true, p, q));
         routes.getPage("/taint_backward", (p, q) -> Taint.slice(ctx, q.get("address"), false, p, q));
         routes.getQuery("/diff_functions", q -> Diff.compare(ctx,
-                q.get("address_a"), q.get("address_b"), q.get("program_b")));
+                q.get("address_a"), q.get("address_b"), q.get("program_b"), q));
         routes.getQuery("/pointer_scan", q -> PointerScan.scan(ctx, q.get("target"),
                 Http.parseFlexibleLong(q.get("max_offset"), 1024), Http.parseFlexibleLong(q.get("limit"), 100)));
         routes.getQuery("/function_hash", q -> FunctionHash.hash(ctx, q.get("address"), q));
