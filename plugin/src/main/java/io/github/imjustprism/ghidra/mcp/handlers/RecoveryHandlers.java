@@ -121,15 +121,20 @@ public final class RecoveryHandlers {
         }
         var log = new ghidra.app.util.importer.MessageLog();
         var imported = new boolean[1];
+        var error = new String[1];
         ctx.runOnSwingTx(program, label, () -> {
             try {
                 imported[0] = analyzer.added(program, program.getMemory(), new ConsoleTaskMonitor(), log);
                 return true;
             } catch (Exception e) {
+                error[0] = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
                 Msg.error(ctx.logOwner(), label + " failed", e);
                 return false;
             }
         });
+        if (error[0] != null) {
+            throw new IllegalStateException(label + " failed: " + error[0]);
+        }
         var summary = label + (imported[0] ? " complete" : " ran but imported nothing") + " on " + program.getName();
         return log.hasMessages() ? summary + "\n" + log : summary;
     }
