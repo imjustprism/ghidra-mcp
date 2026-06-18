@@ -60,7 +60,7 @@ MCP server for Ghidra. Rust bridge + Ghidra Java plugin. Wires any MCP client (C
 
 ## Tools
 
-146 tools total.
+154 tools total.
 
 Every paginated read tool accepts an optional `fmt` argument — `tsv` (default), `csv`, `json`, or `verbose` — alongside `offset`/`limit`.
 
@@ -258,6 +258,22 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 | `unpack_assist` | packer/protector detection score (entropy, RWX, imports, packer sections) |
 | `decode_strings_auto` | brute-force XOR/ADD/SUB key to recover encoded strings |
 | `find_dynamic_api_resolution` | call sites of GetProcAddress/LoadLibrary/… |
+
+</details>
+
+<details>
+<summary><b>Emulation</b> (8)</summary>
+
+| tool | purpose |
+| --- | --- |
+| `emu_start` | start a persistent p-code emulator session (returns emu_id) |
+| `emu_step` | step a session N instructions |
+| `emu_run_to` | run a session until PC hits an address |
+| `emu_registers` | dump a session's register values |
+| `emu_set_register` | set a register in a session |
+| `emu_read_memory` | read emulator memory in a session |
+| `emu_write_memory` | write emulator memory in a session |
+| `emu_close` | dispose a session |
 
 </details>
 

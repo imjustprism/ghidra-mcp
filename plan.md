@@ -44,7 +44,7 @@ Legend: `[x]` shipped · `[~]` in progress (open PR) · `[ ]` planned · API sta
 - [ ] `watch_add`/`watch_poll`/`watch_remove` `[N]`
 - [x] Scan GC + freeze auto-stop — TTL eviction of abandoned completed scans (freeze already auto-stops on target death)
 - [ ] Time-travel: `list_snapshots`/`goto_snapshot`/`value_at_snapshot`/`find_last_write` `[N]`
-- [ ] Persistent emulator `emu_start/step/run_to/...` + `emulate_function(args)` `[V]`
+- [x] Persistent emulator — `emu_start/step/run_to/registers/set_register/read_memory/write_memory/close` (stateful sessions + TTL GC); `emulate_function(args)` still TODO
 
 ## Phase 4 — Differentiators
 - [x] `function_hash` — structural mnemonic/shape hash for matching/dedup
