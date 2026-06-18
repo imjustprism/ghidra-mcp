@@ -143,9 +143,20 @@ public final class Diff {
             });
         }
 
+        int applied = 0;
+        int failed = 0;
+        for (var s : statuses) {
+            if (s.equals("ok")) applied++;
+            else if (s.startsWith("failed")) failed++;
+        }
         var sb = new StringBuilder();
-        sb.append(apply ? "# applied " : "# preview (dry-run, pass apply=1 to commit) ")
-                .append(renames.size()).append(" name(s) from ").append(program.getName())
+        if (apply) {
+            sb.append("# applied ").append(applied).append(" of ").append(renames.size()).append(" name(s)");
+            if (failed > 0) sb.append("; ").append(failed).append(" failed");
+        } else {
+            sb.append("# preview (dry-run, pass apply=1 to commit) ").append(renames.size()).append(" name(s)");
+        }
+        sb.append(" from ").append(program.getName())
                 .append(" onto unique matches in ").append(programB.getName()).append('\n');
         sb.append("address\told\tnew\tstatus\n");
         int shown = Math.min(renames.size(), MAX_PREVIEW);
