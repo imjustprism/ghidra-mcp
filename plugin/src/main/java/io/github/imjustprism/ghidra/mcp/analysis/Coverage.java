@@ -57,6 +57,19 @@ public final class Coverage {
         });
     }
 
+    static String addressToken(String line) {
+        var s = line.trim();
+        int end = s.length();
+        for (int i = 0; i < s.length(); i++) {
+            char ch = s.charAt(i);
+            if (Character.isWhitespace(ch) || ch == '#' || ch == ';') {
+                end = i;
+                break;
+            }
+        }
+        return s.substring(0, end);
+    }
+
     private static Set<Function> coveredFunctions(PluginContext ctx, Program program, String path) {
         var file = FileGuard.requireAllowedPath(ctx, path);
         if (!file.isFile()) throw new IllegalArgumentException("not a file: " + file);
@@ -67,11 +80,9 @@ public final class Coverage {
             String line;
             long n = 0;
             while ((line = reader.readLine()) != null && n++ < MAX_LINES) {
-                var s = line.trim();
-                if (s.isEmpty() || s.startsWith("#") || s.startsWith(";")) continue;
-                int sp = s.indexOf(' ');
-                if (sp > 0) s = s.substring(0, sp);
-                var addr = af.getAddress(s);
+                var token = addressToken(line);
+                if (token.isEmpty()) continue;
+                var addr = af.getAddress(token);
                 if (addr == null) continue;
                 var f = fm.getFunctionContaining(addr);
                 if (f != null) covered.add(f);
