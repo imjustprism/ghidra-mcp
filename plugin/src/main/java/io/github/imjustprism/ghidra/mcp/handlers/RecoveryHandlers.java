@@ -128,6 +128,7 @@ public final class RecoveryHandlers {
         var log = new ghidra.app.util.importer.MessageLog();
         var imported = new boolean[1];
         var error = new String[1];
+        long namedBefore = countUserNamedFunctions(program);
         boolean committed = ctx.runOnSwingTx(program, label, () -> {
             try {
                 imported[0] = analyzer.added(program, program.getMemory(), new ConsoleTaskMonitor(), log);
@@ -144,8 +145,18 @@ public final class RecoveryHandlers {
         if (!committed) {
             throw new IllegalStateException(label + " did not complete (transaction was not committed)");
         }
-        var summary = label + (imported[0] ? " complete" : " ran but imported nothing") + " on " + program.getName();
+        long named = countUserNamedFunctions(program) - namedBefore;
+        var summary = label + (imported[0] ? " ran" : " ran but reported no work") + " on "
+                + program.getName() + "; named " + named + " new function(s)";
         return log.hasMessages() ? summary + "\n" + log : summary;
+    }
+
+    private long countUserNamedFunctions(Program program) {
+        long n = 0;
+        for (var f : program.getFunctionManager().getFunctions(true)) {
+            if (f.getSymbol().getSource() != SourceType.DEFAULT) n++;
+        }
+        return n;
     }
 
     private String listOpenPrograms(Map<String, String> q) {
