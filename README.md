@@ -60,7 +60,7 @@ MCP server for Ghidra. Rust bridge + Ghidra Java plugin. Wires any MCP client (C
 
 ## Tools
 
-145 tools total.
+146 tools total.
 
 Every paginated read tool accepts an optional `fmt` argument — `tsv` (default), `csv`, `json`, or `verbose` — alongside `offset`/`limit`.
 
@@ -286,7 +286,7 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 </details>
 
 <details>
-<summary><b>Live RE / CheatEngine-style</b> (12)</summary>
+<summary><b>Live RE / CheatEngine-style</b> (13)</summary>
 
 | tool | purpose |
 | --- | --- |
@@ -302,6 +302,7 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 | `scan_results` | list candidates + static addrs |
 | `scan_close` | free a scan session |
 | `read_pointer_path` | resolve a multi-level pointer chain (base + hex offsets) |
+| `pointer_scan` | reverse-scan the image for pointers into a target (feeds read_pointer_path) |
 
 </details>
 

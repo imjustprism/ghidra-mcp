@@ -26,6 +26,7 @@ import io.github.imjustprism.ghidra.mcp.analysis.NamespaceGraph;
 import io.github.imjustprism.ghidra.mcp.analysis.NeutralizeAntiDebug;
 import io.github.imjustprism.ghidra.mcp.analysis.OrphanGaps;
 import io.github.imjustprism.ghidra.mcp.analysis.Pcode;
+import io.github.imjustprism.ghidra.mcp.analysis.PointerScan;
 import io.github.imjustprism.ghidra.mcp.analysis.Rtti;
 import io.github.imjustprism.ghidra.mcp.analysis.Signatures;
 import io.github.imjustprism.ghidra.mcp.analysis.StackStrings;
@@ -97,6 +98,8 @@ public final class AnalysisHandlers {
         routes.getQuery("/find_anti_vm", q -> AntiVm.find(ctx, Page.from(q), q));
         routes.getQuery("/cfg_obfuscation_score", q -> CfgObfuscation.score(ctx, q.get("address"), q));
         routes.getQuery("/unpack_assist", q -> UnpackAssist.report(ctx));
+        routes.getQuery("/pointer_scan", q -> PointerScan.scan(ctx, q.get("target"),
+                Http.parseFlexibleLong(q.get("max_offset"), 1024), Http.parseFlexibleLong(q.get("limit"), 100)));
         routes.getQuery("/function_hash", q -> FunctionHash.hash(ctx, q.get("address"), q));
         routes.getQuery("/recover_rtti_classes", q -> Rtti.recover(ctx, Page.from(q), q));
         routes.getQuery("/find_dynamic_api_resolution", q -> DynamicApi.find(ctx, Page.from(q), q));

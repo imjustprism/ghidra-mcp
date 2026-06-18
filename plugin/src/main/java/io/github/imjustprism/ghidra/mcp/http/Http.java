@@ -48,6 +48,18 @@ public final class Http {
         }
     }
 
+    public static long parseFlexibleLong(String s, long d) {
+        if (s == null || s.isBlank()) return d;
+        var v = s.trim();
+        try {
+            return v.startsWith("0x") || v.startsWith("0X")
+                    ? Long.parseLong(v.substring(2), 16)
+                    : Long.parseLong(v);
+        } catch (NumberFormatException e) {
+            return d;
+        }
+    }
+
     public static boolean parseBool(String s, boolean d) {
         if (s == null || s.isBlank()) return d;
         return switch (s.trim().toLowerCase(java.util.Locale.ROOT)) {

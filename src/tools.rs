@@ -474,6 +474,19 @@ impl ToParams for DebuggerReadMemory {
     }
 }
 
+impl ToParams for PointerScanArgs {
+    fn into_params(self) -> Params {
+        let mut p = vec![("target", self.target)];
+        if let Some(m) = self.max_offset {
+            p.push(("max_offset", m.to_string()));
+        }
+        if let Some(l) = self.limit {
+            p.push(("limit", l.to_string()));
+        }
+        p
+    }
+}
+
 impl ToParams for ReadPointerPath {
     fn into_params(self) -> Params {
         let mut p = vec![("base", self.base)];
@@ -960,6 +973,15 @@ pub struct DebuggerReadMemory {
     pub address: String,
     #[serde(default = "default_read_length")]
     pub length: u32,
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct PointerScanArgs {
+    pub target: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_offset: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
@@ -2246,6 +2268,20 @@ impl GhidraServer {
     }
 
     #[tool(
+        description = "Reverse pointer scan over the static program image: finds pointer-aligned words whose value lands in [target - max_offset, target], i.e. addresses that point at or just before the target. Each result is a base address + the offset that reaches target (resolve it on a live target with read_pointer_path). max_offset (default 1024, hard cap 0x4000) widens the window; limit caps results (default 100, max 1000). Bounded by a 256MB scan budget",
+        annotations(read_only_hint = true)
+    )]
+    async fn pointer_scan(
+        &self,
+        Parameters(p): Parameters<PointerScanArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if p.target.is_empty() {
+            return Err(ErrorData::invalid_params("target is required", None));
+        }
+        self.get("pointer_scan", p).await
+    }
+
+    #[tool(
         description = "List all logical breakpoints known to the debugger",
         annotations(read_only_hint = true)
     )]
@@ -3392,6 +3428,33 @@ mod tests {
             "expected full catalog, got {}",
             names.len()
         );
+    }
+
+    #[test]
+    fn pointer_scan_emits_target_with_optional_bounds() {
+        let p = PointerScanArgs {
+            target: "0x140025000".to_owned(),
+            max_offset: Some(2048),
+            limit: Some(50),
+        };
+        assert_eq!(
+            p.into_params(),
+            vec![
+                ("target", "0x140025000".to_owned()),
+                ("max_offset", "2048".to_owned()),
+                ("limit", "50".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn pointer_scan_omits_unset_bounds() {
+        let p = PointerScanArgs {
+            target: "0x401000".to_owned(),
+            max_offset: None,
+            limit: None,
+        };
+        assert_eq!(p.into_params(), vec![("target", "0x401000".to_owned())]);
     }
 
     #[test]
