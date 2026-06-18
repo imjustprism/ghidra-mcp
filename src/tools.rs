@@ -3082,6 +3082,14 @@ impl GhidraServer {
     }
 
     #[tool(
+        description = "Run Ghidra's Function ID analyzer to match the program's functions against the active FID databases and apply recovered library/runtime function names (e.g. statically-linked libc/MSVCRT routines). Honors the program's analysis options; reports if FID is disabled or matches nothing. Mutates the program database",
+        annotations(destructive_hint = true)
+    )]
+    async fn apply_fid_signatures(&self) -> Result<CallToolResult, ErrorData> {
+        self.post_bare("apply_fid_signatures").await
+    }
+
+    #[tool(
         description = "List all programs currently open in this Ghidra tool, with name, which is active, sha256, and path. Cross-binary work (diffing, matching) needs two programs open here",
         annotations(read_only_hint = true)
     )]

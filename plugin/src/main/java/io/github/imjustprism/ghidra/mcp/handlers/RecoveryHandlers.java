@@ -56,6 +56,8 @@ public final class RecoveryHandlers {
         routes.postForm("/apply_gdt", p -> applyGdt(p.get("path")));
         routes.postForm("/import_dwarf", p -> runAnalyzer(
                 new ghidra.app.plugin.core.analysis.DWARFAnalyzer(), "DWARF import"));
+        routes.postForm("/apply_fid_signatures", p -> runAnalyzer(
+                new ghidra.feature.fid.analyzer.FidAnalyzer(), "FID signature application"));
         routes.getQuery("/list_open_programs", this::listOpenPrograms);
         routes.postForm("/select_program", p -> selectProgram(p.get("name")));
     }
