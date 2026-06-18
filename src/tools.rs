@@ -1820,6 +1820,34 @@ impl GhidraServer {
     }
 
     #[tool(
+        description = "Forward data-flow (taint) slice from an instruction: decompiles the containing function and follows the value(s) produced at the given address through the decompiler's p-code def-use graph, returning every instruction the value flows into. Intra-procedural; capped. Use to see where a decrypted/computed value ends up",
+        annotations(read_only_hint = true)
+    )]
+    async fn taint_forward(
+        &self,
+        Parameters(p): Parameters<AddressPage>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if p.address.is_empty() {
+            return Err(ErrorData::invalid_params("address is required", None));
+        }
+        self.get("taint_forward", p).await
+    }
+
+    #[tool(
+        description = "Backward data-flow (taint) slice from an instruction: decompiles the containing function and walks the value(s) used at the given address back through the p-code def-use graph, returning every instruction that contributes to them. Intra-procedural; capped. Use to find what feeds a check/key/branch",
+        annotations(read_only_hint = true)
+    )]
+    async fn taint_backward(
+        &self,
+        Parameters(p): Parameters<AddressPage>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if p.address.is_empty() {
+            return Err(ErrorData::invalid_params("address is required", None));
+        }
+        self.get("taint_backward", p).await
+    }
+
+    #[tool(
         description = "Get all references from the specified address (xref from)",
         annotations(read_only_hint = true)
     )]
