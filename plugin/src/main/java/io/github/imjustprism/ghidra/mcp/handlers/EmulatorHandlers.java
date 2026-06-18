@@ -62,7 +62,12 @@ public final class EmulatorHandlers {
         if (program == null) throw new IllegalArgumentException("No program loaded");
         var start = program.getAddressFactory().getAddress(startStr.trim());
         if (start == null) throw new IllegalArgumentException("invalid start address: " + startStr);
-        long stack = stackStr == null || stackStr.isBlank() ? DEFAULT_STACK : parseBig(stackStr).longValue();
+        long stack = DEFAULT_STACK;
+        if (stackStr != null && !stackStr.isBlank()) {
+            var big = parseBig(stackStr);
+            if (big.bitLength() > 64) throw new IllegalArgumentException("stack value out of 64-bit range: " + stackStr);
+            stack = big.longValue();
+        }
 
         synchronized (lifecycleLock) {
             evictExpired();
