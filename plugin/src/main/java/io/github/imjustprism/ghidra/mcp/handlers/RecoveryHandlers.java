@@ -54,6 +54,8 @@ public final class RecoveryHandlers {
                 Http.parseIntOrDefault(p.get("offset"), -1)));
         routes.getQuery("/list_data_type_archives", this::listDataTypeArchives);
         routes.postForm("/apply_gdt", p -> applyGdt(p.get("path")));
+        routes.postForm("/import_dwarf", p -> runAnalyzer(
+                new ghidra.app.plugin.core.analysis.DWARFAnalyzer(), "DWARF import"));
         routes.getQuery("/list_open_programs", this::listOpenPrograms);
         routes.postForm("/select_program", p -> selectProgram(p.get("name")));
     }
@@ -106,6 +108,42 @@ public final class RecoveryHandlers {
         } finally {
             archive.close();
         }
+    }
+
+    private String runAnalyzer(ghidra.app.services.Analyzer analyzer, String label) {
+        var program = ctx.currentProgram();
+        if (program == null) throw new IllegalArgumentException("No program loaded");
+        if (!analyzer.canAnalyze(program)) {
+            return label + ": nothing to do (no applicable data in this program)";
+        }
+        var analysisOptions = program.getOptions(Program.ANALYSIS_PROPERTIES);
+        if (!analysisOptions.getBoolean(analyzer.getName(), analyzer.getDefaultEnablement(program))) {
+            return label + ": disabled in this program's analysis options (skipped)";
+        }
+        var analyzerOptions = analysisOptions.getOptions(analyzer.getName());
+        analyzer.registerOptions(analyzerOptions, program);
+        analyzer.optionsChanged(analyzerOptions, program);
+        var log = new ghidra.app.util.importer.MessageLog();
+        var imported = new boolean[1];
+        var error = new String[1];
+        boolean committed = ctx.runOnSwingTx(program, label, () -> {
+            try {
+                imported[0] = analyzer.added(program, program.getMemory(), new ConsoleTaskMonitor(), log);
+                return true;
+            } catch (Exception e) {
+                error[0] = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+                Msg.error(ctx.logOwner(), label + " failed", e);
+                return false;
+            }
+        });
+        if (error[0] != null) {
+            throw new IllegalStateException(label + " failed: " + error[0]);
+        }
+        if (!committed) {
+            throw new IllegalStateException(label + " did not complete (transaction was not committed)");
+        }
+        var summary = label + (imported[0] ? " complete" : " ran but imported nothing") + " on " + program.getName();
+        return log.hasMessages() ? summary + "\n" + log : summary;
     }
 
     private String listOpenPrograms(Map<String, String> q) {
