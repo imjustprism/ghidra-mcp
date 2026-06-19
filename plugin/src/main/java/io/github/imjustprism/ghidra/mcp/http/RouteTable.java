@@ -68,8 +68,8 @@ public final class RouteTable {
     public void getPage(String path, Route.PageFn fn) {
         server.createContext(path, wrap(ex -> {
             var q = Http.parseQuery(ex);
-            PluginContext.setProgramOverride(q.get("program"));
             try {
+                PluginContext.setProgramOverride(q.get("program"));
                 return fn.apply(Page.from(q), q);
             } finally {
                 PluginContext.clearProgramOverride();
@@ -80,8 +80,8 @@ public final class RouteTable {
     public void getQuery(String path, Route.QueryFn fn) {
         server.createContext(path, wrap(ex -> {
             var q = Http.parseQuery(ex);
-            PluginContext.setProgramOverride(q.get("program"));
             try {
+                PluginContext.setProgramOverride(q.get("program"));
                 return fn.apply(q);
             } finally {
                 PluginContext.clearProgramOverride();
@@ -92,8 +92,8 @@ public final class RouteTable {
     public void getHtml(String path, Route.QueryFn fn) {
         server.createContext(path, wrap(ex -> {
             var q = Http.parseQuery(ex);
-            PluginContext.setProgramOverride(q.get("program"));
             try {
+                PluginContext.setProgramOverride(q.get("program"));
                 return fn.apply(q);
             } finally {
                 PluginContext.clearProgramOverride();
@@ -104,8 +104,8 @@ public final class RouteTable {
     public void postForm(String path, Route.QueryFn fn) {
         server.createContext(path, wrap(ex -> {
             var form = Http.parseForm(ex);
-            PluginContext.setProgramOverride(form.get("program"));
             try {
+                PluginContext.setProgramOverride(form.get("program"));
                 return fn.apply(form);
             } finally {
                 PluginContext.clearProgramOverride();
