@@ -99,12 +99,14 @@ public final class Coverage {
                 if (fn.isExternal()) continue;
                 int total = 0;
                 int cov = 0;
+                var seen = new HashSet<Address>();
                 try {
                     var it = bbm.getCodeBlocksContaining(fn.getBody(), monitor);
                     while (it.hasNext()) {
-                        var b = it.next();
+                        var start = it.next().getFirstStartAddress();
+                        if (!seen.add(start)) continue;
                         total++;
-                        if (coveredBlocks.contains(b.getFirstStartAddress())) cov++;
+                        if (coveredBlocks.contains(start)) cov++;
                     }
                 } catch (Exception ignored) {
                     continue;
