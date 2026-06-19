@@ -3199,6 +3199,20 @@ impl GhidraServer {
     }
 
     #[tool(
+        description = "Block-level coverage from an execution-trace file (same address-list format as coverage_report). Maps each executed address to its basic block, then reports, per hit function, how many of its basic blocks were covered (blocks_covered/blocks_total + pct). Finer-grained than coverage_report — shows how deeply each function was exercised, for path/fuzzing triage",
+        annotations(read_only_hint = true)
+    )]
+    async fn trace_to_coverage(
+        &self,
+        Parameters(p): Parameters<CoverageReport>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if p.path.is_empty() {
+            return Err(ErrorData::invalid_params("path is required", None));
+        }
+        self.get("trace_to_coverage", p).await
+    }
+
+    #[tool(
         description = "Diff two execution-coverage files (same address-list format as coverage_report) at function granularity: reports functions covered only by A, only by B, and the shared count. Use to see what a new input/trace reached that another didn't",
         annotations(read_only_hint = true)
     )]
