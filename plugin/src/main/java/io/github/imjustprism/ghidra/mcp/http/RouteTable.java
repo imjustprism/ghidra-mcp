@@ -3,6 +3,7 @@ package io.github.imjustprism.ghidra.mcp.http;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
 import ghidra.util.Msg;
+import io.github.imjustprism.ghidra.mcp.util.PluginContext;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -67,20 +68,49 @@ public final class RouteTable {
     public void getPage(String path, Route.PageFn fn) {
         server.createContext(path, wrap(ex -> {
             var q = Http.parseQuery(ex);
-            return fn.apply(Page.from(q), q);
+            PluginContext.setProgramOverride(q.get("program"));
+            try {
+                return fn.apply(Page.from(q), q);
+            } finally {
+                PluginContext.clearProgramOverride();
+            }
         }));
     }
 
     public void getQuery(String path, Route.QueryFn fn) {
-        server.createContext(path, wrap(ex -> fn.apply(Http.parseQuery(ex))));
+        server.createContext(path, wrap(ex -> {
+            var q = Http.parseQuery(ex);
+            PluginContext.setProgramOverride(q.get("program"));
+            try {
+                return fn.apply(q);
+            } finally {
+                PluginContext.clearProgramOverride();
+            }
+        }));
     }
 
     public void getHtml(String path, Route.QueryFn fn) {
-        server.createContext(path, wrap(ex -> fn.apply(Http.parseQuery(ex)), "text/html; charset=utf-8"));
+        server.createContext(path, wrap(ex -> {
+            var q = Http.parseQuery(ex);
+            PluginContext.setProgramOverride(q.get("program"));
+            try {
+                return fn.apply(q);
+            } finally {
+                PluginContext.clearProgramOverride();
+            }
+        }, "text/html; charset=utf-8"));
     }
 
     public void postForm(String path, Route.QueryFn fn) {
-        server.createContext(path, wrap(ex -> fn.apply(Http.parseForm(ex))));
+        server.createContext(path, wrap(ex -> {
+            var form = Http.parseForm(ex);
+            PluginContext.setProgramOverride(form.get("program"));
+            try {
+                return fn.apply(form);
+            } finally {
+                PluginContext.clearProgramOverride();
+            }
+        }));
     }
 
     public void postRaw(String path, Route.RawFn fn) {

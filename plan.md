@@ -50,7 +50,7 @@ Legend: `[x]` shipped · `[~]` in progress (open PR) · `[ ]` planned · API sta
 ## Phase 4 — Differentiators
 - [x] `function_hash` — structural mnemonic/shape hash for matching/dedup
 - [x] multi-program basics (`list_open_programs`, `select_program`)
-- [ ] cross-binary `program` param / `open_program` from disk `[N]`
+- [x] cross-binary `program` param — every endpoint honors an optional `program` (name/sha256) to target any open program; `open_program` from disk still TODO
 - [x] `diff_functions` + `diff_programs` — structural function similarity + whole-program matching (shape-hash bindiff-lite)
 - [ ] BSim: `bsim_index_program` / `bsim_query_function` / `bsim_query_program` `[X]`
 - [x] `propagate_matches` — copy names onto unambiguous shape-hash matches in another open program (dry-run default)

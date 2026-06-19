@@ -64,6 +64,9 @@ impl ToParams for Page {
         if let Some(f) = self.fmt {
             p.push(("fmt", f));
         }
+        if let Some(prog) = self.program {
+            p.push(("program", prog));
+        }
         p
     }
 }
@@ -674,6 +677,9 @@ pub struct Page {
     /// Output format: tsv (default), csv, json, or verbose.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fmt: Option<String>,
+    /// Target a specific open program by name or sha256 instead of the active one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub program: Option<String>,
 }
 const fn default_limit() -> u32 {
     100
@@ -3791,10 +3797,29 @@ mod tests {
             offset: 5,
             limit: 9,
             fmt: None,
+            program: None,
         };
         assert_eq!(
             p.into_params(),
             vec![("offset", "5".to_owned()), ("limit", "9".to_owned())]
+        );
+    }
+
+    #[test]
+    fn page_into_params_appends_program_when_set() {
+        let p = Page {
+            offset: 0,
+            limit: 10,
+            fmt: None,
+            program: Some("variant_b.exe".to_owned()),
+        };
+        assert_eq!(
+            p.into_params(),
+            vec![
+                ("offset", "0".to_owned()),
+                ("limit", "10".to_owned()),
+                ("program", "variant_b.exe".to_owned()),
+            ]
         );
     }
 
@@ -3804,6 +3829,7 @@ mod tests {
             offset: 0,
             limit: 10,
             fmt: Some("json".to_owned()),
+            program: None,
         };
         assert_eq!(
             p.into_params(),
@@ -3823,6 +3849,7 @@ mod tests {
                 offset: 0,
                 limit: 50,
                 fmt: None,
+                program: None,
             },
         };
         assert_eq!(
@@ -3969,6 +3996,7 @@ mod tests {
                 offset: 0,
                 limit: 100,
                 fmt: None,
+                program: None,
             },
         };
         assert_eq!(
@@ -4022,6 +4050,7 @@ mod tests {
                 offset: 0,
                 limit: 100,
                 fmt: None,
+                program: None,
             },
         };
         assert_eq!(
@@ -4043,6 +4072,7 @@ mod tests {
                 offset: 0,
                 limit: 100,
                 fmt: None,
+                program: None,
             },
         };
         assert_eq!(
@@ -4219,6 +4249,7 @@ mod tests {
                 offset: 0,
                 limit: 20,
                 fmt: None,
+                program: None,
             },
         };
         assert_eq!(
@@ -4272,6 +4303,7 @@ mod tests {
                 offset: 0,
                 limit: 20,
                 fmt: None,
+                program: None,
             },
         };
         assert_eq!(
