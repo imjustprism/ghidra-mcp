@@ -417,7 +417,10 @@ public final class DebuggerHandlers {
         long[] offsets = PointerPath.parseOffsets(offsetsStr);
         if (offsets.length == 0) offsets = new long[]{0};
         var cur = dynAddr(base);
-        int ptrSize = cur.getAddressSpace().getPointerSize();
+        // Use the analyzed program's pointer size, not the trace's: a WOW64 (32-bit) target is
+        // presented by 64-bit dbgeng in an 8-byte address space, but its pointers are 4 bytes.
+        var program = ctx.currentProgram();
+        int ptrSize = program != null ? program.getDefaultPointerSize() : cur.getAddressSpace().getPointerSize();
         var sb = new StringBuilder();
         sb.append("# base=").append(Responses.addr(cur)).append(", ptr_size=").append(ptrSize).append('\n');
         sb.append("step\tat\tderef\n");
@@ -784,6 +787,14 @@ public final class DebuggerHandlers {
         if (t.contains("cannot debug pid") || t.contains("no such process") || t.contains("0n87")) {
             sb.append("\nHINT: the target PID may be invalid or gone. Re-check the running PID and pass "
                     + "the current value via the offer's PID parameter.");
+        }
+        if (t.contains("accept timed out") || t.contains("sockettimeout") || t.contains("accept timeout")) {
+            sb.append("\nHINT: the connector started but never connected back to Ghidra (the agent failed "
+                    + "during start-up). Most common cause: a STALE PID — if the target was restarted its "
+                    + "PID changed; re-check the live PID and pass the current value. Otherwise verify the "
+                    + "Python path has ghidratrace/ghidradbg/pybag, WINDBG_DIR holds dbgeng.dll, and Ghidra "
+                    + "runs elevated for an elevated target. The agent's own error is in the Ghidra Terminal "
+                    + "window.");
         }
         return sb.toString();
     }
