@@ -11,12 +11,22 @@ import java.util.function.Supplier;
 
 public final class PluginContext {
 
+    private static final ThreadLocal<String> PROGRAM_OVERRIDE = new ThreadLocal<>();
+
     private final PluginTool tool;
     private final Object logOwner;
 
     public PluginContext(PluginTool tool, Object logOwner) {
         this.tool = tool;
         this.logOwner = logOwner;
+    }
+
+    public static void setProgramOverride(String name) {
+        if (name != null && !name.isBlank()) PROGRAM_OVERRIDE.set(name.trim());
+    }
+
+    public static void clearProgramOverride() {
+        PROGRAM_OVERRIDE.remove();
     }
 
     public PluginTool tool() {
@@ -29,7 +39,16 @@ public final class PluginContext {
 
     public Program currentProgram() {
         var pm = tool.getService(ProgramManager.class);
-        return pm != null ? pm.getCurrentProgram() : null;
+        if (pm == null) return null;
+        var override = PROGRAM_OVERRIDE.get();
+        if (override != null) {
+            for (var p : pm.getAllOpenPrograms()) {
+                if (p.getName().equals(override) || override.equals(p.getExecutableSHA256())) return p;
+            }
+            throw new IllegalArgumentException("program not open: " + override
+                    + " (use list_open_programs to see open programs)");
+        }
+        return pm.getCurrentProgram();
     }
 
     public <T> T service(Class<T> cls) {
