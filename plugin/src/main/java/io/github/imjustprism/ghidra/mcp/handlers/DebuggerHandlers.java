@@ -132,6 +132,7 @@ public final class DebuggerHandlers {
 
         routes.getQuery("/debugger_list_offers", this::listOffers);
         routes.postForm("/debugger_launch", p -> launch(p.get("offer"), p.get("args")));
+        routes.postForm("/debugger_detach", p -> detach());
         routes.postForm("/freeze_value", p -> freeze(p.get("address"), p.get("hex")));
         routes.postForm("/unfreeze_value", p -> unfreeze(p.get("address")));
         routes.getQuery("/list_frozen", this::listFrozen);
@@ -278,6 +279,17 @@ public final class DebuggerHandlers {
             } catch (RuntimeException ignored) {
             }
         }
+    }
+
+    private String detach() {
+        var trace = requireTrace();
+        var ts = ctx.service(DebuggerTargetService.class);
+        var target = ts == null ? null : ts.getTarget(trace);
+        if (target == null) throw new IllegalStateException("No target for current trace");
+        var name = trace.getName();
+        target.disconnect();
+        lastLaunch = "";
+        return "detached from " + name + " (target released; a noninvasively suspended process resumes)";
     }
 
     private void enterTargetControl(Trace trace) {
@@ -678,11 +690,15 @@ public final class DebuggerHandlers {
             }
             if (launcher.isAlive() && dbg.getCurrentTrace() == null) {
                 lastLaunch = "launch '" + offerName + "' still pending after "
-                        + (LAUNCH_TIMEOUT_MS / 1000) + "s with no trace. The connector is running but "
-                        + "has not started a trace, usually because the back-end is waiting on the "
-                        + "target (e.g. a dbgeng attach that produced no initial break) or is blocked. "
-                        + "Inspect the connector terminal in Ghidra. If the target runs elevated, run "
-                        + "Ghidra as Administrator.";
+                        + (LAUNCH_TIMEOUT_MS / 1000) + "s with no trace. The connector is alive but idle: "
+                        + "the back-end attached invasively and is blocked waiting for an initial break "
+                        + "that never arrives. This is the classic anti-debug hang (e.g. HackShield / a "
+                        + "kernel anti-cheat blocking the debug event). Retry with a NONINVASIVE attach, which "
+                        + "skips DebugActiveProcess entirely: add arg 'env:OPT_ATTACH_FLAGS=5' "
+                        + "(NONINVASIVE | NO_SUSPEND) to read a still-running target without the debug API, or "
+                        + "'1' for a suspended snapshot (release it later with debugger_detach). Noninvasive "
+                        + "gives the memory plane (read/value_scan/freeze/read_pointer_path), not live control. "
+                        + "If the target runs elevated, also run Ghidra as Administrator.";
             }
         }, "ghidra-mcp-launch-watchdog");
         w.setDaemon(true);
