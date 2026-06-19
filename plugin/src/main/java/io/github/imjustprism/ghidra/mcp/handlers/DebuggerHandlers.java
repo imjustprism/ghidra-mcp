@@ -289,7 +289,7 @@ public final class DebuggerHandlers {
         var name = trace.getName();
         target.disconnect();
         lastLaunch = "";
-        return "detached from " + name + " (target released; a noninvasively suspended process resumes)";
+        return "detached from " + name + " (released without killing; if it was noninvasively suspended it resumes)";
     }
 
     private void enterTargetControl(Trace trace) {
@@ -690,15 +690,17 @@ public final class DebuggerHandlers {
             }
             if (launcher.isAlive() && dbg.getCurrentTrace() == null) {
                 lastLaunch = "launch '" + offerName + "' still pending after "
-                        + (LAUNCH_TIMEOUT_MS / 1000) + "s with no trace. The connector is alive but idle: "
-                        + "the back-end attached invasively and is blocked waiting for an initial break "
-                        + "that never arrives. This is the classic anti-debug hang (e.g. HackShield / a "
-                        + "kernel anti-cheat blocking the debug event). Retry with a NONINVASIVE attach, which "
-                        + "skips DebugActiveProcess entirely: add arg 'env:OPT_ATTACH_FLAGS=5' "
-                        + "(NONINVASIVE | NO_SUSPEND) to read a still-running target without the debug API, or "
-                        + "'1' for a suspended snapshot (release it later with debugger_detach). Noninvasive "
-                        + "gives the memory plane (read/value_scan/freeze/read_pointer_path), not live control. "
-                        + "If the target runs elevated, also run Ghidra as Administrator.";
+                        + (LAUNCH_TIMEOUT_MS / 1000) + "s with no trace. The connector is alive but idle "
+                        + "(it started but never began a trace). On an INVASIVE attach a common cause is "
+                        + "anti-debug (e.g. HackShield / a kernel anti-cheat) swallowing the initial break so "
+                        + "the back-end waits forever; it can also be a slow back-end, missing deps, or a bad "
+                        + "PID. If you attached invasively, retry NONINVASIVE, which skips DebugActiveProcess "
+                        + "entirely: add arg 'env:OPT_ATTACH_FLAGS=5' (NONINVASIVE | NO_SUSPEND) to read a "
+                        + "still-running target without the debug API, or '1' for a suspended snapshot (release "
+                        + "it later with debugger_detach). Noninvasive gives the memory plane "
+                        + "(read/value_scan/freeze/read_pointer_path), not live control. Inspect the connector "
+                        + "terminal in Ghidra for the back-end's own error. If the target runs elevated, also "
+                        + "run Ghidra as Administrator.";
             }
         }, "ghidra-mcp-launch-watchdog");
         w.setDaemon(true);
