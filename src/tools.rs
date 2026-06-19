@@ -2827,6 +2827,13 @@ impl GhidraServer {
     }
 
     #[tool(
+        description = "Detach the debugger from the current target without killing it (releases the process; a noninvasively suspended target resumes). Use to cleanly end a session or switch attach modes"
+    )]
+    async fn debugger_detach(&self) -> Result<CallToolResult, ErrorData> {
+        self.post_bare("debugger_detach").await
+    }
+
+    #[tool(
         description = "Freeze a live memory address to a fixed value, re-written ~4x/sec like CheatEngine. hex is the bytes to hold at the address"
     )]
     async fn freeze_value(
