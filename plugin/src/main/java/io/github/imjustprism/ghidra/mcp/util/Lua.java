@@ -156,7 +156,7 @@ public final class Lua {
 
     public static final int EXEC_TIMEOUT = -3;
     private static final int STOLEN_LEN = 5;
-    private static final int MAILBOX_SIZE = 0x4000;
+    private static final int MAILBOX_SIZE = 0x8000;
     private static final int FN_OFF = 0x0C;
     private static final int STATE_OFF = 0x10;
     private static final int ARGMODE_OFF = 0x14;
@@ -165,10 +165,10 @@ public final class Lua {
     private static final int R_TT = 0x3004;
     private static final int R_PTR = 0x3008;
     private static final int R_LEN = 0x300C;
-    private static final int R_DATA = 0x3010;
     private static final int NAME_OFF = 0x3020;
+    private static final int R_COPY = 0x4000;
+    private static final int R_COPY_CAP = 0x3000;
     private static final int CODE_CAP = R_RC - CODE_OFF;
-    private static final int RESULT_CAP = 0x4000;
     private static final int LUA_TSTRING = 4;
     private static final int REQ_IDLE = 0;
     private static final int REQ_PENDING = 1;
@@ -191,7 +191,7 @@ public final class Lua {
         long mailbox = rpm.alloc(pid, MAILBOX_SIZE, false);
         if (mailbox == 0) throw new IllegalStateException("VirtualAllocEx(mailbox) failed");
         long stub = rpm.alloc(pid, 160, true);
-        long evalCave = rpm.alloc(pid, 256, true);
+        long evalCave = rpm.alloc(pid, 384, true);
         if (stub == 0 || evalCave == 0) {
             rpm.freeRemote(pid, mailbox);
             rpm.freeRemote(pid, stub);
@@ -242,14 +242,13 @@ public final class Lua {
         while (System.currentTimeMillis() < deadline) {
             byte[] r = rpm.read(pid, mb, 4);
             if (r != null && r.length >= 4 && le32(r, 0) == REQ_DONE) {
-                byte[] res = rpm.read(pid, mb + R_RC, 0x14);
+                byte[] res = rpm.read(pid, mb + R_RC, 0x10);
                 int rc = le32(res, 0);
                 int tt = le32(res, R_TT - R_RC);
                 int len = le32(res, R_LEN - R_RC);
-                long dataPtr = le32(res, R_DATA - R_RC) & 0xffffffffL;
                 byte[] data = null;
-                if (tt == LUA_TSTRING && len > 0 && dataPtr != 0) {
-                    data = rpm.read(pid, dataPtr, Math.min(len, RESULT_CAP));
+                if (tt == LUA_TSTRING && len > 0) {
+                    data = rpm.read(pid, mb + R_COPY, Math.min(len, R_COPY_CAP));
                 }
                 rpm.write(pid, mb, i32le(REQ_IDLE));
                 return new ExecResult(rc, tt, data);
@@ -266,7 +265,7 @@ public final class Lua {
     }
 
     private static byte[] buildEvalReturn(long mb, long gettop, long loadbuffer, long pcall, long settop) {
-        byte[] o = new byte[256];
+        byte[] o = new byte[384];
         int p = 0;
         o[p++] = 0x55;                                              // push ebp
         o[p++] = (byte) 0x8B; o[p++] = (byte) 0xEC;               // mov ebp,esp
@@ -306,10 +305,25 @@ public final class Lua {
         o[p++] = (byte) 0x83; o[p++] = (byte) 0xFA; o[p++] = 0x04; // cmp edx,4
         o[p++] = 0x75; int jNotStr = p++;                        // jne done
         o[p++] = (byte) 0x8B; o[p++] = 0x50; o[p++] = 0x0C;       // mov edx,[eax+0xC] ; len
+        o[p++] = (byte) 0x81; o[p++] = (byte) 0xFA; p = putLe(o, p, R_COPY_CAP); // cmp edx,cap
+        o[p++] = 0x76; int jLenOk = p++;                         // jbe .lenok
+        o[p++] = (byte) 0xBA; p = putLe(o, p, R_COPY_CAP);       // mov edx,cap
+        int lenOk = p;
         o[p++] = (byte) 0x89; o[p++] = (byte) 0x96; p = putLe(o, p, R_LEN);
-        o[p++] = (byte) 0x8D; o[p++] = 0x50; o[p++] = 0x10;       // lea edx,[eax+0x10] ; data
-        o[p++] = (byte) 0x89; o[p++] = (byte) 0x96; p = putLe(o, p, R_DATA);
+        o[p++] = (byte) 0x8D; o[p++] = 0x40; o[p++] = 0x10;       // lea eax,[eax+0x10] ; src
+        o[p++] = 0x33; o[p++] = (byte) 0xDB;                     // xor ebx,ebx
+        int cpy = p;
+        o[p++] = 0x3B; o[p++] = (byte) 0xDA;                     // cmp ebx,edx
+        o[p++] = 0x7D; int jCpyDone = p++;                       // jge .cpydone
+        o[p++] = (byte) 0x8A; o[p++] = 0x0C; o[p++] = 0x18;       // mov cl,[eax+ebx]
+        o[p++] = (byte) 0x88; o[p++] = (byte) 0x8C; o[p++] = 0x1E; p = putLe(o, p, R_COPY); // mov [esi+ebx+R_COPY],cl
+        o[p++] = 0x43;                                           // inc ebx
+        o[p++] = (byte) 0xEB; int jBack = p++;                    // jmp .cpy
+        int cpyDone = p;
         int done = p;
+        o[jLenOk] = (byte) (lenOk - (jLenOk + 1));
+        o[jCpyDone] = (byte) (cpyDone - (jCpyDone + 1));
+        o[jBack] = (byte) (cpy - (jBack + 1));
         o[p++] = 0x57;                                            // push edi  ; top0
         o[p++] = (byte) 0xFF; o[p++] = 0x75; o[p++] = 0x08;       // push L
         o[p++] = (byte) 0xB8; p = putLe(o, p, (int) settop);

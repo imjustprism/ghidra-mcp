@@ -60,7 +60,7 @@ MCP server for Ghidra. Rust bridge + Ghidra Java plugin. Wires any MCP client (C
 
 ## Tools
 
-169 tools total.
+181 tools total.
 
 Every paginated read tool accepts an optional `fmt` argument — `tsv` (default), `csv`, `json`, or `verbose` — alongside `offset`/`limit`, plus an optional `program` (open program name or sha256) to target a specific open program instead of the active one (the server honors `program` on every endpoint).
 
@@ -212,12 +212,16 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 </details>
 
 <details>
-<summary><b>Self-driving RE</b> (2)</summary>
+<summary><b>Self-driving RE</b> (6)</summary>
 
 | tool | purpose |
 | --- | --- |
 | `function_completeness` | score one function 0-100 with a breakdown |
 | `find_undocumented` | functions ranked least-documented first (work queue) |
+| `ghidra_eval` | run arbitrary Java/Python with the full Ghidra API + live-process access |
+| `refine_function` | re-analyze + retype one function and report what changed |
+| `analysis_note` | record a freeform analysis note (optionally at an address) |
+| `analysis_notes` | list recorded analysis notes |
 
 </details>
 
@@ -292,7 +296,7 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 </details>
 
 <details>
-<summary><b>Debugger</b> (16)</summary>
+<summary><b>Debugger</b> (17)</summary>
 
 | tool | purpose |
 | --- | --- |
@@ -312,14 +316,22 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 | `debugger_break` | interrupt target |
 | `debugger_translate_static_to_dynamic` | static addr to live |
 | `debugger_translate_dynamic_to_static` | live addr to static |
+| `debugger_backend_log` | recent debugger backend log lines |
 
 </details>
 
 <details>
-<summary><b>Live RE / CheatEngine-style</b> (13)</summary>
+<summary><b>Live RE / CheatEngine-style</b> (20)</summary>
 
 | tool | purpose |
 | --- | --- |
+| `live_processes` | enumerate running processes |
+| `live_attach` | connector-less attach by name/pid (read/write/scan plane) |
+| `live_release` | release the live anchor (process untouched) |
+| `live_modules` | loaded modules of the attached process |
+| `live_threads` | thread ids of the attached process |
+| `lua_find_state` | auto-detect the embedded Lua 5.1 lua_State |
+| `lua_exec` | run arbitrary Lua inside the live VM on the game's own thread |
 | `debugger_list_offers` | available launchers/connectors |
 | `debugger_launch` | launch/attach from the MCP |
 | `debugger_detach` | detach without killing (release/switch modes) |

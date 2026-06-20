@@ -247,6 +247,21 @@ impl ToParams for LuaExec {
         if let Some(fr) = self.freeze {
             p.push(("freeze", flag(fr)));
         }
+        if let Some(h) = self.hook {
+            p.push(("hook", h));
+        }
+        if let Some(g) = self.gettop {
+            p.push(("gettop", g));
+        }
+        if let Some(l) = self.loadbuffer {
+            p.push(("loadbuffer", l));
+        }
+        if let Some(pc) = self.pcall {
+            p.push(("pcall", pc));
+        }
+        if let Some(s) = self.settop {
+            p.push(("settop", s));
+        }
         p
     }
 }
@@ -1429,6 +1444,16 @@ pub struct LuaExec {
         skip_serializing_if = "Option::is_none"
     )]
     pub freeze: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hook: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gettop: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub loadbuffer: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pcall: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub settop: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
@@ -3242,7 +3267,7 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Execute arbitrary Lua INSIDE the live process's embedded Lua VM — for games that embed Lua (e.g. lua_tinker/Lua 5.1). DEFAULT (safe): installs a one-time detour on a per-frame engine tick (0x766620 for Alicia, the once-per-frame update called from the main message loop) and runs your script on the GAME'S OWN thread at frame start while the Lua VM is idle, via a shared mailbox — no extra thread, no reentrancy, no heap-lock deadlock. Hooking the idle frame tick (NOT lua_pcall, whose prologue is mid-call and corrupts the in-progress Lua stack) is what makes this safe. The hook auto-installs on first call (threads frozen + EIP-window-checked during the patch) and is removed on live_release. state = the lua_State (auto-detected via lua_find_state if omitted); fn = the dobuffer-style executor int(lua_State*, char* code, int len) (default 0x9e64d0 = lua_tinker::dobuffer for Alicia.exe). rc&0xff: 1=ok, 0=lua error; rc=-3 = the game has not called lua_pcall yet (bring it to a Lua-active screen). freeze=true selects the LEGACY UNSAFE CreateRemoteThread path which crashes a running VM — do not use it. Use to call any in-game Lua: getters/setters, spawn, teleport, give items, run scripts",
+        description = "Execute arbitrary Lua INSIDE the live process's embedded Lua VM — for games that embed Lua (e.g. lua_tinker/Lua 5.1). DEFAULT (safe): installs a one-time detour on a per-frame engine tick (0x766620 for Alicia, the once-per-frame update called from the main message loop) and runs your script on the GAME'S OWN thread at frame start while the Lua VM is idle, via a shared mailbox — no extra thread, no reentrancy, no heap-lock deadlock. Hooking the idle frame tick (NOT lua_pcall, whose prologue is mid-call and corrupts the in-progress Lua stack) is what makes this safe. The hook auto-installs on first call (threads frozen + EIP-window-checked during the patch) and is removed on live_release. state = the lua_State (auto-detected via lua_find_state if omitted); fn = the dobuffer-style executor int(lua_State*, char* code, int len) (default 0x9e64d0 = lua_tinker::dobuffer for Alicia.exe). rc&0xff: 1=ok, 0=lua error; rc=-3 = the game has not called lua_pcall yet (bring it to a Lua-active screen). freeze=true selects the LEGACY UNSAFE CreateRemoteThread path which crashes a running VM — do not use it. For non-Alicia Lua 5.1 targets, override the hardcoded addresses: hook = the per-frame tick to detour (default 0x766620), and the C-API functions gettop/loadbuffer/pcall/settop (defaults 0x9c7c90/0x9c9c70/0x9c8aa0/0x9c7cb0) used by the eval cave. Use to call any in-game Lua: getters/setters, spawn, teleport, give items, run scripts",
         annotations(destructive_hint = true)
     )]
     async fn lua_exec(

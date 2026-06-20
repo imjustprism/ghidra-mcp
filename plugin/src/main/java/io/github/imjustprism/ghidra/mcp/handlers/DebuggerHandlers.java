@@ -174,7 +174,9 @@ public final class DebuggerHandlers {
         routes.getQuery("/live_threads", q -> liveThreads(q));
         routes.getQuery("/lua_find_state", q -> luaFindState());
         routes.postForm("/lua_exec",
-                p -> luaExec(p.get("code"), p.get("state"), p.get("fn"), p.get("freeze")));
+                p -> luaExec(p.get("code"), p.get("state"), p.get("fn"), p.get("freeze"),
+                        p.get("hook"), p.get("gettop"), p.get("loadbuffer"), p.get("pcall"),
+                        p.get("settop")));
         routes.postForm("/freeze_value", p -> freeze(p.get("address"), p.get("hex")));
         routes.postForm("/unfreeze_value", p -> unfreeze(p.get("address")));
         routes.getQuery("/list_frozen", this::listFrozen);
@@ -493,7 +495,12 @@ public final class DebuggerHandlers {
         return sb.toString();
     }
 
-    private String luaExec(String code, String stateStr, String fnStr, String freezeStr) {
+    private long offsetOr(String s, long fallback) {
+        return (s == null || s.isBlank()) ? fallback : parseOffset(s);
+    }
+
+    private String luaExec(String code, String stateStr, String fnStr, String freezeStr,
+            String hookStr, String gettopStr, String loadbufferStr, String pcallStr, String settopStr) {
         if (code == null || code.isBlank()) throw new IllegalArgumentException("code is required");
         int pid = requireLivePid();
         int ptr = anchorPtrSize();
@@ -527,23 +534,33 @@ public final class DebuggerHandlers {
             return "lua_exec (UNSAFE remote-thread) ran: L=0x" + Long.toHexString(state) + " fn=0x"
                     + Long.toHexString(fn) + " thread_exit=" + rc + legacy;
         }
+        long hook = offsetOr(hookStr, DEFAULT_LUA_HOOK);
         var h = luaExecutor;
-        if (h == null || h.pid() != pid) {
+        if (h != null && h.pid() != pid) {
+            try {
+                Lua.uninstall(rpm, h);
+            } catch (RuntimeException ignored) {
+            }
+            luaExecutor = null;
+            h = null;
+        }
+        if (h == null) {
             byte[] original = new byte[5];
             try {
                 var prog = ctx.currentProgram();
-                var addr = prog.getAddressFactory().getDefaultAddressSpace().getAddress(DEFAULT_LUA_HOOK);
+                var addr = prog.getAddressFactory().getDefaultAddressSpace().getAddress(hook);
                 prog.getMemory().getBytes(addr, original);
             } catch (Exception e) {
                 throw new IllegalStateException("cannot read hook prologue from program: " + e.getMessage());
             }
-            h = Lua.install(rpm, pid, state, DEFAULT_LUA_HOOK, ptr, original,
-                    DEFAULT_LUA_GETTOP, DEFAULT_LUA_LOADBUFFER, DEFAULT_LUA_PCALL, DEFAULT_LUA_SETTOP);
+            h = Lua.install(rpm, pid, state, hook, ptr, original,
+                    offsetOr(gettopStr, DEFAULT_LUA_GETTOP), offsetOr(loadbufferStr, DEFAULT_LUA_LOADBUFFER),
+                    offsetOr(pcallStr, DEFAULT_LUA_PCALL), offsetOr(settopStr, DEFAULT_LUA_SETTOP));
             luaExecutor = h;
         }
         var res = Lua.execMailbox(rpm, h, state, code, LUA_EXEC_TIMEOUT_MS);
         if (res.rc() == Lua.EXEC_TIMEOUT) {
-            return "lua_exec TIMED OUT — per-frame hook at 0x" + Long.toHexString(DEFAULT_LUA_HOOK)
+            return "lua_exec TIMED OUT — per-frame hook at 0x" + Long.toHexString(hook)
                     + " did not fire within " + LUA_EXEC_TIMEOUT_MS
                     + "ms (game paused/minimized, or hook not installed)";
         }
@@ -551,7 +568,7 @@ public final class DebuggerHandlers {
         String ret = res.data() != null
                 ? new String(res.data(), java.nio.charset.StandardCharsets.UTF_8) : null;
         var sb = new StringBuilder("lua_exec (safe/in-thread): L=0x").append(Long.toHexString(state))
-                .append(" frame_hook=0x").append(Long.toHexString(DEFAULT_LUA_HOOK))
+                .append(" frame_hook=0x").append(Long.toHexString(hook))
                 .append(ok ? " OK" : " LUA-ERROR");
         if (ret != null) {
             sb.append(ok ? "\nreturn: " : "\nerror: ").append(ret);
