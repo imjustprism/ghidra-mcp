@@ -176,7 +176,12 @@ public final class Lua {
     private static final int ARGMODE_THREE = 1;
 
     public record ExecutorHandle(int pid, long mailbox, long stub, long hookPoint, long evalCave,
-            byte[] original) {}
+            byte[] original, long gettop, long loadbuffer, long pcall, long settop) {
+
+        public boolean sameAddresses(long hook, long gt, long lb, long pc, long st) {
+            return hookPoint == hook && gettop == gt && loadbuffer == lb && pcall == pc && settop == st;
+        }
+    }
 
     public record ExecResult(int rc, int tt, byte[] data) {}
 
@@ -214,7 +219,8 @@ public final class Lua {
             throw new IllegalStateException("failed to install hook at 0x" + Long.toHexString(hookPoint)
                     + " (could not catch all threads clear of the patch window)");
         }
-        return new ExecutorHandle(pid, mailbox, stub, hookPoint, evalCave, original);
+        return new ExecutorHandle(pid, mailbox, stub, hookPoint, evalCave, original,
+                gettop, loadbuffer, pcall, settop);
     }
 
     public static void uninstall(ProcessMemory rpm, ExecutorHandle h) {
@@ -247,8 +253,8 @@ public final class Lua {
                 int tt = le32(res, R_TT - R_RC);
                 int len = le32(res, R_LEN - R_RC);
                 byte[] data = null;
-                if (tt == LUA_TSTRING && len > 0) {
-                    data = rpm.read(pid, mb + R_COPY, Math.min(len, R_COPY_CAP));
+                if (tt == LUA_TSTRING) {
+                    data = len > 0 ? rpm.read(pid, mb + R_COPY, Math.min(len, R_COPY_CAP)) : new byte[0];
                 }
                 rpm.write(pid, mb, i32le(REQ_IDLE));
                 return new ExecResult(rc, tt, data);

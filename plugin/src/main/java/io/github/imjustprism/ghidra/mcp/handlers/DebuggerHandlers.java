@@ -442,6 +442,9 @@ public final class DebuggerHandlers {
             }
         }
         boolean wow64 = rpm.isWow64(pid);
+        synchronized (luaLock) {
+            disposeExecutor();
+        }
         anchor = new LiveAnchor(resolvedName, pid, wow64);
         var mods = rpm.modules(pid);
         int threads = rpm.threadIds(pid).size();
@@ -466,6 +469,17 @@ public final class DebuggerHandlers {
     private static final int STILL_ACTIVE = 259;
     private static final int LUA_EXEC_TIMEOUT_MS = 3000;
     private volatile Lua.ExecutorHandle luaExecutor;
+    private final Object luaLock = new Object();
+
+    private void disposeExecutor() {
+        var h = luaExecutor;
+        if (h == null) return;
+        try {
+            Lua.uninstall(rpm, h);
+        } catch (RuntimeException ignored) {
+        }
+        luaExecutor = null;
+    }
 
     private int requireLivePid() {
         var pid = liveAnchorPid();
@@ -535,34 +549,36 @@ public final class DebuggerHandlers {
                     + Long.toHexString(fn) + " thread_exit=" + rc + legacy;
         }
         long hook = offsetOr(hookStr, DEFAULT_LUA_HOOK);
-        var h = luaExecutor;
-        if (h != null && h.pid() != pid) {
-            try {
-                Lua.uninstall(rpm, h);
-            } catch (RuntimeException ignored) {
+        long gettop = offsetOr(gettopStr, DEFAULT_LUA_GETTOP);
+        long loadbuffer = offsetOr(loadbufferStr, DEFAULT_LUA_LOADBUFFER);
+        long pcall = offsetOr(pcallStr, DEFAULT_LUA_PCALL);
+        long settop = offsetOr(settopStr, DEFAULT_LUA_SETTOP);
+        Lua.ExecResult res;
+        synchronized (luaLock) {
+            var h = luaExecutor;
+            if (h != null && (h.pid() != pid || !h.sameAddresses(hook, gettop, loadbuffer, pcall, settop))) {
+                disposeExecutor();
+                h = null;
             }
-            luaExecutor = null;
-            h = null;
-        }
-        if (h == null) {
-            byte[] original = new byte[5];
-            try {
-                var prog = ctx.currentProgram();
-                var addr = prog.getAddressFactory().getDefaultAddressSpace().getAddress(hook);
-                prog.getMemory().getBytes(addr, original);
-            } catch (Exception e) {
-                throw new IllegalStateException("cannot read hook prologue from program: " + e.getMessage());
+            if (h == null) {
+                byte[] original = new byte[5];
+                try {
+                    var prog = ctx.currentProgram();
+                    var addr = prog.getAddressFactory().getDefaultAddressSpace().getAddress(hook);
+                    prog.getMemory().getBytes(addr, original);
+                } catch (Exception e) {
+                    throw new IllegalStateException("cannot read hook prologue from program: " + e.getMessage());
+                }
+                h = Lua.install(rpm, pid, state, hook, ptr, original, gettop, loadbuffer, pcall, settop);
+                luaExecutor = h;
             }
-            h = Lua.install(rpm, pid, state, hook, ptr, original,
-                    offsetOr(gettopStr, DEFAULT_LUA_GETTOP), offsetOr(loadbufferStr, DEFAULT_LUA_LOADBUFFER),
-                    offsetOr(pcallStr, DEFAULT_LUA_PCALL), offsetOr(settopStr, DEFAULT_LUA_SETTOP));
-            luaExecutor = h;
-        }
-        var res = Lua.execMailbox(rpm, h, state, code, LUA_EXEC_TIMEOUT_MS);
-        if (res.rc() == Lua.EXEC_TIMEOUT) {
-            return "lua_exec TIMED OUT — per-frame hook at 0x" + Long.toHexString(hook)
-                    + " did not fire within " + LUA_EXEC_TIMEOUT_MS
-                    + "ms (game paused/minimized, or hook not installed)";
+            res = Lua.execMailbox(rpm, h, state, code, LUA_EXEC_TIMEOUT_MS);
+            if (res.rc() == Lua.EXEC_TIMEOUT) {
+                disposeExecutor();
+                return "lua_exec TIMED OUT — per-frame hook at 0x" + Long.toHexString(hook)
+                        + " did not fire within " + LUA_EXEC_TIMEOUT_MS
+                        + "ms (game paused/minimized, or hook not installed); executor uninstalled";
+            }
         }
         boolean ok = res.rc() == 0;
         String ret = res.data() != null
@@ -583,13 +599,8 @@ public final class DebuggerHandlers {
     private String liveRelease() {
         var a = anchor;
         if (a == null) throw new IllegalStateException("No live session anchored");
-        var h = luaExecutor;
-        if (h != null) {
-            try {
-                Lua.uninstall(rpm, h);
-            } catch (RuntimeException ignored) {
-            }
-            luaExecutor = null;
+        synchronized (luaLock) {
+            disposeExecutor();
         }
         anchor = null;
         return "released anchor " + a.name() + " pid=" + a.pid()
