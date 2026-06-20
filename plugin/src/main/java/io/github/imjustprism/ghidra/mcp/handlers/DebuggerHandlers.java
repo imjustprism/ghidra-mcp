@@ -568,7 +568,13 @@ public final class DebuggerHandlers {
                 try {
                     var prog = ctx.currentProgram();
                     var addr = prog.getAddressFactory().getDefaultAddressSpace().getAddress(hook);
-                    prog.getMemory().getBytes(addr, original);
+                    int got = prog.getMemory().getBytes(addr, original);
+                    if (got < original.length) {
+                        throw new IllegalStateException("only " + got + " of 5 bytes readable at hook 0x"
+                                + Long.toHexString(hook) + " (end of memory block?)");
+                    }
+                } catch (IllegalStateException e) {
+                    throw e;
                 } catch (Exception e) {
                     throw new IllegalStateException("cannot read hook prologue from program: " + e.getMessage());
                 }
