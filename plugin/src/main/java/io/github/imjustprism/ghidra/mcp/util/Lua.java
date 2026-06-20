@@ -249,6 +249,10 @@ public final class Lua {
             byte[] r = rpm.read(pid, mb, 4);
             if (r != null && r.length >= 4 && le32(r, 0) == REQ_DONE) {
                 byte[] res = rpm.read(pid, mb + R_RC, 0x10);
+                if (res == null || res.length < 0x10) {
+                    rpm.write(pid, mb, i32le(REQ_IDLE));
+                    return new ExecResult(EXEC_TIMEOUT, 0, null);
+                }
                 int rc = le32(res, 0);
                 int tt = le32(res, R_TT - R_RC);
                 int len = le32(res, R_LEN - R_RC);
