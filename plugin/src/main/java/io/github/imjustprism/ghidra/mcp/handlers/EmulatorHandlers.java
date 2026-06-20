@@ -41,7 +41,7 @@ public final class EmulatorHandlers {
         routes.postForm("/emu_step", p -> step(p.get("emu_id"), parseLong(p.get("count"), 1)));
         routes.postForm("/emu_run_to", p -> runTo(p.get("emu_id"), p.get("stop"),
                 parseLong(p.get("max_steps"), 100000)));
-        routes.getQuery("/emu_registers", q -> registers(q.get("emu_id")));
+        routes.getQuery("/emu_registers", q -> registers(q.get("emu_id"), "1".equals(q.get("full"))));
         routes.postForm("/emu_set_register", p -> setRegister(p.get("emu_id"), p.get("register"), p.get("value")));
         routes.getQuery("/emu_read_memory", q -> readMemory(q.get("emu_id"), q.get("address"),
                 parseLong(q.get("length"), 64)));
@@ -145,11 +145,12 @@ public final class EmulatorHandlers {
         });
     }
 
-    private String registers(String id) {
+    private String registers(String id, boolean full) {
         return withSession(id, session -> {
             var t = Responses.table(Map.of(), new String[]{"register", "value"}, 32);
             for (var reg : session.program.getLanguage().getRegisters()) {
                 if (!reg.isBaseRegister() || reg.isProcessorContext()) continue;
+                if (!full && !io.github.imjustprism.ghidra.mcp.util.Registers.isCommon(reg.getName())) continue;
                 try {
                     var v = session.emu.readRegister(reg);
                     if (v != null) t.row(reg.getName(), "0x" + v.toString(16));

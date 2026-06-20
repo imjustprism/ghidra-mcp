@@ -32,8 +32,11 @@ import io.github.imjustprism.ghidra.mcp.http.Http;
 import io.github.imjustprism.ghidra.mcp.http.RouteTable;
 import io.github.imjustprism.ghidra.mcp.util.Bufs;
 import io.github.imjustprism.ghidra.mcp.util.PluginContext;
+import io.github.imjustprism.ghidra.mcp.util.Live;
+import io.github.imjustprism.ghidra.mcp.util.Lua;
 import io.github.imjustprism.ghidra.mcp.util.PointerPath;
 import io.github.imjustprism.ghidra.mcp.util.ProcessMemory;
+import io.github.imjustprism.ghidra.mcp.util.ProcessResolver;
 import io.github.imjustprism.ghidra.mcp.util.Responses;
 import io.github.imjustprism.ghidra.mcp.util.ScanValues;
 
@@ -65,6 +68,15 @@ public final class DebuggerHandlers {
                     + "the Debugger tool (or add the Debugger plugins to this tool), "
                     + "then launch/attach a target.";
 
+    private static final String NO_SESSION_OR_ATTACH =
+            "No live session. Use live_attach (connector-less OpenProcess — works without dbgeng) "
+                    + "or debugger_launch (dbgeng trace), then retry.";
+
+    private static final String NEEDS_TRACE =
+            "This operation needs a dbgeng trace (registers/breakpoints/stepping/translation). The "
+                    + "connector-less live_attach session provides the MEMORY plane only "
+                    + "(read/write/scan/freeze/read_pointer_path). Use debugger_launch for control-plane ops.";
+
     private static final long FREEZE_INTERVAL_MS = 250;
     private static final long DEFAULT_SCAN_BUDGET = 1024L * 1024 * 1024;
     private static final long MAX_SCAN_BUDGET_MB = 8192;
@@ -89,6 +101,9 @@ public final class DebuggerHandlers {
     private volatile ScheduledExecutorService freezeTimer;
     private volatile String lastLaunch = "";
     private volatile TraceRmiLaunchOffer.LaunchResult lastResult;
+    private volatile LiveAnchor anchor;
+
+    private record LiveAnchor(String name, int pid, boolean wow64) {}
 
     public DebuggerHandlers(PluginContext ctx) {
         this.ctx = ctx;
@@ -98,6 +113,23 @@ public final class DebuggerHandlers {
             var prog = pm == null ? null : pm.getCurrentProgram();
             return new GhidraState(tool, tool.getProject(), prog, null, null, null);
         };
+        Live.bind(new Live.Source() {
+            @Override
+            public ProcessMemory rpm() {
+                return rpm;
+            }
+
+            @Override
+            public Integer pid() {
+                return liveAnchorPid();
+            }
+
+            @Override
+            public int pointerSize() {
+                var a = anchor;
+                return a != null && a.wow64() ? 4 : 8;
+            }
+        });
     }
 
     public void register(RouteTable routes) {
@@ -131,8 +163,18 @@ public final class DebuggerHandlers {
                 p -> writeRegister(p.get("register"), p.get("value")));
 
         routes.getQuery("/debugger_list_offers", this::listOffers);
+        routes.getQuery("/debugger_backend_log", q -> backendLog());
         routes.postForm("/debugger_launch", p -> launch(p.get("offer"), p.get("args")));
         routes.postForm("/debugger_detach", p -> detach());
+
+        routes.getQuery("/live_processes", q -> liveProcesses(q, q.get("name")));
+        routes.postForm("/live_attach", p -> liveAttach(p.get("name"), p.get("pid")));
+        routes.postForm("/live_release", p -> liveRelease());
+        routes.getQuery("/live_modules", q -> liveModules(q));
+        routes.getQuery("/live_threads", q -> liveThreads(q));
+        routes.getQuery("/lua_find_state", q -> luaFindState());
+        routes.postForm("/lua_exec",
+                p -> luaExec(p.get("code"), p.get("state"), p.get("fn"), p.get("freeze")));
         routes.postForm("/freeze_value", p -> freeze(p.get("address"), p.get("hex")));
         routes.postForm("/unfreeze_value", p -> unfreeze(p.get("address")));
         routes.getQuery("/list_frozen", this::listFrozen);
@@ -154,14 +196,55 @@ public final class DebuggerHandlers {
             throw new IllegalArgumentException(NO_DEBUGGER);
         }
         var t = dbg.getCurrentTrace();
-        if (t == null) throw new IllegalArgumentException(NO_SESSION);
+        if (t == null) throw new IllegalArgumentException(anchor != null ? NEEDS_TRACE : NO_SESSION);
         return t;
+    }
+
+    private record LiveCtx(Trace trace, Integer pid,
+            ghidra.program.model.address.AddressSpace space, boolean bigEndian) {}
+
+    private LiveCtx liveCtx() {
+        var trace = dbg.getCurrentTrace();
+        if (trace != null) {
+            return new LiveCtx(trace, livePid(trace),
+                    trace.getBaseLanguage().getDefaultSpace(),
+                    trace.getBaseLanguage().isBigEndian());
+        }
+        var pid = liveAnchorPid();
+        if (pid != null) {
+            var prog = ctx.currentProgram();
+            if (prog == null) {
+                throw new IllegalStateException("connector-less live op needs a program loaded "
+                        + "(for its address space). Open the target binary in Ghidra.");
+            }
+            return new LiveCtx(null, pid, prog.getAddressFactory().getDefaultAddressSpace(),
+                    prog.getLanguage().isBigEndian());
+        }
+        if (ctx.service(DebuggerTraceManagerService.class) == null) {
+            throw new IllegalArgumentException(NO_DEBUGGER);
+        }
+        throw new IllegalArgumentException(NO_SESSION_OR_ATTACH);
+    }
+
+    private Address liveAddr(String address) {
+        var trace = dbg.getCurrentTrace();
+        if (trace != null) return dynAddr(address);
+        var prog = ctx.currentProgram();
+        if (prog == null) {
+            throw new IllegalStateException("connector-less live op needs a program loaded");
+        }
+        liveCtx();
+        return prog.getAddressFactory().getDefaultAddressSpace().getAddress(parseOffset(address));
     }
 
     private static int parseLen(String s) {
         int len = s == null ? 64 : Integer.parseInt(s);
         if (len <= 0 || len > 65536) throw new IllegalArgumentException("length must be 1..65536");
         return len;
+    }
+
+    private static String fmtOff(long o) {
+        return o < 0 ? "-0x" + Long.toHexString(-o) : "+0x" + Long.toHexString(o);
     }
 
     private static long parseOffset(String s) {
@@ -287,9 +370,360 @@ public final class DebuggerHandlers {
         var target = ts == null ? null : ts.getTarget(trace);
         if (target == null) throw new IllegalStateException("No target for current trace");
         var name = trace.getName();
-        target.disconnect();
         lastLaunch = "";
-        return "detached from " + name + " (released without killing; if it was noninvasively suspended it resumes)";
+        var fut = java.util.concurrent.CompletableFuture.runAsync(target::disconnect);
+        try {
+            fut.get(5, TimeUnit.SECONDS);
+            return "detached from " + name + " (released without killing; if it was noninvasively suspended it resumes)";
+        } catch (java.util.concurrent.TimeoutException e) {
+            return "detach requested for " + name + "; the back-end disconnect is taking >5s (a noninvasive "
+                    + "dbgeng connector can block at its REPL). The target is being released — if a trace lingers, "
+                    + "close it in the Ghidra GUI. Connector-less live_attach needs no detach.";
+        } catch (Exception e) {
+            return "detach of " + name + " returned: " + e.getMessage();
+        }
+    }
+
+    private void requireRpm() {
+        if (!rpm.available()) {
+            throw new IllegalStateException(
+                    "Direct process access unavailable (non-Windows host or JNA not loaded).");
+        }
+    }
+
+    private String liveProcesses(Map<String, String> q, String name) {
+        requireRpm();
+        if (name != null && !name.isBlank()) {
+            var cands = ProcessResolver.resolve(rpm, name);
+            var t = Responses.table(q,
+                    new String[]{"pid", "name", "openable", "wow64", "modules", "status"}, cands.size());
+            for (var c : cands) {
+                t.row(c.pid(), c.name(), c.openable(), c.wow64(), c.moduleCount(),
+                        c.openable() ? "ready" : winErr(c.openError()));
+            }
+            return t.build();
+        }
+        var procs = rpm.listProcesses();
+        var t = Responses.table(q, new String[]{"pid", "name"}, procs.size());
+        for (var p : procs) t.row(p.pid(), p.name());
+        return t.build();
+    }
+
+    private String liveAttach(String name, String pidStr) {
+        requireRpm();
+        int pid;
+        String resolvedName;
+        var extra = new StringBuilder();
+        if (pidStr != null && !pidStr.isBlank()) {
+            pid = Integer.parseInt(pidStr.trim());
+            int err = rpm.probeOpen(pid);
+            if (err != 0) throw new IllegalStateException(openFailure(name, pid, err));
+            resolvedName = (name == null || name.isBlank()) ? "pid" + pid : name;
+        } else {
+            if (name == null || name.isBlank()) {
+                throw new IllegalArgumentException("name or pid is required (see live_processes)");
+            }
+            var cands = ProcessResolver.resolve(rpm, name);
+            if (cands.isEmpty()) {
+                throw new IllegalStateException("No running process named '" + name
+                        + "'. Confirm it is running (live_processes).");
+            }
+            var best = cands.get(0);
+            if (!best.openable()) throw new IllegalStateException(openFailure(name, best.pid(), best.openError()));
+            pid = best.pid();
+            resolvedName = best.name();
+            long openable = cands.stream().filter(ProcessResolver.Candidate::openable).count();
+            if (openable > 1) {
+                extra.append("\nNOTE: ").append(openable).append(" processes named '").append(name)
+                        .append("' are open; picked pid ").append(pid)
+                        .append(" (most modules). Pass pid= to choose another (see live_processes).");
+            }
+        }
+        boolean wow64 = rpm.isWow64(pid);
+        anchor = new LiveAnchor(resolvedName, pid, wow64);
+        var mods = rpm.modules(pid);
+        int threads = rpm.threadIds(pid).size();
+        long mainBase = mainModuleBase(mods, resolvedName);
+        var sb = new StringBuilder();
+        sb.append("attached ").append(resolvedName).append(" pid=").append(pid)
+                .append(" (").append(wow64 ? "WOW64/32-bit" : "64-bit").append(", connector-less)\n");
+        sb.append("main_base=0x").append(Long.toHexString(mainBase))
+                .append(", modules=").append(mods.size())
+                .append(", threads=").append(threads).append('\n');
+        sb.append("memory plane ready: read_memory / read_pointer_path resolve directly via this "
+                + "process (no dbgeng/trace). For registers/breakpoints/stepping use debugger_launch.");
+        return sb.append(extra).toString();
+    }
+
+    private static final long DEFAULT_LUA_EXEC_FN = 0x9e64d0L;
+    private static final long DEFAULT_LUA_HOOK = 0x766620L;
+    private static final long DEFAULT_LUA_GETTOP = 0x9c7c90L;
+    private static final long DEFAULT_LUA_LOADBUFFER = 0x9c9c70L;
+    private static final long DEFAULT_LUA_PCALL = 0x9c8aa0L;
+    private static final long DEFAULT_LUA_SETTOP = 0x9c7cb0L;
+    private static final int STILL_ACTIVE = 259;
+    private static final int LUA_EXEC_TIMEOUT_MS = 3000;
+    private volatile Lua.ExecutorHandle luaExecutor;
+
+    private int requireLivePid() {
+        var pid = liveAnchorPid();
+        if (pid == null) throw new IllegalStateException(NO_SESSION_OR_ATTACH);
+        return pid;
+    }
+
+    private String luaFindState() {
+        int pid = requireLivePid();
+        int ptr = anchorPtrSize();
+        var info = Lua.detect(rpm, pid, ptr);
+        long state = Lua.findState(rpm, pid, ptr);
+        var sb = new StringBuilder("lua detect: version=")
+                .append(info.version() == null ? "(none found)" : info.version())
+                .append(info.luaJit() ? " [LuaJIT]" : "").append(", ptr_size=").append(ptr);
+        if (info.hasDll()) {
+            sb.append("\ndll@0x").append(Long.toHexString(info.moduleBase()))
+                    .append(" loadbuffer=0x").append(Long.toHexString(info.loadBuffer()))
+                    .append(" pcall=0x").append(Long.toHexString(info.pcall()))
+                    .append(" dostring=0x").append(Long.toHexString(info.doString()));
+        }
+        sb.append('\n').append(state == 0
+                ? "lua_State: NOT found by image scan. Pass state= to lua_exec (hook lua_pcall and read its "
+                        + "first arg, or walk the engine singleton)."
+                : "lua_State = 0x" + Long.toHexString(state)
+                        + " (validated via the global_State mainthread back-reference)");
+        return sb.toString();
+    }
+
+    private String luaExec(String code, String stateStr, String fnStr, String freezeStr) {
+        if (code == null || code.isBlank()) throw new IllegalArgumentException("code is required");
+        int pid = requireLivePid();
+        int ptr = anchorPtrSize();
+        var info = Lua.detect(rpm, pid, ptr);
+        long fn;
+        if (fnStr != null && !fnStr.isBlank()) {
+            fn = parseOffset(fnStr);
+        } else if (info.doString() != 0) {
+            fn = info.doString();
+        } else {
+            fn = DEFAULT_LUA_EXEC_FN;
+        }
+        long state;
+        if (stateStr != null && !stateStr.isBlank()) {
+            state = parseOffset(stateStr);
+        } else {
+            state = Lua.findState(rpm, pid, ptr);
+            if (state == 0) {
+                throw new IllegalStateException("could not auto-detect lua_State; run lua_find_state or "
+                        + "pass state= (and fn= for non-Alicia targets)");
+            }
+        }
+        boolean unsafe = "1".equals(freezeStr) || "true".equalsIgnoreCase(freezeStr);
+        if (unsafe) {
+            int rc = Lua.exec(rpm, pid, state, fn, code, ptr, true);
+            var legacy = rc == 1 ? " (executor ok)"
+                    : rc == 0 ? " (executor reported a Lua error — check syntax/runtime)"
+                    : rc == -2 ? " (CreateRemoteThread failed)"
+                    : rc == STILL_ACTIVE ? " (TIMED OUT/STILL_ACTIVE — remote thread hung on the heap"
+                            + " lock; this unsafe path crashes a running VM, prefer the default)" : "";
+            return "lua_exec (UNSAFE remote-thread) ran: L=0x" + Long.toHexString(state) + " fn=0x"
+                    + Long.toHexString(fn) + " thread_exit=" + rc + legacy;
+        }
+        var h = luaExecutor;
+        if (h == null || h.pid() != pid) {
+            byte[] original = new byte[5];
+            try {
+                var prog = ctx.currentProgram();
+                var addr = prog.getAddressFactory().getDefaultAddressSpace().getAddress(DEFAULT_LUA_HOOK);
+                prog.getMemory().getBytes(addr, original);
+            } catch (Exception e) {
+                throw new IllegalStateException("cannot read hook prologue from program: " + e.getMessage());
+            }
+            h = Lua.install(rpm, pid, state, DEFAULT_LUA_HOOK, ptr, original,
+                    DEFAULT_LUA_GETTOP, DEFAULT_LUA_LOADBUFFER, DEFAULT_LUA_PCALL, DEFAULT_LUA_SETTOP);
+            luaExecutor = h;
+        }
+        var res = Lua.execMailbox(rpm, h, state, code, LUA_EXEC_TIMEOUT_MS);
+        if (res.rc() == Lua.EXEC_TIMEOUT) {
+            return "lua_exec TIMED OUT — per-frame hook at 0x" + Long.toHexString(DEFAULT_LUA_HOOK)
+                    + " did not fire within " + LUA_EXEC_TIMEOUT_MS
+                    + "ms (game paused/minimized, or hook not installed)";
+        }
+        boolean ok = res.rc() == 0;
+        String ret = res.data() != null
+                ? new String(res.data(), java.nio.charset.StandardCharsets.UTF_8) : null;
+        var sb = new StringBuilder("lua_exec (safe/in-thread): L=0x").append(Long.toHexString(state))
+                .append(" frame_hook=0x").append(Long.toHexString(DEFAULT_LUA_HOOK))
+                .append(ok ? " OK" : " LUA-ERROR");
+        if (ret != null) {
+            sb.append(ok ? "\nreturn: " : "\nerror: ").append(ret);
+        } else if (res.tt() != 0) {
+            sb.append("\nreturn: non-string value (lua type tt=").append(res.tt()).append(")");
+        } else {
+            sb.append("\nreturn: nil");
+        }
+        return sb.toString();
+    }
+
+    private String liveRelease() {
+        var a = anchor;
+        if (a == null) throw new IllegalStateException("No live session anchored");
+        var h = luaExecutor;
+        if (h != null) {
+            try {
+                Lua.uninstall(rpm, h);
+            } catch (RuntimeException ignored) {
+            }
+            luaExecutor = null;
+        }
+        anchor = null;
+        return "released anchor " + a.name() + " pid=" + a.pid()
+                + " (process untouched; OpenProcess handle closed lazily)";
+    }
+
+    private String liveModules(Map<String, String> q) {
+        int pid = requireAnchorPid();
+        var mods = rpm.modules(pid);
+        mods.sort(Comparator.comparingLong(ProcessMemory.Module::base));
+        var t = Responses.table(q, new String[]{"name", "base", "size"}, mods.size());
+        for (var m : mods) {
+            t.row(m.name(), "0x" + Long.toHexString(m.base()), m.size());
+        }
+        return t.build();
+    }
+
+    private String liveThreads(Map<String, String> q) {
+        int pid = requireAnchorPid();
+        var ids = rpm.threadIds(pid);
+        var t = Responses.table(q, new String[]{"tid"}, ids.size());
+        for (var id : ids) t.row(id);
+        return t.build();
+    }
+
+    private static long mainModuleBase(List<ProcessMemory.Module> mods, String name) {
+        var leaf = name.toLowerCase();
+        for (var m : mods) {
+            if (m.name().equalsIgnoreCase(leaf)) return m.base();
+        }
+        return mods.isEmpty() ? 0 : mods.get(0).base();
+    }
+
+    private int requireAnchorPid() {
+        var pid = liveAnchorPid();
+        if (pid == null) {
+            throw new IllegalStateException("No live session. Call live_attach (name= or pid=) first.");
+        }
+        return pid;
+    }
+
+    private Integer liveAnchorPid() {
+        var a = anchor;
+        if (a == null) return null;
+        if (rpm.probeOpen(a.pid()) == 0) return a.pid();
+        for (var c : ProcessResolver.resolve(rpm, a.name())) {
+            if (c.openable()) {
+                anchor = new LiveAnchor(a.name(), c.pid(), c.wow64());
+                return c.pid();
+            }
+        }
+        return null;
+    }
+
+    private Integer activePid() {
+        var trace = dbg.getCurrentTrace();
+        if (trace != null) {
+            var pid = livePid(trace);
+            if (pid != null) return pid;
+        }
+        return liveAnchorPid();
+    }
+
+    private int anchorPtrSize() {
+        var prog = ctx.currentProgram();
+        if (prog != null) return prog.getDefaultPointerSize();
+        var a = anchor;
+        return a != null && a.wow64() ? 4 : 8;
+    }
+
+    private boolean anchorBigEndian() {
+        var prog = ctx.currentProgram();
+        return prog != null && prog.getLanguage().isBigEndian();
+    }
+
+    private String anchorReadMemory(String address, int length) {
+        int pid = requireAnchorPid();
+        long off = parseOffset(address);
+        var b = rpm.read(pid, off, length);
+        if (b == null) {
+            throw new IllegalStateException("Failed to read " + length + " bytes at 0x"
+                    + Long.toHexString(off) + " (pid " + pid + "; unmapped or process exited)");
+        }
+        return "0x" + Long.toHexString(off) + "\t" + b.length + "\t" + Bufs.hex(b);
+    }
+
+    private String anchorWriteMemory(String address, String hex) {
+        int pid = requireAnchorPid();
+        long off = parseOffset(address);
+        var bytes = Bufs.parseHex(hex);
+        if (!rpm.write(pid, off, bytes)) {
+            throw new IllegalStateException("WriteProcessMemory failed at 0x" + Long.toHexString(off)
+                    + " (pid " + pid + "; write-protected page or process exited)");
+        }
+        var back = rpm.read(pid, off, bytes.length);
+        var verify = Arrays.equals(back, bytes) ? " (verified)"
+                : " WARNING: read-back mismatch (got " + (back == null ? "null" : Bufs.hex(back))
+                        + "); page may be write-protected or the game rewrites it each frame (try freeze_value)";
+        return "Wrote " + bytes.length + " byte(s) to 0x" + Long.toHexString(off) + verify;
+    }
+
+    private String anchorPointerPath(String base, String offsetsStr, int valueLen) {
+        if (base == null || base.isBlank()) throw new IllegalArgumentException("base is required");
+        int pid = requireAnchorPid();
+        int ptrSize = anchorPtrSize();
+        boolean bigEndian = anchorBigEndian();
+        long[] offsets = PointerPath.parseOffsets(offsetsStr);
+        if (offsets.length == 0) offsets = new long[]{0};
+        long cur = parseOffset(base);
+        var sb = new StringBuilder();
+        sb.append("# base=0x").append(Long.toHexString(cur)).append(", ptr_size=").append(ptrSize)
+                .append(" (connector-less)\nstep\tat\tnext\n");
+        for (long offset : offsets) {
+            byte[] pb = rpm.read(pid, cur, ptrSize);
+            if (pb == null || pb.length < ptrSize) {
+                throw new IllegalStateException("Failed to read pointer at 0x" + Long.toHexString(cur));
+            }
+            long ptr = PointerPath.toUnsignedLong(pb, ptrSize, bigEndian);
+            long next = ptr + offset;
+            sb.append(fmtOff(offset)).append("\t0x")
+                    .append(Long.toHexString(cur)).append("\t0x").append(Long.toHexString(next)).append('\n');
+            cur = next;
+        }
+        sb.append("final\t0x").append(Long.toHexString(cur));
+        int valLen = valueLen > 0 ? valueLen : ptrSize;
+        byte[] vb = rpm.read(pid, cur, valLen);
+        if (vb != null) {
+            sb.append('\t').append(Bufs.hex(vb)).append("\t(value_len=").append(valLen).append(')');
+        } else {
+            sb.append("\t(final address unmapped/unreadable)");
+        }
+        return sb.append('\n').toString();
+    }
+
+    private static String openFailure(String name, int pid, int err) {
+        var who = (name == null || name.isBlank()) ? "pid " + pid : "'" + name + "' (pid " + pid + ")";
+        var msg = "Cannot open " + who + ": " + winErr(err) + ".";
+        if (err == ProcessMemory.ERROR_ACCESS_DENIED) {
+            msg += " The target runs at a higher integrity level. Relaunch Ghidra as Administrator "
+                    + "(SeDebugPrivilege) — this blocks BOTH connector-less and dbgeng attach.";
+        }
+        return msg;
+    }
+
+    private static String winErr(int err) {
+        return switch (err) {
+            case 0 -> "ok";
+            case 5 -> "ERROR_ACCESS_DENIED (5)";
+            case 87 -> "ERROR_INVALID_PARAMETER (87, bad/stale pid?)";
+            default -> "win32 error " + err;
+        };
     }
 
     private void enterTargetControl(Trace trace) {
@@ -349,7 +783,7 @@ public final class DebuggerHandlers {
 
     private String stackTrace(java.util.Map<String, String> q) {
         var trace = requireTrace();
-        var thread = dbg.getCurrentThread();
+        var thread = resolveThread(trace, q);
         if (thread == null) throw new IllegalArgumentException("No current thread (attach and stop a target first)");
         long snap = dbg.getCurrentSnap();
         TraceStack stack = trace.getStackManager().getLatestStack(thread, snap);
@@ -370,6 +804,22 @@ public final class DebuggerHandlers {
         return t.build();
     }
 
+    private TraceThread resolveThread(Trace trace, java.util.Map<String, String> q) {
+        var want = q.get("thread");
+        if (want == null || want.isBlank()) return dbg.getCurrentThread();
+        long snap = dbg.getCurrentSnap();
+        for (TraceThread th : trace.getThreadManager().getAllThreads()) {
+            if (want.equals(Long.toString(th.getKey()))) return th;
+        }
+        for (TraceThread th : trace.getThreadManager().getAllThreads()) {
+            var name = th.getName(snap);
+            if (want.equalsIgnoreCase(name) || want.equals(th.getPath())
+                    || (name != null && name.startsWith(want + " "))) return th;
+        }
+        throw new IllegalArgumentException(
+                "No thread matching '" + want + "' (use the key column from debugger_threads)");
+    }
+
     private Address safeToStatic(Address dyn) {
         try {
             return dbg.translateDynamicToStatic(dyn);
@@ -380,16 +830,28 @@ public final class DebuggerHandlers {
 
     private String registers(java.util.Map<String, String> q) {
         var trace = requireTrace();
-        var thread = dbg.getCurrentThread();
+        var thread = resolveThread(trace, q);
         if (thread == null) throw new IllegalArgumentException("No current thread (attach and stop a target first)");
         var platform = dbg.getCurrentPlatform();
         long snap = dbg.getCurrentSnap();
         int frame = dbg.getCurrentFrame();
+        boolean full = "1".equals(q.get("full"));
         var regs = new java.util.ArrayList<Register>();
         for (Register r : trace.getBaseLanguage().getRegisters()) {
-            if (r.isBaseRegister() && !r.isProcessorContext()) regs.add(r);
+            if (r.isBaseRegister() && !r.isProcessorContext()
+                    && (full || io.github.imjustprism.ghidra.mcp.util.Registers.isCommon(r.getName()))) {
+                regs.add(r);
+            }
         }
-        var values = dbg.readRegisters(platform, thread, frame, snap, regs);
+        java.util.Collection<RegisterValue> values;
+        try {
+            values = dbg.readRegisters(platform, thread, frame, snap, regs);
+        } catch (RuntimeException e) {
+            if (String.valueOf(e).contains("Running")) {
+                throw new IllegalArgumentException("Target is running — call debugger_break first");
+            }
+            throw e;
+        }
         var t = Responses.table(q, new String[]{"register", "value"}, regs.size());
         for (RegisterValue rv : values) {
             if (rv == null) continue;
@@ -400,6 +862,7 @@ public final class DebuggerHandlers {
     }
 
     private String readMemory(String address, int length) {
+        if (dbg.getCurrentTrace() == null && anchor != null) return anchorReadMemory(address, length);
         var trace = requireTrace();
         var da = dynAddr(address);
         byte[] b = readLiveBytes(trace, livePid(trace), da, length);
@@ -423,6 +886,7 @@ public final class DebuggerHandlers {
 
     private String readPointerPath(String base, String offsetsStr, int valueLen) {
         if (base == null || base.isBlank()) throw new IllegalArgumentException("base is required");
+        if (dbg.getCurrentTrace() == null && anchor != null) return anchorPointerPath(base, offsetsStr, valueLen);
         var trace = requireTrace();
         var pid = livePid(trace);
         boolean bigEndian = trace.getBaseLanguage().isBigEndian();
@@ -435,7 +899,7 @@ public final class DebuggerHandlers {
         int ptrSize = program != null ? program.getDefaultPointerSize() : cur.getAddressSpace().getPointerSize();
         var sb = new StringBuilder();
         sb.append("# base=").append(Responses.addr(cur)).append(", ptr_size=").append(ptrSize).append('\n');
-        sb.append("step\tat\tderef\n");
+        sb.append("step\tat\tnext\n");
         for (int i = 0; i < offsets.length; i++) {
             byte[] pb = readLiveBytes(trace, pid, cur, ptrSize);
             if (pb == null) throw new IllegalStateException("Failed to read pointer at " + Responses.addr(cur));
@@ -448,7 +912,7 @@ public final class DebuggerHandlers {
                         + Responses.addr(cur) + "]=0x" + Long.toHexString(ptr)
                         + " + 0x" + Long.toHexString(offsets[i]));
             }
-            sb.append("+0x").append(Long.toHexString(offsets[i])).append('\t')
+            sb.append(fmtOff(offsets[i])).append('\t')
                     .append(Responses.addr(cur)).append('\t').append(Responses.addr(next)).append('\n');
             cur = next;
         }
@@ -459,7 +923,15 @@ public final class DebuggerHandlers {
                 throw new IllegalStateException("Resolved final=" + Responses.addr(cur)
                         + " but failed to read " + valueLen + " bytes there (unmapped/inaccessible)");
             }
-            sb.append('\t').append(Bufs.hex(vb));
+            sb.append('\t').append(Bufs.hex(vb)).append("\t(value_len=").append(valueLen).append(')');
+        } else {
+            byte[] vb = readLiveBytes(trace, pid, cur, ptrSize);
+            if (vb != null) {
+                sb.append('\t').append(Bufs.hex(vb))
+                        .append("\t(default ").append(ptrSize).append("B; pass value_len for more)");
+            } else {
+                sb.append("\t(final address unmapped/unreadable)");
+            }
         }
         return sb.append('\n').toString();
     }
@@ -473,15 +945,27 @@ public final class DebuggerHandlers {
     }
 
     private String staticToDynamic(String address) {
-        requireTrace();
-        var da = dbg.translateStaticToDynamic(staticAddr(address));
+        var trace = requireTrace();
+        var prog = ctx.currentProgram();
+        var sa = staticAddr(address);
+        var da = dbg.translateStaticToDynamic(sa);
+        if (da == null && prog != null && prog.getMemory().contains(sa)) {
+            long slide = programSlide(trace, prog);
+            da = trace.getBaseLanguage().getDefaultSpace().getAddress(sa.getOffset() + slide);
+        }
         return da == null ? "No mapping for static address " + address : Responses.addr(da);
     }
 
     private String dynamicToStatic(String address) {
         var trace = requireTrace();
+        var prog = ctx.currentProgram();
         var da = trace.getBaseLanguage().getDefaultSpace().getAddress(parseOffset(address));
         var sa = safeToStatic(da);
+        if (sa == null && prog != null) {
+            long slide = programSlide(trace, prog);
+            var cand = prog.getImageBase().getNewAddress(da.getOffset() - slide);
+            if (prog.getMemory().contains(cand)) sa = cand;
+        }
         return sa == null ? "No mapping for dynamic address " + address : Responses.addr(sa);
     }
 
@@ -521,6 +1005,7 @@ public final class DebuggerHandlers {
 
     private String writeMemory(String address, String hex) {
         if (hex == null || hex.isBlank()) throw new IllegalArgumentException("hex is required");
+        if (dbg.getCurrentTrace() == null && anchor != null) return anchorWriteMemory(address, hex);
         var trace = requireTrace();
         var da = dynAddr(address);
         var bytes = Bufs.parseHex(hex);
@@ -611,6 +1096,7 @@ public final class DebuggerHandlers {
             if (key == null) unmatched.add(e.getKey());
             else resolved.put(key, e.getValue());
         }
+        preflightPid(resolved);
         closeStaleResult();
         lastLaunch = "launching '" + offerName + "'...";
         var launcher = new Thread(() -> runLaunch(offerName, theOffer, configurator(theOffer, resolved)),
@@ -624,6 +1110,45 @@ public final class DebuggerHandlers {
                     .append(". Known parameters: ").append(params.keySet());
         }
         return sb.toString();
+    }
+
+    private void preflightPid(Map<String, String> resolved) {
+        if (!rpm.available()) return;
+        String pidStr = null;
+        for (var e : resolved.entrySet()) {
+            if (e.getKey().toUpperCase().endsWith("TARGET_PID")) {
+                pidStr = e.getValue();
+                break;
+            }
+        }
+        if (pidStr == null || pidStr.isBlank()) return;
+        int pid;
+        try {
+            pid = Integer.parseInt(pidStr.trim());
+        } catch (NumberFormatException e) {
+            return;
+        }
+        if (pid <= 0) return;
+        int err = rpm.probeOpen(pid);
+        if (err == ProcessMemory.ERROR_ACCESS_DENIED) {
+            throw new IllegalStateException("Preflight: pid " + pid + " cannot be opened (ACCESS_DENIED). "
+                    + "The target runs at a higher integrity level — relaunch Ghidra as Administrator. "
+                    + "Refusing to launch dbgeng (it would hang ~90s then leave an orphan back-end). "
+                    + "For the memory plane, use live_attach instead.");
+        }
+        if (err == 87) {
+            throw new IllegalStateException("Preflight: pid " + pid + " not found (stale/wrong PID). "
+                    + "Re-check the live PID (live_processes name=<exe>) and pass the current value.");
+        }
+    }
+
+    private String backendLog() {
+        var term = terminalText(lastResult);
+        if (term.isBlank()) {
+            return "No connector output captured (no launch has produced output yet, or it connected "
+                    + "cleanly — check debugger_status). The live Terminal is also in the Ghidra GUI.";
+        }
+        return "--- connector output (tail) ---\n" + tail(term, TERMINAL_TAIL_CHARS * 4);
     }
 
     private static String resolveParamKey(Set<String> keys, String given) {
@@ -689,18 +1214,18 @@ public final class DebuggerHandlers {
                 return;
             }
             if (launcher.isAlive() && dbg.getCurrentTrace() == null) {
+                var term = terminalText(lastResult);
                 lastLaunch = "launch '" + offerName + "' still pending after "
-                        + (LAUNCH_TIMEOUT_MS / 1000) + "s with no trace. The connector is alive but idle "
-                        + "(it started but never began a trace). On an INVASIVE attach a common cause is "
-                        + "anti-debug (e.g. HackShield / a kernel anti-cheat) swallowing the initial break so "
-                        + "the back-end waits forever; it can also be a slow back-end, missing deps, or a bad "
-                        + "PID. If you attached invasively, retry NONINVASIVE, which skips DebugActiveProcess "
-                        + "entirely: add arg 'env:OPT_ATTACH_FLAGS=5' (NONINVASIVE | NO_SUSPEND) to read a "
-                        + "still-running target without the debug API, or '1' for a suspended snapshot (release "
-                        + "it later with debugger_detach). Noninvasive gives the memory plane "
-                        + "(read/value_scan/freeze/read_pointer_path), not live control. Inspect the connector "
-                        + "terminal in Ghidra for the back-end's own error. If the target runs elevated, also "
-                        + "run Ghidra as Administrator.";
+                        + (LAUNCH_TIMEOUT_MS / 1000) + "s with no trace: the back-end started but never "
+                        + "connected back to Ghidra's TraceRMI listener. MOST LIKELY the agent failed during "
+                        + "start-up — call debugger_backend_log for the connector's own stdout/stderr (the real "
+                        + "error). Common causes: missing python deps (ghidratrace/ghidradbg/pybag), WINDBG_DIR "
+                        + "without dbgeng.dll, a stale/wrong PID, or a firewall blocking the loopback socket. "
+                        + "FOR THE MEMORY PLANE (read/write/scan/freeze/pointer) skip dbgeng entirely: use "
+                        + "live_attach name=<exe> — it OpenProcess's directly, no connector. Only the INVASIVE "
+                        + "attach (OPT_ATTACH_FLAGS=0) can additionally hang on anti-debug swallowing the initial "
+                        + "break; that does NOT apply to noninvasive (=5/=1)."
+                        + (term.isBlank() ? "" : "\n--- connector output (tail) ---\n" + tail(term, TERMINAL_TAIL_CHARS));
             }
         }, "ghidra-mcp-launch-watchdog");
         w.setDaemon(true);
@@ -844,16 +1369,16 @@ public final class DebuggerHandlers {
 
     private String freeze(String address, String hex) {
         if (hex == null || hex.isBlank()) throw new IllegalArgumentException("hex is required");
-        var trace = requireTrace();
-        var da = dynAddr(address);
+        var trace = dbg.getCurrentTrace();
+        var da = liveAddr(address);
         frozen.put(da, Bufs.parseHex(hex));
-        enterTargetControl(trace);
+        if (trace != null) enterTargetControl(trace);
         ensureFreezeTimer();
         return "Freezing " + Responses.addr(da) + " = " + hex + " (" + frozen.size() + " frozen)";
     }
 
     private String unfreeze(String address) {
-        var da = dynAddr(address);
+        var da = liveAddr(address);
         boolean removed = frozen.remove(da) != null;
         if (frozen.isEmpty()) stopFreezeTimer();
         return removed
@@ -893,17 +1418,19 @@ public final class DebuggerHandlers {
                 return;
             }
             var trace = dbg.getCurrentTrace();
-            if (trace == null || !targetAlive()) {
+            var pid = activePid();
+            if (pid == null && (trace == null || !targetAlive())) {
                 frozen.clear();
                 stopFreezeTimer();
                 return;
             }
-            var pid = livePid(trace);
             for (var e : frozen.entrySet()) {
                 if (pid != null && rpm.write(pid, e.getKey().getOffset(), e.getValue())) continue;
-                try {
-                    dbg.writeMemory(e.getKey(), e.getValue());
-                } catch (RuntimeException ignored) {
+                if (trace != null) {
+                    try {
+                        dbg.writeMemory(e.getKey(), e.getValue());
+                    } catch (RuntimeException ignored) {
+                    }
                 }
             }
         } catch (RuntimeException ignored) {
@@ -911,51 +1438,66 @@ public final class DebuggerHandlers {
     }
 
     private String valueScan(Map<String, String> q) {
-        var trace = requireTrace();
+        var lc = liveCtx();
         var type = ScanValues.parseType(q.get("type"));
         var rawValue = q.get("value");
         if (rawValue == null || rawValue.isBlank()) throw new IllegalArgumentException("value is required");
-        boolean bigEndian = trace.getBaseLanguage().isBigEndian();
+        boolean bigEndian = lc.bigEndian();
         byte[] needle = ScanValues.encode(type, rawValue, bigEndian);
         boolean excludeModules = "1".equals(q.get("exclude_modules"));
         long budget = parseBudget(q.get("max_mb"));
         double tol = parseTol(q.get("tolerance"), type);
         double target = (type == ScanValues.Type.F32 || type == ScanValues.Type.F64)
                 ? Double.parseDouble(rawValue.trim()) : 0;
-        var pid = livePid(trace);
+        var pid = lc.pid();
         long snap;
         List<AddressRange> ranges;
         if (pid != null && rpm.available()) {
-            snap = dbg.getCurrentSnap();
-            ranges = rpmRanges(trace, pid, excludeModules);
+            snap = lc.trace() != null ? dbg.getCurrentSnap() : 0;
+            ranges = rpmRanges(lc, excludeModules);
+        } else if (lc.trace() != null) {
+            syncPresent(lc.trace());
+            invalidateCaches(lc.trace());
+            snap = liveSnap(lc.trace());
+            ranges = orderedRanges(lc.trace(), snap, excludeModules);
         } else {
-            syncPresent(trace);
-            invalidateCaches(trace);
-            snap = liveSnap(trace);
-            ranges = orderedRanges(trace, snap, excludeModules);
+            throw new IllegalStateException("No readable process handle for the live session");
         }
         if (ranges.isEmpty()) {
             throw new IllegalStateException("No scannable memory regions found "
                     + "(target not readable; check elevation/attach)");
         }
-        var session = new ScanSession(type, bigEndian, target);
+        int matchLen = (type == ScanValues.Type.STRING || type == ScanValues.Type.WSTRING
+                || type == ScanValues.Type.BYTES) ? needle.length : type.width;
+        var session = new ScanSession(type, bigEndian, target, matchLen);
         evictExpiredScans();
         evictOldScans();
         var id = "scan" + scanSeq.incrementAndGet();
         scans.put(id, session);
-        scanExec.submit(() -> runScan(session, trace, snap, ranges, needle, type, bigEndian, budget, tol, pid));
+        scanExec.submit(() -> runScan(session, lc, snap, ranges, needle, type, bigEndian, budget, tol, pid));
         return "scan_id=" + id + " (scanning " + ranges.size() + " ranges, budget="
                 + (budget >> 20) + "MB; poll scan_results)";
     }
 
-    private List<AddressRange> rpmRanges(Trace trace, int pid, boolean excludeModules) {
-        var space = trace.getBaseLanguage().getDefaultSpace();
+    private List<AddressRange> rpmRanges(LiveCtx lc, boolean excludeModules) {
+        var space = lc.space();
+        int pid = lc.pid();
         var moduleSet = new AddressSet();
         if (excludeModules) {
-            long snap = liveSnap(trace);
-            for (TraceModule m : trace.getModuleManager().getAllModules()) {
-                var r = m.getRange(snap);
-                if (r != null) moduleSet.add(r);
+            if (lc.trace() != null) {
+                long snap = liveSnap(lc.trace());
+                for (TraceModule m : lc.trace().getModuleManager().getAllModules()) {
+                    var r = m.getRange(snap);
+                    if (r != null) moduleSet.add(r);
+                }
+            } else {
+                long maxOff = space.getMaxAddress().getOffset();
+                for (var m : rpm.modules(pid)) {
+                    long end = m.base() + m.size() - 1;
+                    if (Long.compareUnsigned(end, maxOff) > 0) continue;
+                    moduleSet.add(new AddressRangeImpl(space.getAddress(m.base()),
+                            space.getAddress(end)));
+                }
             }
         }
         var writable = new ArrayList<AddressRange>();
@@ -1011,9 +1553,11 @@ public final class DebuggerHandlers {
         scans.values().removeIf(s -> s.done && now - s.lastAccess > SCAN_TTL_MS);
     }
 
-    private byte[] readScanChunk(Trace trace, long snap, Address addr, int want, Integer pid) {
+    private byte[] readScanChunk(LiveCtx lc, long snap, Address addr, int want, Integer pid) {
         var fast = rpmRead(pid, addr, want);
         if (fast != null) return fast;
+        var trace = lc.trace();
+        if (trace == null) return null;
         try {
             var range = new AddressRangeImpl(addr, addr.add(want - 1L));
             var mem = trace.getMemoryManager();
@@ -1032,7 +1576,7 @@ public final class DebuggerHandlers {
         }
     }
 
-    private void runScan(ScanSession session, Trace trace, long snap, List<AddressRange> ranges,
+    private void runScan(ScanSession session, LiveCtx lc, long snap, List<AddressRange> ranges,
             byte[] needle, ScanValues.Type type, boolean bigEndian, long budget, double tol, Integer pid) {
         int step = step(type);
         boolean floatTol = tol > 0 && (type == ScanValues.Type.F32 || type == ScanValues.Type.F64);
@@ -1050,7 +1594,7 @@ public final class DebuggerHandlers {
                         break outer;
                     }
                     int want = (int) Math.min(SCAN_CHUNK, Math.min(len - off, budget - scanned));
-                    byte[] data = readScanChunk(trace, snap, base.add(off), want, pid);
+                    byte[] data = readScanChunk(lc, snap, base.add(off), want, pid);
                     if (data == null || data.length == 0) {
                         off += want;
                         continue;
@@ -1063,7 +1607,13 @@ public final class DebuggerHandlers {
                                 ? Math.abs(ScanValues.decodeNumber(type, data, i, bigEndian) - session.target) <= tol
                                 : regionEquals(data, i, needle);
                         if (hit) {
-                            session.add(base.add(off + i), ScanValues.decodeNumber(type, data, i, bigEndian));
+                            Address ha = base.add(off + i);
+                            if (session.stringy()) {
+                                int end = Math.min(i + session.matchLen, data.length);
+                                session.add(ha, 0, Arrays.copyOfRange(data, i, end));
+                            } else {
+                                session.add(ha, ScanValues.decodeNumber(type, data, i, bigEndian), null);
+                            }
                             if (session.size() >= SCAN_MAX_HITS) return;
                         }
                     }
@@ -1096,9 +1646,10 @@ public final class DebuggerHandlers {
     private Map<Address, byte[]> bulkReadHits(List<Address> addrs, int width) {
         var result = new HashMap<Address, byte[]>();
         if (addrs.isEmpty()) return result;
-        var trace = requireTrace();
-        long snap = liveSnap(trace);
-        var pid = livePid(trace);
+        var lc = liveCtx();
+        var trace = lc.trace();
+        long snap = trace != null ? liveSnap(trace) : 0;
+        var pid = lc.pid();
         var sorted = new ArrayList<>(addrs);
         sorted.sort(null);
         int n = sorted.size();
@@ -1114,7 +1665,7 @@ public final class DebuggerHandlers {
             }
             int spanLen = (int) (sorted.get(j).subtract(spanStart) + width);
             byte[] data = rpmRead(pid, spanStart, spanLen);
-            if (data == null) {
+            if (data == null && trace != null) {
                 try {
                     data = dbg.readMemory(trace, snap, spanStart, spanLen, TaskMonitor.DUMMY);
                 } catch (Exception e) {
@@ -1143,7 +1694,7 @@ public final class DebuggerHandlers {
         var session = scans.get(id);
         if (session == null) throw new IllegalArgumentException("unknown scan_id (run value_scan first)");
         session.touch();
-        requireTrace();
+        liveCtx();
         if (!session.done) {
             return "scan " + id + " still running (" + (session.scannedBytes >> 20)
                     + "MB, " + session.size() + " hits so far). Wait for status=done, then retry.";
@@ -1155,29 +1706,52 @@ public final class DebuggerHandlers {
                 ? ScanValues.encode(session.type, value, session.bigEndian) : null;
         var kept = new ArrayList<Address>();
         var newLast = new HashMap<Address, Double>();
-        int readLen = needle != null ? Math.max(width, needle.length) : width;
+        var newLastBytes = new HashMap<Address, byte[]>();
+        boolean stringy = session.stringy();
+        int readLen = stringy
+                ? Math.max(session.matchLen, needle != null ? needle.length : 0)
+                : (needle != null ? Math.max(width, needle.length) : width);
         var reads = bulkReadHits(session.hits, readLen);
         for (var a : session.hits) {
             byte[] cur = reads.get(a);
-            if (cur == null || cur.length < width) continue;
-            double curNum = ScanValues.decodeNumber(session.type, cur, session.bigEndian);
-            Double prev = session.last.get(a);
-            boolean keep = switch (cmp) {
-                case "exact", "value" -> needle != null && regionEquals(cur, 0, needle);
-                case "changed" -> prev != null && curNum != prev;
-                case "unchanged" -> prev != null && curNum == prev;
-                case "increased" -> prev != null && curNum > prev;
-                case "decreased" -> prev != null && curNum < prev;
-                default -> throw new IllegalArgumentException(
-                        "comparator: exact|changed|unchanged|increased|decreased");
-            };
-            if (keep) {
-                kept.add(a);
-                newLast.put(a, curNum);
+            if (cur == null) continue;
+            boolean keep;
+            if (stringy) {
+                byte[] prevB = session.lastBytes.get(a);
+                int n = session.matchLen;
+                keep = switch (cmp) {
+                    case "exact", "value" -> needle != null && regionEquals(cur, 0, needle);
+                    case "changed" -> prevB != null && cur.length >= n && !regionEqualsN(cur, prevB, n);
+                    case "unchanged" -> prevB != null && cur.length >= n && regionEqualsN(cur, prevB, n);
+                    default -> throw new IllegalArgumentException("string/bytes scans support comparator "
+                            + "exact|changed|unchanged (not increased/decreased)");
+                };
+                if (keep) {
+                    kept.add(a);
+                    newLastBytes.put(a, Arrays.copyOf(cur, Math.min(n, cur.length)));
+                }
+            } else {
+                if (cur.length < width) continue;
+                double curNum = ScanValues.decodeNumber(session.type, cur, session.bigEndian);
+                Double prev = session.last.get(a);
+                keep = switch (cmp) {
+                    case "exact", "value" -> needle != null && regionEquals(cur, 0, needle);
+                    case "changed" -> prev != null && curNum != prev;
+                    case "unchanged" -> prev != null && curNum == prev;
+                    case "increased" -> prev != null && curNum > prev;
+                    case "decreased" -> prev != null && curNum < prev;
+                    default -> throw new IllegalArgumentException(
+                            "comparator: exact|changed|unchanged|increased|decreased");
+                };
+                if (keep) {
+                    kept.add(a);
+                    newLast.put(a, curNum);
+                }
             }
         }
         session.hits = kept;
         session.last = newLast;
+        session.lastBytes = newLastBytes;
         return "scan_id=" + id + "\nhits=" + kept.size() + "\n" + sampleHits(session);
     }
 
@@ -1192,8 +1766,11 @@ public final class DebuggerHandlers {
         var shown = session.snapshot();
         if (shown.size() > limit) shown = shown.subList(0, limit);
         var reads = bulkReadHits(shown, session.type.width);
+        boolean noTrace = dbg.getCurrentTrace() == null;
+        var prog = ctx.currentProgram();
         for (var a : shown) {
             var sa = safeToStatic(a);
+            if (sa == null && noTrace && prog != null && prog.getMemory().contains(a)) sa = a;
             var b = reads.get(a);
             t.row(Responses.addr(a), sa == null ? "" : Responses.addr(sa),
                     b == null ? "?" : formatVal(session, b));
@@ -1239,30 +1816,47 @@ public final class DebuggerHandlers {
         return true;
     }
 
+    private static boolean regionEqualsN(byte[] a, byte[] b, int n) {
+        if (a.length < n || b.length < n) return false;
+        for (int i = 0; i < n; i++) {
+            if (a[i] != b[i]) return false;
+        }
+        return true;
+    }
+
     private static final class ScanSession {
         final ScanValues.Type type;
         final boolean bigEndian;
         final double target;
+        final int matchLen;
         volatile boolean done = false;
         volatile boolean budgetHit = false;
         volatile long scannedBytes = 0;
         volatile long lastAccess = System.currentTimeMillis();
         List<Address> hits = new ArrayList<>();
         Map<Address, Double> last = new HashMap<>();
+        Map<Address, byte[]> lastBytes = new HashMap<>();
 
-        ScanSession(ScanValues.Type type, boolean bigEndian, double target) {
+        ScanSession(ScanValues.Type type, boolean bigEndian, double target, int matchLen) {
             this.type = type;
             this.bigEndian = bigEndian;
             this.target = target;
+            this.matchLen = matchLen;
+        }
+
+        boolean stringy() {
+            return type == ScanValues.Type.STRING || type == ScanValues.Type.WSTRING
+                    || type == ScanValues.Type.BYTES;
         }
 
         void touch() {
             lastAccess = System.currentTimeMillis();
         }
 
-        synchronized void add(Address a, double value) {
+        synchronized void add(Address a, double value, byte[] bytes) {
             hits.add(a);
             last.put(a, value);
+            if (bytes != null) lastBytes.put(a, bytes);
         }
 
         synchronized List<Address> snapshot() {

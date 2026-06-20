@@ -47,6 +47,56 @@ fn map_err(e: BridgeError) -> ErrorData {
 
 type Params = Vec<(&'static str, String)>;
 
+fn de_opt_u32<'de, D>(deserializer: D) -> Result<Option<u32>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum NumOrStr {
+        Num(u32),
+        Str(String),
+    }
+    match Option::<NumOrStr>::deserialize(deserializer)? {
+        None => Ok(None),
+        Some(NumOrStr::Num(n)) => Ok(Some(n)),
+        Some(NumOrStr::Str(s)) => {
+            let t = s.trim();
+            if t.is_empty() {
+                return Ok(None);
+            }
+            t.strip_prefix("0x")
+                .or_else(|| t.strip_prefix("0X"))
+                .map(|h| u32::from_str_radix(h, 16))
+                .unwrap_or_else(|| t.parse::<u32>())
+                .map(Some)
+                .map_err(serde::de::Error::custom)
+        }
+    }
+}
+
+fn de_opt_bool<'de, D>(deserializer: D) -> Result<Option<bool>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum BoolOrStr {
+        Bool(bool),
+        Str(String),
+    }
+    match Option::<BoolOrStr>::deserialize(deserializer)? {
+        None => Ok(None),
+        Some(BoolOrStr::Bool(b)) => Ok(Some(b)),
+        Some(BoolOrStr::Str(s)) => match s.trim().to_ascii_lowercase().as_str() {
+            "" => Ok(None),
+            "true" | "1" | "yes" | "on" => Ok(Some(true)),
+            "false" | "0" | "no" | "off" => Ok(Some(false)),
+            other => Err(serde::de::Error::custom(format!("invalid bool: {other}"))),
+        },
+    }
+}
+
 trait ToParams {
     fn into_params(self) -> Params;
 }
@@ -162,6 +212,81 @@ impl ToParams for DebuggerLaunch {
     }
 }
 
+impl ToParams for LiveProcesses {
+    fn into_params(self) -> Params {
+        let mut p = self.page.into_params();
+        if let Some(n) = self.name {
+            p.push(("name", n));
+        }
+        p
+    }
+}
+
+impl ToParams for LiveAttach {
+    fn into_params(self) -> Params {
+        let mut p: Params = Vec::new();
+        if let Some(n) = self.name {
+            p.push(("name", n));
+        }
+        if let Some(pid) = self.pid {
+            p.push(("pid", pid));
+        }
+        p
+    }
+}
+
+impl ToParams for LuaExec {
+    fn into_params(self) -> Params {
+        let mut p = vec![("code", self.code)];
+        if let Some(s) = self.state {
+            p.push(("state", s));
+        }
+        if let Some(f) = self.func {
+            p.push(("fn", f));
+        }
+        if let Some(fr) = self.freeze {
+            p.push(("freeze", flag(fr)));
+        }
+        p
+    }
+}
+
+impl ToParams for GhidraEval {
+    fn into_params(self) -> Params {
+        let mut p = vec![("code", self.code)];
+        if let Some(l) = self.lang {
+            p.push(("lang", l));
+        }
+        if let Some(c) = self.commit {
+            p.push(("commit", flag(c)));
+        }
+        p
+    }
+}
+
+impl ToParams for AnalysisNote {
+    fn into_params(self) -> Params {
+        let mut p = vec![("text", self.text)];
+        if let Some(a) = self.address {
+            p.push(("address", a));
+        }
+        if let Some(c) = self.category {
+            p.push(("category", c));
+        }
+        p
+    }
+}
+
+impl ToParams for RefineFunction {
+    fn into_params(self) -> Params {
+        let mut p = vec![("address", self.address)];
+        if let Some(c) = self.commit {
+            p.push(("commit", flag(c)));
+        }
+        p
+    }
+}
+
 impl ToParams for ValueScan {
     fn into_params(self) -> Params {
         let mut p = vec![("value", self.value)];
@@ -170,6 +295,15 @@ impl ToParams for ValueScan {
         }
         if self.all.unwrap_or(false) {
             p.push(("all", "1".to_string()));
+        }
+        if let Some(t) = self.tolerance {
+            p.push(("tolerance", t));
+        }
+        if let Some(m) = self.max_mb {
+            p.push(("max_mb", m.to_string()));
+        }
+        if self.exclude_modules.unwrap_or(false) {
+            p.push(("exclude_modules", "1".to_string()));
         }
         p
     }
@@ -422,6 +556,26 @@ impl ToParams for EmuRunTo {
 impl ToParams for EmuId {
     fn into_params(self) -> Params {
         vec![("emu_id", self.emu_id)]
+    }
+}
+
+impl ToParams for EmuRegisters {
+    fn into_params(self) -> Params {
+        let mut p = vec![("emu_id", self.emu_id)];
+        if self.full.unwrap_or(false) {
+            p.push(("full", "1".to_string()));
+        }
+        p
+    }
+}
+
+impl ToParams for DebuggerRegisters {
+    fn into_params(self) -> Params {
+        let mut p: Params = self.thread.into_iter().map(|t| ("thread", t)).collect();
+        if self.full.unwrap_or(false) {
+            p.push(("full", "1".to_string()));
+        }
+        p
     }
 }
 
@@ -917,7 +1071,11 @@ pub struct EmulateFunction {
     pub function_address: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub args: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "de_opt_u32",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub max_steps: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capture_addr: Option<String>,
@@ -928,7 +1086,11 @@ pub struct EmulateFunction {
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
 pub struct EmuStep {
     pub emu_id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "de_opt_u32",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub count: Option<u32>,
 }
 
@@ -936,13 +1098,40 @@ pub struct EmuStep {
 pub struct EmuRunTo {
     pub emu_id: String,
     pub stop: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "de_opt_u32",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub max_steps: Option<u32>,
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
 pub struct EmuId {
     pub emu_id: String,
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct EmuRegisters {
+    pub emu_id: String,
+    #[serde(
+        default,
+        deserialize_with = "de_opt_bool",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub full: Option<bool>,
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema, Default)]
+pub struct DebuggerRegisters {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "de_opt_bool",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub full: Option<bool>,
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
@@ -956,7 +1145,11 @@ pub struct EmuSetRegister {
 pub struct EmuReadMemory {
     pub emu_id: String,
     pub address: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "de_opt_u32",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub length: Option<u32>,
 }
 
@@ -1041,11 +1234,19 @@ pub struct CallgraphDot {
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
 pub struct CallgraphMermaid {
     pub address: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "de_opt_u32",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub depth: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub direction: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "de_opt_u32",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub max_nodes: Option<u32>,
 }
 
@@ -1053,7 +1254,11 @@ pub struct CallgraphMermaid {
 pub struct StructDiagramArgs {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub filter: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "de_opt_u32",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub max: Option<u32>,
 }
 const fn default_callgraph_depth() -> u32 {
@@ -1148,9 +1353,17 @@ pub struct DebuggerReadMemory {
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
 pub struct PointerScanArgs {
     pub target: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "de_opt_u32",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub max_offset: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "de_opt_u32",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub limit: Option<u32>,
 }
 
@@ -1159,7 +1372,11 @@ pub struct ReadPointerPath {
     pub base: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub offsets: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "de_opt_u32",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub value_len: Option<u32>,
 }
 
@@ -1184,12 +1401,94 @@ pub struct DebuggerLaunch {
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct LiveProcesses {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(flatten)]
+    pub page: Page,
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct LiveAttach {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pid: Option<String>,
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct LuaExec {
+    pub code: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
+    #[serde(rename = "fn", default, skip_serializing_if = "Option::is_none")]
+    pub func: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "de_opt_bool",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub freeze: Option<bool>,
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct GhidraEval {
+    pub code: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lang: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "de_opt_bool",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub commit: Option<bool>,
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct AnalysisNote {
+    pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct RefineFunction {
+    pub address: String,
+    #[serde(
+        default,
+        deserialize_with = "de_opt_bool",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub commit: Option<bool>,
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
 pub struct ValueScan {
     #[serde(rename = "type", default, skip_serializing_if = "Option::is_none")]
     pub value_type: Option<String>,
     pub value: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "de_opt_bool",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub all: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tolerance: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "de_opt_u32",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub max_mb: Option<u32>,
+    #[serde(
+        default,
+        deserialize_with = "de_opt_bool",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub exclude_modules: Option<bool>,
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
@@ -1204,7 +1503,11 @@ pub struct ScanNext {
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
 pub struct ScanResults {
     pub scan_id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "de_opt_u32",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub limit: Option<u32>,
 }
 
@@ -1310,8 +1613,35 @@ pub struct SetVariables {
     pub new_name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prototype: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "de_opt_var_edits",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub variables: Option<Vec<VariableEdit>>,
+}
+
+fn de_opt_var_edits<'de, D>(deserializer: D) -> Result<Option<Vec<VariableEdit>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum ListOrStr {
+        List(Vec<VariableEdit>),
+        Str(String),
+    }
+    match Option::<ListOrStr>::deserialize(deserializer)? {
+        None => Ok(None),
+        Some(ListOrStr::List(v)) => Ok(Some(v)),
+        Some(ListOrStr::Str(s)) => {
+            let t = s.trim();
+            if t.is_empty() {
+                return Ok(None);
+            }
+            serde_json::from_str(t).map(Some).map_err(serde::de::Error::custom)
+        }
+    }
 }
 
 impl ToParams for SetVariables {
@@ -1509,7 +1839,11 @@ impl ToParams for DecodeStringsAuto {
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
 pub struct XrefGraphArgs {
     pub address: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "de_opt_u32",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub max: Option<u32>,
 }
 
@@ -1525,7 +1859,11 @@ impl ToParams for XrefGraphArgs {
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema, Default)]
 pub struct GraphMax {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "de_opt_u32",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub max: Option<u32>,
 }
 
@@ -1546,7 +1884,11 @@ pub struct ProgramName {
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
 pub struct SearchToolsArgs {
     pub query: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "de_opt_u32",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub limit: Option<u32>,
 }
 
@@ -2238,12 +2580,12 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Dump the current register values of a persistent emulator session (base, non-context registers)",
+        description = "Dump register values of a persistent emulator session. Shows the common GP/flags/segment registers by default; pass full=true for the entire bank (ZMM/K/ST/CR/DR/...)",
         annotations(read_only_hint = true)
     )]
     async fn emu_registers(
         &self,
-        Parameters(p): Parameters<EmuId>,
+        Parameters(p): Parameters<EmuRegisters>,
     ) -> Result<CallToolResult, ErrorData> {
         self.get("emu_registers", p).await
     }
@@ -2665,18 +3007,18 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Register name/value pairs for the current frame of the given thread (optional)",
+        description = "Register name/value pairs for the current frame of the given thread (optional). Shows common GP/flags/segment registers by default; pass full=true for the entire bank",
         annotations(read_only_hint = true)
     )]
     async fn debugger_registers(
         &self,
-        Parameters(p): Parameters<DebuggerThreadFilter>,
+        Parameters(p): Parameters<DebuggerRegisters>,
     ) -> Result<CallToolResult, ErrorData> {
         self.get("debugger_registers", p).await
     }
 
     #[tool(
-        description = "Read live target memory (not static program image) at a dynamic address",
+        description = "Read raw live process memory at an absolute dynamic address — exact bytes, NO dereference. Works on the connector-less live_attach session (OpenProcess/ReadProcessMemory, no dbgeng) as well as a dbgeng trace. Use this (not read_pointer_path) to inspect bytes at a known address, e.g. walking heap/struct/map nodes. address is the absolute dynamic address; length is byte count",
         annotations(read_only_hint = true)
     )]
     async fn debugger_read_memory(
@@ -2687,7 +3029,7 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Resolve a multi-level pointer chain in the live target (CheatEngine-style). Starting from base (a static program address, automatically slid to the live target, or a raw dynamic address), dereferences a pointer and adds each offset in turn: final = [...[[base]+off0]+off1...]+offN. offsets is a comma-separated list of hex values (with or without 0x; negatives allowed), e.g. \"0x18,0x40,-0x8\"; omit for a single dereference. value_len optionally reads that many bytes at the final address. Returns each step's address and the resolved final address",
+        description = "Resolve a multi-level pointer chain in the live target (CheatEngine-style); works connector-less (live_attach) or via a dbgeng trace. Rule: address accumulator starts at base; for EACH offset it dereferences the accumulator then adds the offset: final = [...[[base]+off0]+off1...]+offN. The final address itself is NOT dereferenced. offsets is comma-separated hex (with/without 0x; negatives ok), e.g. \"0x18,0x40,-0x8\". The output then ALSO dumps the bytes AT final (value_len bytes, or a default pointer-width word if omitted) as a convenience — that dump is one extra read of *final, not part of the chain. For a raw no-deref read at a known address use debugger_read_memory instead",
         annotations(read_only_hint = true)
     )]
     async fn read_pointer_path(
@@ -2811,7 +3153,15 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Start a live debug session from the MCP (no Ghidra GUI needed). offer is a configName from debugger_list_offers; args is comma-separated key=value parameter overrides (e.g. the PID for a dbgeng attach offer)"
+        description = "Return the dbgeng/python connector's own stdout/stderr (the back-end terminal tail) from the last debugger_launch. This is the REAL error when a launch hangs 'alive but idle / never began a trace' — the failure that's otherwise only visible in the Ghidra GUI Terminal. Call after a stuck launch to self-diagnose (missing python deps, dbgeng.dll not found, socket/connect-back failure, etc.)",
+        annotations(read_only_hint = true)
+    )]
+    async fn debugger_backend_log(&self) -> Result<CallToolResult, ErrorData> {
+        self.get_bare("debugger_backend_log").await
+    }
+
+    #[tool(
+        description = "Start a live debug session from the MCP (no Ghidra GUI needed). offer is a configName from debugger_list_offers; args is comma-separated key=value parameter overrides (e.g. the PID for a dbgeng attach offer). Fails fast with a clear message if the target PID is higher-integrity (run Ghidra elevated) or stale, instead of hanging ~90s. For the memory plane only, prefer live_attach (connector-less, no dbgeng)"
     )]
     async fn debugger_launch(
         &self,
@@ -2831,6 +3181,128 @@ impl GhidraServer {
     )]
     async fn debugger_detach(&self) -> Result<CallToolResult, ErrorData> {
         self.post_bare("debugger_detach").await
+    }
+
+    #[tool(
+        description = "List running processes (Windows, OS-native, no debugger). With name=, shows every match with pid, WOW64, module count, and openability — the integrity preflight that says up front whether Ghidra must run elevated. Use to find the live PID before live_attach",
+        annotations(read_only_hint = true)
+    )]
+    async fn live_processes(
+        &self,
+        Parameters(p): Parameters<LiveProcesses>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.get("live_processes", p).await
+    }
+
+    #[tool(
+        description = "Attach to a live process by name (auto-resolves the current PID, disambiguates game vs launcher by module count) or explicit pid — with NO dbgeng/python/trace. Establishes a self-healing memory-plane session: read_memory and read_pointer_path then resolve directly via OpenProcess/ReadProcessMemory, and the PID is re-resolved automatically if the process restarts. For registers/breakpoints/stepping use debugger_launch instead"
+    )]
+    async fn live_attach(
+        &self,
+        Parameters(p): Parameters<LiveAttach>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.post("live_attach", p).await
+    }
+
+    #[tool(
+        description = "Release the connector-less live session anchor (does not kill, suspend, or detach the process)"
+    )]
+    async fn live_release(&self) -> Result<CallToolResult, ErrorData> {
+        self.post_bare("live_release").await
+    }
+
+    #[tool(
+        description = "List loaded modules (name, base, size) of the connector-less live session, read straight from the OS — no trace required",
+        annotations(read_only_hint = true)
+    )]
+    async fn live_modules(
+        &self,
+        Parameters(p): Parameters<Page>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.get("live_modules", p).await
+    }
+
+    #[tool(
+        description = "List thread IDs of the connector-less live session, read straight from the OS — no trace required",
+        annotations(read_only_hint = true)
+    )]
+    async fn live_threads(
+        &self,
+        Parameters(p): Parameters<Page>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.get("live_threads", p).await
+    }
+
+    #[tool(
+        description = "Auto-detect the live process's main Lua 5.1 lua_State by scanning the main module image for a thread object (CommonHeader.tt == LUA_TTHREAD) whose global_State points back to it. Requires live_attach. Returns the lua_State address to pass to lua_exec (or lua_exec auto-detects it)",
+        annotations(read_only_hint = true)
+    )]
+    async fn lua_find_state(&self) -> Result<CallToolResult, ErrorData> {
+        self.get_bare("lua_find_state").await
+    }
+
+    #[tool(
+        description = "Execute arbitrary Lua INSIDE the live process's embedded Lua VM — for games that embed Lua (e.g. lua_tinker/Lua 5.1). DEFAULT (safe): installs a one-time detour on a per-frame engine tick (0x766620 for Alicia, the once-per-frame update called from the main message loop) and runs your script on the GAME'S OWN thread at frame start while the Lua VM is idle, via a shared mailbox — no extra thread, no reentrancy, no heap-lock deadlock. Hooking the idle frame tick (NOT lua_pcall, whose prologue is mid-call and corrupts the in-progress Lua stack) is what makes this safe. The hook auto-installs on first call (threads frozen + EIP-window-checked during the patch) and is removed on live_release. state = the lua_State (auto-detected via lua_find_state if omitted); fn = the dobuffer-style executor int(lua_State*, char* code, int len) (default 0x9e64d0 = lua_tinker::dobuffer for Alicia.exe). rc&0xff: 1=ok, 0=lua error; rc=-3 = the game has not called lua_pcall yet (bring it to a Lua-active screen). freeze=true selects the LEGACY UNSAFE CreateRemoteThread path which crashes a running VM — do not use it. Use to call any in-game Lua: getters/setters, spawn, teleport, give items, run scripts",
+        annotations(destructive_hint = true)
+    )]
+    async fn lua_exec(
+        &self,
+        Parameters(p): Parameters<LuaExec>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if p.code.is_empty() {
+            return Err(ErrorData::invalid_params("code is required", None));
+        }
+        self.post("lua_exec", p).await
+    }
+
+    #[tool(
+        description = "Execute arbitrary code inside Ghidra with the FULL Ghidra API AND full live-process access — the universal escape hatch. lang='java' (default) runs a snippet as the body of a GhidraScript.run() (all FlatProgramAPI/GhidraScript members in scope: currentProgram, getFunctionAt, createLabel, setPlateComment, decompile, etc.; println(...) for output). After live_attach, the connector-less LIVE process is in scope via static Live.* helpers: read(addr,len)/write(addr,bytes)/readInt/readUInt/readLong/readPtr/readFloat/readDouble/readString(addr,max)/ptrChain(base,off...)/writeInt/writeFloat/writeBytes/regions()/pid()/pointerSize() — script ANY live logic (AOB scans, struct walks, pointer maps, conditional freezes) combining static RE with live memory. Or pass a full 'public class X extends GhidraScript {...}' for imports/helpers; lang='python' runs PyGhidra if installed. Mutations commit in a transaction; commit=false for a dry run. Compile/runtime errors are returned as text so you can self-correct"
+    )]
+    async fn ghidra_eval(
+        &self,
+        Parameters(p): Parameters<GhidraEval>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if p.code.is_empty() {
+            return Err(ErrorData::invalid_params("code is required", None));
+        }
+        self.post("ghidra_eval", p).await
+    }
+
+    #[tool(
+        description = "Record a persistent analysis note on the current program — your cross-session memory of what you've learned. With address=, it becomes a Ghidra Note bookmark anchored at that address (visible in the Bookmarks window); without, a program-level note. category groups related notes (default 'MCP'). Notes persist with the program (saved on Ghidra save). Use to remember offsets, struct layouts, 'this is the FPS cap', etc., so the next session starts where this one left off"
+    )]
+    async fn analysis_note(
+        &self,
+        Parameters(p): Parameters<AnalysisNote>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if p.text.is_empty() {
+            return Err(ErrorData::invalid_params("text is required", None));
+        }
+        self.post("analysis_note", p).await
+    }
+
+    #[tool(
+        description = "List all persistent analysis notes recorded on the current program (both address-anchored Note bookmarks and program-level notes) — recall what was learned about this binary in prior sessions",
+        annotations(read_only_hint = true)
+    )]
+    async fn analysis_notes(
+        &self,
+        Parameters(p): Parameters<Page>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.get("analysis_notes", p).await
+    }
+
+    #[tool(
+        description = "Refine a function's decompilation by committing the decompiler's own inferred prototype and local variable names back into the program, then re-decompiling to verify it improved. Measures decompiler 'noise' (undefined types, casts, compiler-artifact vars) before and after; KEEPS the change only if noise did not increase, otherwise auto-REVERTS (Sidekick-style retype→re-decompile→diff→guard loop). commit=false for a dry run. Use to clean up FUN_* pseudocode before reading or renaming"
+    )]
+    async fn refine_function(
+        &self,
+        Parameters(p): Parameters<RefineFunction>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if p.address.is_empty() {
+            return Err(ErrorData::invalid_params("address is required", None));
+        }
+        self.post("refine_function", p).await
     }
 
     #[tool(
@@ -2875,7 +3347,7 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "CheatEngine-style first scan of live process memory for a value. type: i8|i16|i32|i64|f32|f64|string|bytes (default i32). Scans heap/data regions and skips loaded modules by default (all=true scans everything, slower). Async: returns a scan_id immediately; poll scan_results for status=running/done, then refine with next_scan",
+        description = "CheatEngine-style first scan of live process memory for a value. type: i8|i16|i32|i64|f32|f64|string|bytes (default i32). Scans heap/data regions and skips loaded modules by default (all=true scans everything, slower; exclude_modules=true forces module skipping). tolerance (f32/f64 only) matches values within +/- tolerance of the target — essential for floats. max_mb raises the scan budget (default 1024, cap 8192). Async: returns a scan_id immediately; poll scan_results for status=running/done, then refine with next_scan",
         annotations(read_only_hint = true)
     )]
     async fn value_scan(
@@ -4218,6 +4690,21 @@ mod tests {
                 ("value_len", "8".to_owned()),
             ]
         );
+    }
+
+    #[test]
+    fn opt_u32_accepts_string_number_and_hex() {
+        let from_str: ReadPointerPath =
+            serde_json::from_str(r#"{"base":"0x1000","value_len":"8"}"#).unwrap();
+        assert_eq!(from_str.value_len, Some(8));
+        let from_num: ReadPointerPath =
+            serde_json::from_str(r#"{"base":"0x1000","value_len":8}"#).unwrap();
+        assert_eq!(from_num.value_len, Some(8));
+        let from_hex: ReadPointerPath =
+            serde_json::from_str(r#"{"base":"0x1000","value_len":"0x10"}"#).unwrap();
+        assert_eq!(from_hex.value_len, Some(16));
+        let absent: ReadPointerPath = serde_json::from_str(r#"{"base":"0x1000"}"#).unwrap();
+        assert_eq!(absent.value_len, None);
     }
 
     #[test]

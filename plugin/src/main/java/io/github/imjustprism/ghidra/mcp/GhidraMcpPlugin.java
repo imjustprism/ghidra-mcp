@@ -16,7 +16,10 @@ import io.github.imjustprism.ghidra.mcp.handlers.EditHandlers;
 import io.github.imjustprism.ghidra.mcp.handlers.EmulatorHandlers;
 import io.github.imjustprism.ghidra.mcp.handlers.FunctionHandlers;
 import io.github.imjustprism.ghidra.mcp.handlers.ListingHandlers;
+import io.github.imjustprism.ghidra.mcp.handlers.NotesHandlers;
 import io.github.imjustprism.ghidra.mcp.handlers.RecoveryHandlers;
+import io.github.imjustprism.ghidra.mcp.handlers.RefineHandlers;
+import io.github.imjustprism.ghidra.mcp.handlers.ScriptHandlers;
 import io.github.imjustprism.ghidra.mcp.http.RouteTable;
 import io.github.imjustprism.ghidra.mcp.util.PluginContext;
 
@@ -100,6 +103,9 @@ public final class GhidraMcpPlugin extends Plugin {
         var edits = new EditHandlers(ctx);
         var analysis = new AnalysisHandlers(ctx);
         var recovery = new RecoveryHandlers(ctx);
+        var scripts = new ScriptHandlers(ctx);
+        var notes = new NotesHandlers(ctx);
+        var refine = new RefineHandlers(ctx);
 
         listing.register(routes);
         functions.register(routes);
@@ -108,6 +114,9 @@ public final class GhidraMcpPlugin extends Plugin {
         edits.register(routes);
         analysis.register(routes);
         recovery.register(routes);
+        scripts.register(routes);
+        notes.register(routes);
+        refine.register(routes);
 
         emulatorHandlers = new EmulatorHandlers(ctx);
         emulatorHandlers.register(routes);

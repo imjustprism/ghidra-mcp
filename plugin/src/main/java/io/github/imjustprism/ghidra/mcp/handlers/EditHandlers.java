@@ -233,10 +233,17 @@ public final class EditHandlers {
             if (hasProto) {
                 try {
                     var parser = new FunctionSignatureParser(dtm, ctx.service(DataTypeManagerService.class));
-                    var sig = parser.parse(null, prototype);
+                    var pc = extractCc(prototype);
+                    var sig = parser.parse(null, pc.proto());
                     if (sig == null) throw new IllegalStateException("prototype parse failed");
                     var cmd = new ApplyFunctionSignatureCmd(func.getEntryPoint(), sig, SourceType.USER_DEFINED);
                     if (!cmd.applyTo(program, new ConsoleTaskMonitor())) throw new IllegalStateException(cmd.getStatusMsg());
+                    if (pc.cc() != null) {
+                        try {
+                            func.setCallingConvention(pc.cc());
+                        } catch (Exception ignored) {
+                        }
+                    }
                     report.append("prototype\tok\t\n");
                 } catch (Exception e) {
                     report.append("prototype\tfail\t").append(Responses.cell(e.getMessage())).append('\n');
@@ -325,10 +332,17 @@ public final class EditHandlers {
                     if (a == null) throw new IllegalArgumentException("invalid address");
                     var func = Addresses.functionAtOrContaining(program, a);
                     if (func == null) throw new IllegalArgumentException("no function at address");
-                    var sig = parser.parse(null, proto);
+                    var pc = extractCc(proto);
+                    var sig = parser.parse(null, pc.proto());
                     if (sig == null) throw new IllegalStateException("prototype parse failed");
                     var cmd = new ApplyFunctionSignatureCmd(func.getEntryPoint(), sig, SourceType.USER_DEFINED);
                     if (!cmd.applyTo(program, monitor)) throw new IllegalStateException(cmd.getStatusMsg());
+                    if (pc.cc() != null) {
+                        try {
+                            func.setCallingConvention(pc.cc());
+                        } catch (Exception ignored) {
+                        }
+                    }
                     okCount[0]++;
                     report.append("ok\t").append(Responses.cell(addr)).append("\t\n");
                 } catch (Exception e) {
@@ -429,15 +443,22 @@ public final class EditHandlers {
                     var a = addr == null ? null : program.getAddressFactory().getAddress(addr);
                     if (a == null) throw new IllegalArgumentException("invalid address");
                     var func = program.getFunctionManager().getFunctionAt(a);
+                    String detail;
                     if (func != null) {
                         func.setName(newName, SourceType.USER_DEFINED);
+                        detail = newName + " (function)";
                     } else {
                         var sym = program.getSymbolTable().getPrimarySymbol(a);
-                        if (sym != null) sym.setName(newName, SourceType.USER_DEFINED);
-                        else program.getSymbolTable().createLabel(a, newName, SourceType.USER_DEFINED);
+                        if (sym != null) {
+                            sym.setName(newName, SourceType.USER_DEFINED);
+                            detail = newName + " (symbol)";
+                        } else {
+                            program.getSymbolTable().createLabel(a, newName, SourceType.USER_DEFINED);
+                            detail = newName + " (NEW label — no function/symbol was at this address)";
+                        }
                     }
                     okCount[0]++;
-                    report.append("ok\t").append(addr).append('\t').append(newName).append('\n');
+                    report.append("ok\t").append(addr).append('\t').append(detail).append('\n');
                 } catch (Exception e) {
                     report.append("fail\t").append(addr).append('\t')
                             .append(e.getMessage()).append('\n');
@@ -686,22 +707,48 @@ public final class EditHandlers {
         }
     }
 
+    private static final java.util.regex.Pattern CC_KEYWORD = java.util.regex.Pattern.compile(
+            "\\b(__thiscall|__fastcall|__cdecl|__stdcall|__vectorcall)\\b");
+
+    private record ProtoCc(String proto, String cc) {}
+
+    static ProtoCc extractCc(String prototype) {
+        var m = CC_KEYWORD.matcher(prototype);
+        if (!m.find()) return new ProtoCc(prototype, null);
+        var cc = m.group(1);
+        var cleaned = CC_KEYWORD.matcher(prototype).replaceAll(" ").replaceAll("\\s+", " ").trim();
+        return new ProtoCc(cleaned, cc);
+    }
+
     private boolean applyPrototype(Program program, Address addr, String prototype, StringBuilder errorBuf) {
         int tx = program.startTransaction("Set function prototype");
         boolean ok = false;
         try {
             var dtm = program.getDataTypeManager();
             var dtms = ctx.service(DataTypeManagerService.class);
+            var pc = extractCc(prototype);
             var parser = new FunctionSignatureParser(dtm, dtms);
-            FunctionDefinitionDataType sig = parser.parse(null, prototype);
+            FunctionDefinitionDataType sig = parser.parse(null, pc.proto());
             if (sig == null) {
                 errorBuf.append("Failed to parse function prototype");
                 return false;
             }
             var cmd = new ApplyFunctionSignatureCmd(addr, sig, SourceType.USER_DEFINED);
             ok = cmd.applyTo(program, new ConsoleTaskMonitor());
-            if (!ok) errorBuf.append("Command failed: ").append(cmd.getStatusMsg());
-            return ok;
+            if (!ok) {
+                errorBuf.append("Command failed: ").append(cmd.getStatusMsg());
+                return false;
+            }
+            if (pc.cc() != null) {
+                var func = Addresses.functionAtOrContaining(program, addr);
+                try {
+                    if (func != null) func.setCallingConvention(pc.cc());
+                } catch (Exception e) {
+                    errorBuf.append("prototype set; calling convention '").append(pc.cc())
+                            .append("' not applied: ").append(e.getMessage());
+                }
+            }
+            return true;
         } catch (Exception e) {
             errorBuf.append("Error applying signature: ").append(e.getMessage());
             Msg.error(ctx.logOwner(), "applyPrototype failed", e);
