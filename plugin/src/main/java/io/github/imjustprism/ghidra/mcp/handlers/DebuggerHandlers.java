@@ -190,6 +190,9 @@ public final class DebuggerHandlers {
         scanExec.shutdownNow();
         var ft = freezeTimer;
         if (ft != null) ft.shutdownNow();
+        synchronized (luaLock) {
+            disposeExecutor();
+        }
         rpm.close();
     }
 

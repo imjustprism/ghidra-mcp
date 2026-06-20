@@ -320,12 +320,13 @@ public final class ProcessMemory {
                 var h = Kernel32.INSTANCE.OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT, false, tid);
                 if (h != null && h.getPointer() != Pointer.NULL) handles.add(h);
             }
-            int suspended = 0;
+            var suspendedHandles = new ArrayList<WinNT.HANDLE>();
             int ctxOk = 0;
             boolean inRange = false;
             for (var h : handles) {
-                if (ThreadCtl.INSTANCE.Wow64SuspendThread(h) != -1) suspended++;
+                if (ThreadCtl.INSTANCE.Wow64SuspendThread(h) != -1) suspendedHandles.add(h);
             }
+            int suspended = suspendedHandles.size();
             try {
                 var ctx = new Memory(WOW64_CONTEXT_SIZE);
                 for (var h : handles) {
@@ -347,8 +348,10 @@ public final class ProcessMemory {
                     return ok;
                 }
             } finally {
-                for (var h : handles) {
+                for (var h : suspendedHandles) {
                     ThreadCtl.INSTANCE.ResumeThread(h);
+                }
+                for (var h : handles) {
                     Kernel32.INSTANCE.CloseHandle(h);
                 }
             }
