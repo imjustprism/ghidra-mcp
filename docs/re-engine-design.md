@@ -143,6 +143,16 @@ Refs: [FLOSS theory](https://github.com/mandiant/flare-floss/blob/master/doc/the
 
 ## 4. Prioritized phases
 
+> **STATUS 2026-06-28:** Phase-A `recover_decoded_strings` shipped. Phase-B MBA pillar SHIPPED +
+> live-verified (`simplify_expression`: MbaExpr IR + LinearMba signature/Mobius solver + equivalence
+> checker + MbaNormalize + SimpleForms oracle library + no-regression guard + MbaExtract; reduces
+> `(x^y)+2*(x&y)`→`x+y` on the deployed engine). Opaque-predicate pillar SHIPPED
+> (`find_opaque_predicates`: Predicate IR + probe classifier + PredicateExtract from CBRANCH p-code;
+> validated on real branches). The equivalence-checker trust layer is in place and every rewrite is
+> guarded by it. Remaining: CFG-unflatten (O4) and devirt (vm_dispatcher_map/handler_summary) — both
+> are emulation/Ghidra-coupled with no pure unit-testable core, so deferred until a flattened/VM target
+> is loaded to verify against. MSVC-linker build gotcha resolved (deploy.ps1 sources vcvars).
+
 **Phase A — proof + ROI, minimal framework (build now):**
 - `recover_decoded_strings` (Y1) + `annotate_decoded_strings` (Y2) — pure reuse of `emulate_function`,
   highest value/lowest risk, immediately useful on real malware/crackmes.
