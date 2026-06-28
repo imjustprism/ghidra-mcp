@@ -104,15 +104,18 @@ public final class IdiomSimplifier {
         if (last == null || prev == null) return;
         String lm = last.getMnemonicString().toUpperCase();
         String pm = prev.getMnemonicString().toUpperCase();
-        if (!lm.equals("SUB")) return;
         if (!pm.equals("IMUL")) return;
         if (prev.getNumOperands() < 3) return;
         var objs = prev.getOpObjects(2);
         if (objs == null || objs.length != 1 || !(objs[0] instanceof Scalar s)) return;
-        long k = s.getUnsignedValue();
-        if (k < 2 || k > 0xffff) return;
+        long k = s.getSignedValue();
+        // x % k = x - k*(x/k), emitted as either (IMUL +k; SUB) or (IMUL -k; ADD)
+        boolean modulo = (lm.equals("SUB") && k > 0) || (lm.equals("ADD") && k < 0);
+        if (!modulo) return;
+        long d = Math.abs(k);
+        if (d < 2 || d > 0xffff) return;
         out.add(new Match(last.getAddress(), "mod_fold",
-            "idiom: x %% " + k + " (x - " + k + "*(x/" + k + "))"));
+            "idiom: x %% " + d + " (x - " + d + "*(x/" + d + "))"));
     }
 
     private record Match(Address at, String kind, String note) {}

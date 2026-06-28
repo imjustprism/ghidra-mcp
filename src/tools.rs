@@ -3786,7 +3786,7 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Detect arithmetic idioms in a function: unsigned divide-by-constant magic (reciprocal form for divisors 3..255), MOVSXD sign-extend-drop, and IMUL+SUB pair matching x - k*(x/k) = x %% k. With apply=true, the match is written as an EOL comment on the instruction",
+        description = "Detect arithmetic idioms in a function: unsigned divide-by-constant magic (reciprocal form for divisors 3..255), MOVSXD sign-extend-drop, and the modulo idiom x - k*(x/k) = x %% k in both compiled forms (IMUL +k; SUB and IMUL -k; ADD). With apply=true, the match is written as an EOL comment on the instruction",
         annotations(destructive_hint = false)
     )]
     async fn idiom_simplifier(
