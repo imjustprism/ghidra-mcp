@@ -14,6 +14,10 @@ public final class LinearMba {
 
     private LinearMba() {}
 
+    public static long[] probeValues() {
+        return PROBE_VALUES.clone();
+    }
+
     public static boolean equivalent(MbaExpr a, MbaExpr b, int nvars) {
         var vars = new long[nvars];
         return probe(a, b, vars, 0);
