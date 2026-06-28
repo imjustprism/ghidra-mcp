@@ -115,7 +115,13 @@ try {
         Start-Sleep -Milliseconds 300
         Write-Host "Building Rust bridge..."
         Push-Location $root
-        & cargo build --release
+        $vcvars = Get-ChildItem "C:\Program Files*\Microsoft Visual Studio\*\*\VC\Auxiliary\Build\vcvars64.bat" `
+            -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($vcvars) {
+            cmd /c "`"$($vcvars.FullName)`" >nul 2>&1 && cargo build --release"
+        } else {
+            & cargo build --release
+        }
         if ($LASTEXITCODE -ne 0) { Pop-Location; throw "cargo failed" }
         Pop-Location
         Write-Host "Rust binary at $root\target\release\ghidra-mcp.exe (restart Claude Desktop to reload)"
