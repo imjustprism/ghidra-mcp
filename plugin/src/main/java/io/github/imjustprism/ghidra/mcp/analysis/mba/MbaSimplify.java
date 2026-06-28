@@ -39,7 +39,8 @@ public final class MbaSimplify {
                     return "expression unsupported: more than " + LinearMba.MAX_VARS
                             + " distinct variables or non-arithmetic ops in the tree";
                 }
-                var simplified = LinearMba.simplify(ex.expr(), ex.nvars());
+                var normalized = MbaNormalize.normalize(ex.expr());
+                var simplified = MbaNormalize.normalize(LinearMba.simplify(normalized, ex.nvars()));
                 var origRender = MbaExpr.render(ex.expr());
                 var simpRender = MbaExpr.render(simplified);
                 var sb = new StringBuilder();
