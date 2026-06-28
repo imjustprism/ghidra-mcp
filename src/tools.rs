@@ -3175,7 +3175,7 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Heuristic vtable scan: scan .rdata/.data.rel.ro for runs of 3+ consecutive pointers into .text. Reports (address, size, first_func_address, count). Paginated via offset/limit",
+        description = "Heuristic vtable scan: scan .rdata/.data.rel.ro for runs of 3+ consecutive pointers into .text. Reports (address, size, first_func_address, count, class) — class is the RTTI class name when the vtable address carries a demangled symbol, linking raw vtables to recover_rtti_classes. Paginated via offset/limit",
         annotations(read_only_hint = true)
     )]
     async fn vtable_scan(

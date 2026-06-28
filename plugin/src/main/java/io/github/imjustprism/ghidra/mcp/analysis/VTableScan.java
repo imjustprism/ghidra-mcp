@@ -15,7 +15,7 @@ public final class VTableScan {
 
     private VTableScan() {}
 
-    private record Hit(String startAddr, int size, long firstFunc, int count) {}
+    private record Hit(String startAddr, int size, long firstFunc, int count, String className) {}
 
     public static String scan(PluginContext ctx, Map<String, String> q) {
         return ctx.withProgram(program -> {
@@ -36,11 +36,11 @@ public final class VTableScan {
                     exec.submit(() -> scanBlock(program, fm, block, ptrSize, le, hits));
                 }
             }
-            var t = Responses.table(q, new String[]{"addr", "size", "first_func", "count"}, hits.size());
+            var t = Responses.table(q, new String[]{"addr", "size", "first_func", "count", "class"}, hits.size());
             var w = new Responses.Window(Page.from(q));
             for (var h : hits) {
                 if (!w.take()) continue;
-                t.row(h.startAddr, h.size, "%x".formatted(h.firstFunc), h.count);
+                t.row(h.startAddr, h.size, "%x".formatted(h.firstFunc), h.count, h.className);
             }
             return t.total(w.total()).build();
         });
@@ -74,12 +74,20 @@ public final class VTableScan {
                 j += ptrSize;
             }
             if (run >= 3) {
-                hits.add(new Hit(Responses.addr(startAddr), run * ptrSize, firstPtr, run));
+                hits.add(new Hit(Responses.addr(startAddr), run * ptrSize, firstPtr, run,
+                        classAt(program, startAddr)));
                 i = j;
             } else {
                 i += ptrSize;
             }
         }
+    }
+
+    private static String classAt(Program program, Address vtable) {
+        var sym = program.getSymbolTable().getPrimarySymbol(vtable);
+        if (sym == null) return "";
+        var ns = sym.getParentNamespace();
+        return ns != null && !ns.isGlobal() ? ns.getName(true) : "";
     }
 
     private static long readPtr(byte[] buf, int off, int size, boolean le) {
