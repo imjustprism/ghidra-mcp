@@ -13,6 +13,9 @@ import ghidra.program.model.data.Structure;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.pcode.HighFunctionDBUtil;
 import ghidra.program.model.pcode.HighFunctionDBUtil.ReturnCommitOption;
+import ghidra.program.model.pcode.HighVariable;
+import ghidra.program.model.pcode.PcodeOp;
+import ghidra.program.model.pcode.Varnode;
 import ghidra.program.model.symbol.SourceType;
 import ghidra.util.Msg;
 import ghidra.util.exception.CancelledException;
@@ -155,9 +158,14 @@ public final class RecoveryHandlers {
             if (struct == null) {
                 return "No structure could be inferred from the accesses of '" + name + "'";
             }
+            int refArgs = augmentRefArgs(ctx, program, struct, highVar);
             var sb = new StringBuilder();
             sb.append("# proposed struct ").append(struct.getName())
-                    .append(" (size ").append(struct.getLength()).append(")\n");
+                    .append(" (size ").append(struct.getLength()).append(")");
+            if (refArgs > 0) {
+                sb.append(" — +").append(refArgs).append(" field(s) recovered from base+const call args");
+            }
+            sb.append('\n');
             sb.append("offset\tlength\ttype\tfield\n");
             for (var c : struct.getDefinedComponents()) {
                 sb.append("0x").append(Integer.toHexString(c.getOffset())).append('\t')
@@ -169,6 +177,89 @@ public final class RecoveryHandlers {
         } finally {
             decomp.dispose();
         }
+    }
+
+    private int augmentRefArgs(PluginContext ctx, Program program, Structure struct, HighVariable hv) {
+        var offsets = refArgOffsets(hv);
+        if (offsets.isEmpty()) return 0;
+        var occupied = new java.util.HashSet<Integer>();
+        for (var c : struct.getDefinedComponents()) {
+            for (int i = 0; i < c.getLength(); i++) occupied.add(c.getOffset() + i);
+        }
+        int ptr = program.getDefaultPointerSize();
+        var dt = ptr == 8 ? ghidra.program.model.data.Undefined8DataType.dataType
+                : ghidra.program.model.data.Undefined4DataType.dataType;
+        var toAdd = new java.util.ArrayList<Integer>();
+        for (var off : offsets) {
+            int o = off.intValue();
+            if (o < 0 || o + ptr > struct.getLength()) continue;
+            boolean free = true;
+            for (int i = 0; i < ptr; i++) {
+                if (occupied.contains(o + i)) { free = false; break; }
+            }
+            if (free) toAdd.add(o);
+        }
+        if (toAdd.isEmpty()) return 0;
+        var count = new int[1];
+        ctx.runOnSwingTx(program, "Augment struct with ref-arg fields", () -> {
+            for (int o : toAdd) {
+                try {
+                    struct.replaceAtOffset(o, dt, ptr, "ref_arg_" + Integer.toHexString(o),
+                            "passed by address (&field) to a call");
+                    count[0]++;
+                } catch (RuntimeException e) {
+                    Msg.trace(RecoveryHandlers.class, "replaceAtOffset", e);
+                }
+            }
+            return true;
+        });
+        return count[0];
+    }
+
+    private static java.util.TreeSet<Long> refArgOffsets(HighVariable hv) {
+        var offsets = new java.util.TreeSet<Long>();
+        if (hv == null) return offsets;
+        for (var vn : hv.getInstances()) {
+            for (var it = vn.getDescendants(); it.hasNext(); ) {
+                var op = it.next();
+                int opc = op.getOpcode();
+                if (opc == PcodeOp.CALL || opc == PcodeOp.CALLIND) {
+                    if (op.getInput(0) != vn) offsets.add(0L);
+                } else if (opc == PcodeOp.PTRSUB || opc == PcodeOp.INT_ADD || opc == PcodeOp.PTRADD) {
+                    Long off = addOffset(op, vn);
+                    if (off != null && off >= 0 && feedsCall(op.getOutput())) offsets.add(off);
+                }
+            }
+        }
+        return offsets;
+    }
+
+    private static Long addOffset(PcodeOp op, Varnode base) {
+        if (op.getOpcode() == PcodeOp.PTRADD) {
+            var idx = op.getInput(1);
+            var sz = op.getInput(2);
+            if (op.getInput(0) == base && idx.isConstant() && sz.isConstant()) {
+                return idx.getOffset() * sz.getOffset();
+            }
+            return null;
+        }
+        var a = op.getInput(0);
+        var b = op.getInput(1);
+        if (a == base && b.isConstant()) return b.getOffset();
+        if (b == base && a.isConstant()) return a.getOffset();
+        return null;
+    }
+
+    private static boolean feedsCall(Varnode vn) {
+        if (vn == null) return false;
+        for (var it = vn.getDescendants(); it.hasNext(); ) {
+            var op = it.next();
+            if ((op.getOpcode() == PcodeOp.CALL || op.getOpcode() == PcodeOp.CALLIND)
+                    && op.getInput(0) != vn) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private String runAnalyzer(ghidra.app.services.Analyzer analyzer, String label) {
