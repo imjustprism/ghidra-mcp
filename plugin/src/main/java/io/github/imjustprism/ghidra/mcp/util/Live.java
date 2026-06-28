@@ -63,6 +63,10 @@ public final class Live {
         return le(read(address, 4), 4) & 0xffffffffL;
     }
 
+    public static int readU16(long address) {
+        return (int) (le(read(address, 2), 2) & 0xffff);
+    }
+
     public static long readLong(long address) {
         return le(read(address, 8), 8);
     }
@@ -79,8 +83,75 @@ public final class Live {
         return Double.longBitsToDouble(readLong(address));
     }
 
+    public static float[] readVec3(long address) {
+        return new float[]{readFloat(address), readFloat(address + 4), readFloat(address + 8)};
+    }
+
     public static String readString(long address, int maxLength) {
         var b = read(address, maxLength);
+        int n = 0;
+        while (n < b.length && b[n] != 0) n++;
+        return new String(b, 0, n, StandardCharsets.US_ASCII);
+    }
+
+    public static byte[] tryRead(long address, int length) {
+        try {
+            return read(address, length);
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    public static Integer tryReadInt(long address) {
+        var b = tryRead(address, 4);
+        return b == null || b.length < 4 ? null : (int) le(b, 4);
+    }
+
+    public static Long tryReadUInt(long address) {
+        var b = tryRead(address, 4);
+        return b == null || b.length < 4 ? null : le(b, 4) & 0xffffffffL;
+    }
+
+    public static Integer tryReadU16(long address) {
+        var b = tryRead(address, 2);
+        return b == null || b.length < 2 ? null : (int) (le(b, 2) & 0xffff);
+    }
+
+    public static Long tryReadLong(long address) {
+        var b = tryRead(address, 8);
+        return b == null || b.length < 8 ? null : le(b, 8);
+    }
+
+    public static Long tryReadPtr(long address) {
+        try {
+            int n = pointerSize();
+            var b = tryRead(address, n);
+            return b == null || b.length < n ? null : le(b, n);
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    public static Float tryReadFloat(long address) {
+        var v = tryReadInt(address);
+        return v == null ? null : Float.intBitsToFloat(v);
+    }
+
+    public static Double tryReadDouble(long address) {
+        var v = tryReadLong(address);
+        return v == null ? null : Double.longBitsToDouble(v);
+    }
+
+    public static float[] tryReadVec3(long address) {
+        var x = tryReadFloat(address);
+        var y = tryReadFloat(address + 4);
+        var z = tryReadFloat(address + 8);
+        return x == null || y == null || z == null ? null : new float[]{x, y, z};
+    }
+
+    public static String tryReadString(long address, int maxLength) {
+        var b = tryRead(address, maxLength);
+        if (b == null) return null;
         int n = 0;
         while (n < b.length && b[n] != 0) n++;
         return new String(b, 0, n, StandardCharsets.US_ASCII);

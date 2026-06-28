@@ -96,12 +96,16 @@ public final class Signatures {
             var t = Responses.table(Responses.Fmt.TSV,
                     new String[]{"func", "func_addr", "xref", "str_addr", "matches", "signature"}, cap);
             int found = 0;
+            int strHits = 0;
+            Address firstStr = null;
             var it = listing.getDefinedData(true);
             while (it.hasNext() && found < cap) {
                 var data = it.next();
                 if (data == null || !DataTypes.isStringLike(data)) continue;
                 var sv = data.getValue() != null ? data.getValue().toString() : "";
                 if (!sv.toLowerCase().contains(needle)) continue;
+                strHits++;
+                if (firstStr == null) firstStr = data.getAddress();
                 for (var ref : refMgr.getReferencesTo(data.getAddress())) {
                     var fn = fm.getFunctionContaining(ref.getFromAddress());
                     if (fn == null || !seen.add(fn.getEntryPoint())) continue;
@@ -115,7 +119,11 @@ public final class Signatures {
                     if (++found >= cap) break;
                 }
             }
-            return found == 0 ? "No string-referencing function found for: " + value : t.total(found).build();
+            if (found > 0) return t.total(found).build();
+            return strHits == 0
+                    ? "No defined string contains: " + value
+                    : strHits + " string(s) match \"" + value + "\" (e.g. " + Responses.addr(firstStr)
+                            + ") but none are referenced from within a function";
         });
     }
 

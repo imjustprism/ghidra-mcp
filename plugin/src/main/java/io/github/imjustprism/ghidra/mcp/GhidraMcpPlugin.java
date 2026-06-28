@@ -70,7 +70,7 @@ public final class GhidraMcpPlugin extends Plugin {
             "If set, every request must carry 'Authorization: Bearer <token>'. "
                 + "Pass the same value to the bridge via GHIDRA_TOKEN.");
         options.registerOption(FILE_IO_DIR_OPTION, "", null,
-            "Allow-listed directory for import_memory_dump/export_binary. "
+            "Allow-listed directory for import_memory_dump/export_binary/write_artifact. "
                 + "Empty (default) disables file I/O. Paths must resolve under this directory.");
         try {
             startServer();

@@ -1,9 +1,12 @@
 package io.github.imjustprism.ghidra.mcp.handlers;
 
+import ghidra.program.model.address.Address;
 import ghidra.program.model.address.GlobalNamespace;
 import ghidra.program.model.listing.Function;
+import ghidra.program.model.symbol.ReferenceManager;
 import ghidra.program.model.symbol.Symbol;
 import io.github.imjustprism.ghidra.mcp.analysis.Entropy;
+import io.github.imjustprism.ghidra.mcp.http.Http;
 import io.github.imjustprism.ghidra.mcp.http.Page;
 import io.github.imjustprism.ghidra.mcp.http.RouteTable;
 import io.github.imjustprism.ghidra.mcp.util.DataTypes;
@@ -14,6 +17,7 @@ import io.github.imjustprism.ghidra.mcp.util.Strings;
 
 import java.util.Map;
 import java.util.TreeSet;
+import java.util.regex.Pattern;
 
 public final class ListingHandlers {
 
@@ -136,14 +140,23 @@ public final class ListingHandlers {
 
     public String listImports(Page p, Map<String, String> q) {
         return ctx.withProgram(program -> {
-            var t = Responses.table(p, q, new String[]{"name", "addr"});
+            var rm = program.getReferenceManager();
+            var t = Responses.table(p, q, new String[]{"name", "addr", "iat_slot"});
             var w = new Responses.Window(p);
             for (var s : program.getSymbolTable().getExternalSymbols()) {
                 if (!w.take()) continue;
-                t.row(s.getName(), Responses.addr(s.getAddress()));
+                t.row(s.getName(), Responses.addr(s.getAddress()), iatSlot(rm, s.getAddress()));
             }
             return t.total(w.total()).build();
         });
+    }
+
+    private static String iatSlot(ReferenceManager rm, Address extAddr) {
+        for (var ref : rm.getReferencesTo(extAddr)) {
+            var from = ref.getFromAddress();
+            if (ref.getReferenceType().isData() && from.isMemoryAddress()) return Responses.addr(from);
+        }
+        return "";
     }
 
     public String listExports(Page p, Map<String, String> q) {
@@ -210,9 +223,15 @@ public final class ListingHandlers {
 
     public String listStrings(Page p, Map<String, String> q) {
         var filter = q.get("filter");
+        boolean regex = Http.parseBool(q.get("regex"), false);
+        boolean xrefs = Http.parseBool(q.get("xrefs"), false);
         return ctx.withProgram(program -> {
-            var needle = filter == null || filter.isBlank() ? null : filter.toLowerCase();
-            var t = Responses.table(p, q, new String[]{"addr", "value"});
+            var needle = !regex && filter != null && !filter.isBlank() ? filter.toLowerCase() : null;
+            var pattern = regex && filter != null && !filter.isBlank()
+                    ? Pattern.compile(filter, Pattern.CASE_INSENSITIVE) : null;
+            var t = Responses.table(p, q, xrefs
+                    ? new String[]{"addr", "value", "from", "fn", "ref_type"}
+                    : new String[]{"addr", "value"});
             var w = new Responses.Window(p);
             var it = program.getListing().getDefinedData(true);
             while (it.hasNext()) {
@@ -220,8 +239,27 @@ public final class ListingHandlers {
                 if (data == null || !DataTypes.isStringLike(data)) continue;
                 var value = data.getValue() != null ? data.getValue().toString() : "";
                 if (needle != null && !value.toLowerCase().contains(needle)) continue;
-                if (!w.take()) continue;
-                t.row(Responses.addr(data.getAddress()), Strings.escapeString(value));
+                if (pattern != null && !pattern.matcher(value).find()) continue;
+                var escaped = Strings.escapeString(value);
+                if (!xrefs) {
+                    if (!w.take()) continue;
+                    t.row(Responses.addr(data.getAddress()), escaped);
+                    continue;
+                }
+                var refs = program.getReferenceManager().getReferencesTo(data.getAddress());
+                boolean any = false;
+                while (refs.hasNext()) {
+                    any = true;
+                    var ref = refs.next();
+                    if (!w.take()) continue;
+                    var from = ref.getFromAddress();
+                    var func = program.getFunctionManager().getFunctionContaining(from);
+                    t.row(Responses.addr(data.getAddress()), escaped, Responses.addr(from),
+                            func == null ? "" : func.getName(), ref.getReferenceType().getName());
+                }
+                if (!any && w.take()) {
+                    t.row(Responses.addr(data.getAddress()), escaped, "", "", "");
+                }
             }
             return t.total(w.total()).build();
         });

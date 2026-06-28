@@ -52,9 +52,12 @@ public final class Constraints {
     }
 
     private static void emit(Responses.Table t, Instruction cmp, Instruction jcc, String jmn) {
+        String cmn = cmp.getMnemonicString().toUpperCase();
         String lhs = operand(cmp, 0);
         String rhs = operand(cmp, 1);
-        String op = mapCond(cmp.getMnemonicString().toUpperCase(), jmn);
+        boolean zeroTest = cmn.equals("TEST") && lhs.equals(rhs);
+        String op = mapCond(zeroTest ? "CMP" : cmn, jmn);
+        if (zeroTest) rhs = "0";
         Address target = jcc.getNumOperands() > 0 ? addressOperand(jcc, 0) : null;
         t.row(Responses.addr(cmp.getAddress()), lhs, op, rhs, jmn, target == null ? "" : Responses.addr(target));
     }

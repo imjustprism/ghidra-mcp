@@ -67,8 +67,7 @@ where
             }
             t.strip_prefix("0x")
                 .or_else(|| t.strip_prefix("0X"))
-                .map(|h| u32::from_str_radix(h, 16))
-                .unwrap_or_else(|| t.parse::<u32>())
+                .map_or_else(|| t.parse::<u32>(), |h| u32::from_str_radix(h, 16))
                 .map(Some)
                 .map_err(serde::de::Error::custom)
         }
@@ -458,6 +457,12 @@ impl ToParams for ExportBinary {
     }
 }
 
+impl ToParams for WriteArtifact {
+    fn into_params(self) -> Params {
+        vec![("path", self.path), ("content", self.content)]
+    }
+}
+
 impl ToParams for ApplyGdt {
     fn into_params(self) -> Params {
         vec![("path", self.path)]
@@ -642,6 +647,18 @@ impl ToParams for ListStrings {
         if let Some(f) = self.filter {
             p.push(("filter", f));
         }
+        if self.regex.unwrap_or(false) {
+            p.push(("regex", "1".to_owned()));
+        }
+        if self.xrefs.unwrap_or(false) {
+            p.push(("xrefs", "1".to_owned()));
+        }
+        if let Some(f) = self.fmt {
+            p.push(("fmt", f));
+        }
+        if let Some(prog) = self.program {
+            p.push(("program", prog));
+        }
         p
     }
 }
@@ -771,6 +788,12 @@ impl ToParams for ReadPointerPath {
             p.push(("value_len", v.to_string()));
         }
         p
+    }
+}
+
+impl ToParams for LiveReadStruct {
+    fn into_params(self) -> Params {
+        vec![("address", self.address), ("schema", self.schema)]
     }
 }
 
@@ -991,6 +1014,12 @@ pub struct ExportBinary {
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct WriteArtifact {
+    pub path: String,
+    pub content: String,
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
 pub struct ApplyGdt {
     pub path: String,
 }
@@ -1199,6 +1228,24 @@ pub struct ListStrings {
     pub limit: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub filter: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "de_opt_bool",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub regex: Option<bool>,
+    #[serde(
+        default,
+        deserialize_with = "de_opt_bool",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub xrefs: Option<bool>,
+    /// Output format: tsv (default), csv, json, or verbose.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fmt: Option<String>,
+    /// Target a specific open program by name or sha256 instead of the active one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub program: Option<String>,
 }
 const fn default_strings_limit() -> u32 {
     2000
@@ -1393,6 +1440,12 @@ pub struct ReadPointerPath {
         skip_serializing_if = "Option::is_none"
     )]
     pub value_len: Option<u32>,
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct LiveReadStruct {
+    pub address: String,
+    pub schema: String,
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
@@ -1664,7 +1717,9 @@ where
             if t.is_empty() {
                 return Ok(None);
             }
-            serde_json::from_str(t).map(Some).map_err(serde::de::Error::custom)
+            serde_json::from_str(t)
+                .map(Some)
+                .map_err(serde::de::Error::custom)
         }
     }
 }
@@ -1922,6 +1977,12 @@ pub struct ToolName {
     pub name: String,
 }
 
+#[derive(Deserialize, Serialize, schemars::JsonSchema, Default)]
+pub struct ProbeSnippetArgs {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
 impl ToParams for ProgramName {
     fn into_params(self) -> Params {
         vec![("name", self.name)]
@@ -1929,6 +1990,82 @@ impl ToParams for ProgramName {
 }
 
 const NO_QUERY: &[(); 0] = &[];
+
+const PROBE_SNIPPETS: &[(&str, &str)] = &[
+    (
+        "live_helpers",
+        r#"var rows = new ArrayList<String>();
+Object h = new Object() {
+    long ptr(long a) { Long v = Live.tryReadPtr(a); return v == null ? 0L : v & 0xffffffffL; }
+    long u32(long a) { Long v = Live.tryReadUInt(a); return v == null ? 0L : v; }
+    int u16(long a) { Integer v = Live.tryReadU16(a); return v == null ? 0 : v; }
+    float f32(long a) { Float v = Live.tryReadFloat(a); return v == null ? Float.NaN : v; }
+    String str(long a, int n) { String v = Live.tryReadString(a, n); return v == null ? "" : v; }
+    String hx(long v) { return "0x" + Long.toHexString(v); }
+};"#,
+    ),
+    (
+        "walk_std_tree",
+        r#"long root = 0x00000000L;
+Long first = Live.tryReadPtr(root);
+long node = first == null ? 0L : first & 0xffffffffL;
+while (node != 0) {
+    Long next = Live.tryReadPtr(node + 0x04);
+    Long key = Live.tryReadUInt(node + 0x10);
+    Long value = Live.tryReadPtr(node + 0x14);
+    if (key != null && value != null) println("0x" + Long.toHexString(node) + "\t" + key + "\t0x" + Long.toHexString(value));
+    node = next == null ? 0L : next & 0xffffffffL;
+}"#,
+    ),
+    (
+        "render_bounds",
+        r#"long render = 0x00000000L;
+float[] min = Live.tryReadVec3(render + 0x20);
+float[] max = Live.tryReadVec3(render + 0x2c);
+if (min != null && max != null) {
+    println("render\t0x" + Long.toHexString(render) + "\t"
+            + min[0] + "," + min[1] + "," + min[2] + "\t"
+            + max[0] + "," + max[1] + "," + max[2]);
+}"#,
+    ),
+    (
+        "model_candidates",
+        r#"long object = 0x00000000L;
+for (long off : new long[]{0x54, 0x58, 0x5c, 0xf0, 0x104}) {
+    Long p = Live.tryReadPtr(object + off);
+    if (p == null || p == 0) continue;
+    String s = Live.tryReadString(p, 96);
+    if (s != null && !s.isBlank()) println("0x" + Long.toHexString(object + off) + "\t0x" + Long.toHexString(p) + "\t" + s);
+}"#,
+    ),
+    (
+        "skeleton_records",
+        r#"long skeleton = 0x00000000L;
+Long table = Live.tryReadPtr(skeleton + 0x10);
+Integer count = Live.tryReadU16(skeleton + 0x08);
+if (table != null && count != null) {
+    for (int i = 0; i < count; i++) {
+        long rec = (table & 0xffffffffL) + i * 0x20L;
+        Long name = Live.tryReadPtr(rec);
+        Integer parent = Live.tryReadU16(rec + 0x08);
+        println(i + "\t0x" + Long.toHexString(rec) + "\t" + (parent == null ? -1 : parent)
+                + "\t" + (name == null ? "" : Live.tryReadString(name & 0xffffffffL, 64)));
+    }
+}"#,
+    ),
+    (
+        "tsv_rows",
+        r#"var out = new StringBuilder("addr\tvtable\tname\n");
+for (long object : new long[]{0x00000000L}) {
+    Long vt = Live.tryReadPtr(object);
+    String name = Live.tryReadString(object + 0x100, 64);
+    out.append("0x").append(Long.toHexString(object)).append('\t')
+            .append(vt == null ? "" : "0x" + Long.toHexString(vt)).append('\t')
+            .append(name == null ? "" : name.replace('\t', ' ')).append('\n');
+}
+println(out.toString());"#,
+    ),
+];
 
 impl GhidraServer {
     pub fn new(base: Url, timeout_secs: u64, token: Option<&str>) -> Result<Self, BridgeError> {
@@ -2058,7 +2195,7 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "List imported symbols with pagination",
+        description = "List imported symbols with pagination. Each row includes the IAT slot VA (iat_slot) — the in-memory pointer that call sites read via call qword [iat_slot] — or blank if the import has no resolved slot",
         annotations(read_only_hint = true)
     )]
     async fn list_imports(
@@ -2162,7 +2299,7 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Decompile a function at the given address",
+        description = "Decompile the function at or containing the given address (an interior address resolves to its enclosing function)",
         annotations(read_only_hint = true)
     )]
     async fn decompile_function_by_address(
@@ -2334,7 +2471,7 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Get all references to the specified function by name",
+        description = "Get all references to the specified function by name. For imported/external functions, resolves call sites through the IAT (call qword [__imp_X]) by folding in references to the external symbol and its IAT slot — so Windows imports return their real call sites, not 0",
         annotations(read_only_hint = true)
     )]
     async fn get_function_xrefs(
@@ -2478,6 +2615,20 @@ impl GhidraServer {
             return Err(ErrorData::invalid_params("path is required", None));
         }
         self.post("export_binary", p).await
+    }
+
+    #[tool(
+        description = "Write a UTF-8 artifact file under the plugin's allow-listed File IO Directory, creating parent directories. Use for TSV/JSON probe artifacts without writing ad-hoc file code inside ghidra_eval",
+        annotations(destructive_hint = false)
+    )]
+    async fn write_artifact(
+        &self,
+        Parameters(p): Parameters<WriteArtifact>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if p.path.is_empty() {
+            return Err(ErrorData::invalid_params("path is required", None));
+        }
+        self.post("write_artifact", p).await
     }
 
     #[tool(
@@ -2685,6 +2836,22 @@ impl GhidraServer {
         Parameters(p): Parameters<Page>,
     ) -> Result<CallToolResult, ErrorData> {
         self.get("sections_detailed", p).await
+    }
+
+    #[tool(
+        description = "Detect packer/protector indicators: RWX high-entropy sections and known protector section names (.vlizer=Oreans Code Virtualizer, .vmp=VMProtect, .themida, UPX, ASPack, Enigma, MPRESS, NsPack). Run during intake to spot virtualized/packed binaries",
+        annotations(read_only_hint = true)
+    )]
+    async fn detect_protector(&self) -> Result<CallToolResult, ErrorData> {
+        self.get_bare("detect_protector").await
+    }
+
+    #[tool(
+        description = "Map the boundary of packer/protector sections: control-flow transitions from normal code INTO the protected region (the VM/engine entry points — where virtualized functions hand off to the protector), grouped by engine target with hit counts and source functions, plus the reverse (APIs/callbacks the engine reaches back into). The single best triage for a virtualized/packed binary: shows exactly which functions were virtualized and the shared engine entry they funnel to. Run after detect_protector",
+        annotations(read_only_hint = true)
+    )]
+    async fn analyze_virtualization(&self) -> Result<CallToolResult, ErrorData> {
+        self.get_bare("analyze_virtualization").await
     }
 
     #[tool(
@@ -2953,7 +3120,7 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "List all defined strings in the program with their addresses",
+        description = "List defined strings with addresses. filter is case-insensitive substring by default; regex=true treats filter as a regex; xrefs=true emits one row per reference with from/function/ref_type columns",
         annotations(read_only_hint = true)
     )]
     async fn list_strings(
@@ -3065,6 +3232,23 @@ impl GhidraServer {
             return Err(ErrorData::invalid_params("base is required", None));
         }
         self.get("read_pointer_path", p).await
+    }
+
+    #[tool(
+        description = "Read a typed live memory struct at an absolute dynamic address. schema accepts lines like 'vtable: ptr +0x00', 'pos: vec3 +0x34', 'name: string[64] +0x10', 'raw: bytes[16] +0x80'. Types: ptr,u8/u16/u32/u64,i8/i16/i32/i64,f32/f64,vec3,mat3x4,string[N],bytes[N]. Works with live_attach or dbgeng trace",
+        annotations(read_only_hint = true)
+    )]
+    async fn live_read_struct(
+        &self,
+        Parameters(p): Parameters<LiveReadStruct>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if p.address.is_empty() {
+            return Err(ErrorData::invalid_params("address is required", None));
+        }
+        if p.schema.is_empty() {
+            return Err(ErrorData::invalid_params("schema is required", None));
+        }
+        self.post("live_read_struct", p).await
     }
 
     #[tool(
@@ -3281,7 +3465,7 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Execute arbitrary code inside Ghidra with the FULL Ghidra API AND full live-process access — the universal escape hatch. lang='java' (default) runs a snippet as the body of a GhidraScript.run() (all FlatProgramAPI/GhidraScript members in scope: currentProgram, getFunctionAt, createLabel, setPlateComment, decompile, etc.; println(...) for output). After live_attach, the connector-less LIVE process is in scope via static Live.* helpers: read(addr,len)/write(addr,bytes)/readInt/readUInt/readLong/readPtr/readFloat/readDouble/readString(addr,max)/ptrChain(base,off...)/writeInt/writeFloat/writeBytes/regions()/pid()/pointerSize() — script ANY live logic (AOB scans, struct walks, pointer maps, conditional freezes) combining static RE with live memory. Or pass a full 'public class X extends GhidraScript {...}' for imports/helpers; lang='python' runs PyGhidra if installed. Mutations commit in a transaction; commit=false for a dry run. Compile/runtime errors are returned as text so you can self-correct"
+        description = "Execute arbitrary code inside Ghidra with the FULL Ghidra API AND full live-process access — the universal escape hatch. lang='java' (default) runs a snippet as the body of a GhidraScript.run() (all FlatProgramAPI/GhidraScript members in scope: currentProgram, getFunctionAt, createLabel, setPlateComment, decompile, etc.; println(...) for output). After live_attach, the connector-less LIVE process is in scope via static Live.* helpers: read(addr,len)/write(addr,bytes)/readInt/readU16/readUInt/readLong/readPtr/readFloat/readDouble/readVec3/readString(addr,max)/tryRead*/ptrChain(base,off...)/writeInt/writeFloat/writeBytes/regions()/pid()/pointerSize() — script ANY live logic (AOB scans, struct walks, pointer maps, conditional freezes) combining static RE with live memory. Use live_probe_snippets for reusable tolerant helper bodies. Or pass a full 'public class X extends GhidraScript {...}' for imports/helpers; lang='python' runs PyGhidra if installed. Mutations commit in a transaction; commit=false for a dry run. Compile/runtime errors are returned as text so you can self-correct"
     )]
     async fn ghidra_eval(
         &self,
@@ -3291,6 +3475,38 @@ impl GhidraServer {
             return Err(ErrorData::invalid_params("code is required", None));
         }
         self.post("ghidra_eval", p).await
+    }
+
+    #[tool(
+        description = "Return reusable Java ghidra_eval probe snippets for live memory work. Omit name to list snippets; pass name for code. Includes tolerant Live.tryRead* helpers, tree walking, render/model/skeleton probes, and TSV row scaffolding",
+        annotations(read_only_hint = true)
+    )]
+    async fn live_probe_snippets(
+        &self,
+        Parameters(p): Parameters<ProbeSnippetArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if let Some(name) = p.name.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            if let Some((_, code)) = PROBE_SNIPPETS.iter().find(|(n, _)| *n == name) {
+                return Ok(ok_text(*code));
+            }
+            let names = PROBE_SNIPPETS
+                .iter()
+                .map(|(n, _)| *n)
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(ErrorData::invalid_params(
+                format!("unknown snippet: {name} (available: {names})"),
+                None,
+            ));
+        }
+        let names = PROBE_SNIPPETS
+            .iter()
+            .map(|(name, code)| format!("{name}\t{} chars", code.len()))
+            .collect::<Vec<_>>()
+            .join("\n");
+        Ok(ok_text(format!(
+            "# available live probe snippets\nname\tsize\n{names}"
+        )))
     }
 
     #[tool(
@@ -3590,6 +3806,17 @@ impl GhidraServer {
         Parameters(p): Parameters<AddressPage>,
     ) -> Result<CallToolResult, ErrorData> {
         self.get("function_summary", p).await
+    }
+
+    #[tool(
+        description = "Compact constructor/class-mapping view for a function: extracts decompiler assignments to this/param_N fields, flags vtable-looking writes, and includes referenced strings. Use when function_summary_bundle is too large",
+        annotations(read_only_hint = true)
+    )]
+    async fn function_field_writes(
+        &self,
+        Parameters(p): Parameters<AddressPage>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.get("function_field_writes", p).await
     }
 
     #[tool(
@@ -4296,6 +4523,31 @@ mod tests {
     }
 
     #[test]
+    fn list_strings_emits_regex_xrefs_fmt_and_program() {
+        let p = ListStrings {
+            offset: 3,
+            limit: 7,
+            filter: Some("MagicSlot_.*".to_owned()),
+            regex: Some(true),
+            xrefs: Some(true),
+            fmt: Some("json".to_owned()),
+            program: Some("Alicia.exe".to_owned()),
+        };
+        assert_eq!(
+            p.into_params(),
+            vec![
+                ("offset", "3".to_owned()),
+                ("limit", "7".to_owned()),
+                ("filter", "MagicSlot_.*".to_owned()),
+                ("regex", "1".to_owned()),
+                ("xrefs", "1".to_owned()),
+                ("fmt", "json".to_owned()),
+                ("program", "Alicia.exe".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
     fn page_into_params_emits_offset_and_limit() {
         let p = Page {
             offset: 5,
@@ -4755,6 +5007,36 @@ mod tests {
                 ("address", "0x401000".to_owned()),
                 ("hex", "90 90".to_owned()),
                 ("disassemble", "1".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn write_artifact_emits_path_and_content() {
+        let p = WriteArtifact {
+            path: "artifacts/live.tsv".to_owned(),
+            content: "addr\tvalue\n".to_owned(),
+        };
+        assert_eq!(
+            p.into_params(),
+            vec![
+                ("path", "artifacts/live.tsv".to_owned()),
+                ("content", "addr\tvalue\n".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn live_read_struct_emits_address_and_schema() {
+        let p = LiveReadStruct {
+            address: "0x1000".to_owned(),
+            schema: "pos: vec3 +0x34".to_owned(),
+        };
+        assert_eq!(
+            p.into_params(),
+            vec![
+                ("address", "0x1000".to_owned()),
+                ("schema", "pos: vec3 +0x34".to_owned()),
             ]
         );
     }

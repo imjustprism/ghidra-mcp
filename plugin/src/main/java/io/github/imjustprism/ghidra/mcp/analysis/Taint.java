@@ -13,7 +13,9 @@ import io.github.imjustprism.ghidra.mcp.util.Responses;
 import java.util.ArrayDeque;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.Set;
 
 public final class Taint {
 
@@ -59,6 +61,7 @@ public final class Taint {
 
                 var visited = new HashSet<ghidra.program.model.pcode.Varnode>();
                 var reached = new LinkedHashMap<Address, String>();
+                var stops = new LinkedHashSet<String>();
                 while (!queue.isEmpty() && reached.size() < MAX_REACHED) {
                     var vn = queue.poll();
                     if (!visited.add(vn)) continue;
@@ -66,12 +69,14 @@ public final class Taint {
                         for (var it = vn.getDescendants(); it.hasNext(); ) {
                             var op = it.next();
                             record(program, op, reached);
+                            if (op.getOpcode() == PcodeOp.STORE) noteMemory(program, op, stops);
                             if (op.getOutput() != null) queue.add(op.getOutput());
                         }
                     } else {
                         var def = vn.getDef();
                         if (def != null) {
                             record(program, def, reached);
+                            if (def.getOpcode() == PcodeOp.LOAD) noteMemory(program, def, stops);
                             for (var in : def.getInputs()) {
                                 if (in != null) queue.add(in);
                             }
@@ -88,12 +93,20 @@ public final class Taint {
                 }
                 return "# taint " + (forward ? "forward" : "backward") + " from " + Responses.addr(addr)
                         + " in " + func.getName() + " (intra-procedural; def-use only, not followed through memory"
-                        + (capped ? "; capped at " + MAX_REACHED : "") + ")\n"
+                        + (capped ? "; capped at " + MAX_REACHED : "")
+                        + (stops.isEmpty() ? "" : "; stops at memory: " + String.join(", ", stops)) + ")\n"
                         + t.total(w.total()).build();
             } finally {
                 decomp.dispose();
             }
         });
+    }
+
+    private static void noteMemory(Program program, PcodeOp op, Set<String> stops) {
+        var ptr = op.getInput(1);
+        if (ptr == null || !ptr.isAddress()) return;
+        var sym = program.getSymbolTable().getPrimarySymbol(ptr.getAddress());
+        if (sym != null) stops.add(sym.getName());
     }
 
     private static void record(Program program, PcodeOp op, Map<Address, String> reached) {

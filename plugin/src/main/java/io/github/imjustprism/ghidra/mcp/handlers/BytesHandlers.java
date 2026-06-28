@@ -14,6 +14,7 @@ import io.github.imjustprism.ghidra.mcp.util.PluginContext;
 import io.github.imjustprism.ghidra.mcp.util.Responses;
 import io.github.imjustprism.ghidra.mcp.util.Strings;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
 public final class BytesHandlers {
@@ -37,6 +38,7 @@ public final class BytesHandlers {
                 Http.parseBool(p.get("disassemble"), false)));
         routes.postForm("/nop_range", p -> nopRange(p.get("address"), Http.parseIntOrDefault(p.get("length"), 0)));
         routes.postForm("/export_binary", p -> exportBinary(p.get("path")));
+        routes.postForm("/write_artifact", p -> writeArtifact(p.get("path"), p.get("content")));
         routes.postForm("/save_program", p -> saveProgram());
         routes.postForm("/xor_decrypt", p -> xorDecrypt(p.get("address"), Http.parseIntOrDefault(p.get("length"), 0), p.get("key")));
         routes.postForm("/import_memory_dump", p -> importMemoryDump(p.get("address"), p.get("path")));
@@ -329,6 +331,24 @@ public final class BytesHandlers {
         } catch (Exception e) {
             Msg.error(ctx.logOwner(), "exportBinary failed", e);
             return "Export error: " + e.getClass().getSimpleName() + ": " + e.getMessage();
+        }
+    }
+
+    public String writeArtifact(String path, String content) {
+        if (path == null || path.isBlank()) throw new IllegalArgumentException("Path is required");
+        var out = requireAllowedPath(path);
+        try {
+            var parent = out.getParentFile();
+            if (parent != null && !parent.exists() && !parent.mkdirs()) {
+                throw new IllegalStateException("Failed to create parent directory: " + parent);
+            }
+            var text = content == null ? "" : content;
+            var bytes = text.getBytes(StandardCharsets.UTF_8);
+            java.nio.file.Files.write(out.toPath(), bytes);
+            return "Wrote " + bytes.length + " bytes to " + out.getAbsolutePath();
+        } catch (Exception e) {
+            Msg.error(ctx.logOwner(), "writeArtifact failed", e);
+            throw new IllegalStateException("Write failed: " + e.getMessage(), e);
         }
     }
 

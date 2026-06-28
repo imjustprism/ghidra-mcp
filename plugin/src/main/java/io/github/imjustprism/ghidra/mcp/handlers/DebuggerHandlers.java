@@ -42,6 +42,7 @@ import io.github.imjustprism.ghidra.mcp.util.ScanValues;
 
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -56,6 +57,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Pattern;
 
 public final class DebuggerHandlers {
 
@@ -100,6 +102,7 @@ public final class DebuggerHandlers {
     });
     private volatile ScheduledExecutorService freezeTimer;
     private volatile String lastLaunch = "";
+    private volatile long launchStartMs;
     private volatile TraceRmiLaunchOffer.LaunchResult lastResult;
     private volatile LiveAnchor anchor;
 
@@ -143,6 +146,7 @@ public final class DebuggerHandlers {
                 q -> readMemory(q.get("address"), parseLen(q.get("length"))));
         routes.getQuery("/read_pointer_path", q -> readPointerPath(q.get("base"), q.get("offsets"),
                 Math.min(Math.max(Http.parseIntOrDefault(q.get("value_len"), 0), 0), 65536)));
+        routes.postForm("/live_read_struct", this::liveReadStruct);
         routes.getQuery("/debugger_list_breakpoints", q -> breakpoints(q));
         routes.getQuery("/debugger_translate_static_to_dynamic",
                 q -> staticToDynamic(q.get("address")));
@@ -317,6 +321,9 @@ public final class DebuggerHandlers {
 
     private static final java.util.regex.Pattern PID_PATH =
             java.util.regex.Pattern.compile("Processes\\[(\\d+)]");
+    private static final Pattern STRUCT_FIELD =
+            Pattern.compile("\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*[:=]\\s*([A-Za-z0-9_]+)"
+                    + "(?:\\[(\\d+)])?\\s*(?:\\+|@)\\s*(0x[0-9a-fA-F]+|\\d+)\\s*");
 
     private Integer livePid(Trace trace) {
         var thread = dbg.getCurrentThread();
@@ -777,7 +784,12 @@ public final class DebuggerHandlers {
 
     private String status() {
         if (ctx.service(DebuggerTraceManagerService.class) == null) return NO_DEBUGGER;
-        if (!lastLaunch.isBlank() && dbg.getCurrentTrace() == null) return lastLaunch;
+        if (!lastLaunch.isBlank() && dbg.getCurrentTrace() == null) {
+            if (!lastLaunch.startsWith("launching")) return lastLaunch;
+            long secs = (System.currentTimeMillis() - launchStartMs) / 1000;
+            return lastLaunch + " (" + secs + "s elapsed; auto-diagnoses at " + (LAUNCH_TIMEOUT_MS / 1000)
+                    + "s — if it stalls, debugger_backend_log shows the connector's own error)";
+        }
         var t = dbg.getCurrentTrace();
         if (t == null) return NO_SESSION;
         var sb = new StringBuilder(256);
@@ -809,6 +821,7 @@ public final class DebuggerHandlers {
     }
 
     private String modules(java.util.Map<String, String> q) {
+        if (anchor != null && dbg.getCurrentTrace() == null) return liveModules(q);
         var trace = requireTrace();
         long snap = dbg.getCurrentSnap();
         var t = Responses.table(q, new String[]{"name", "base", "length"}, 16);
@@ -973,6 +986,33 @@ public final class DebuggerHandlers {
         return sb.append('\n').toString();
     }
 
+    private String liveReadStruct(Map<String, String> q) {
+        var address = q.get("address");
+        var schema = q.get("schema");
+        if (address == null || address.isBlank()) throw new IllegalArgumentException("address is required");
+        if (schema == null || schema.isBlank()) throw new IllegalArgumentException("schema is required");
+        var lc = liveCtx();
+        var program = ctx.currentProgram();
+        int ptr = program != null ? program.getDefaultPointerSize() : lc.space().getPointerSize();
+        var fields = parseStructSchema(schema, ptr);
+        long snap = lc.trace() != null ? liveSnap(lc.trace()) : 0;
+        var base = lc.space().getAddress(parseOffset(address));
+        var t = Responses.table(q, new String[]{"field", "type", "offset", "address", "value"}, fields.size());
+        for (var f : fields) {
+            Address at;
+            try {
+                at = base.add(f.offset());
+            } catch (RuntimeException e) {
+                throw new IllegalArgumentException("field out of address space: " + f.name());
+            }
+            var data = readScanChunk(lc, snap, at, f.size(), lc.pid());
+            t.row(f.name(), f.type(), "0x" + Long.toHexString(f.offset()), Responses.addr(at),
+                    data == null ? "?" : data.length < f.size()
+                            ? "short:" + Bufs.hex(data) : decodeStructField(f, data, lc.bigEndian(), ptr));
+        }
+        return t.build();
+    }
+
     private String breakpoints(java.util.Map<String, String> q) {
         var t = Responses.table(q, new String[]{"address", "name", "kinds", "length"}, 8);
         for (LogicalBreakpoint b : dbg.getAllBreakpoints()) {
@@ -981,9 +1021,22 @@ public final class DebuggerHandlers {
         return t.build();
     }
 
+    private Long connectorlessSlide(ghidra.program.model.listing.Program prog) {
+        var a = anchor;
+        if (prog == null || a == null) return null;
+        var mods = rpm.modules(a.pid());
+        if (mods.isEmpty()) return null;
+        return mainModuleBase(mods, prog.getName()) - prog.getImageBase().getOffset();
+    }
+
     private String staticToDynamic(String address) {
-        var trace = requireTrace();
         var prog = ctx.currentProgram();
+        if (anchor != null && dbg.getCurrentTrace() == null) {
+            var slide = connectorlessSlide(prog);
+            if (slide == null) return "No live main-module base for connector-less translation";
+            return "0x" + Long.toHexString(staticAddr(address).getOffset() + slide);
+        }
+        var trace = requireTrace();
         var sa = staticAddr(address);
         var da = dbg.translateStaticToDynamic(sa);
         if (da == null && prog != null && prog.getMemory().contains(sa)) {
@@ -994,8 +1047,15 @@ public final class DebuggerHandlers {
     }
 
     private String dynamicToStatic(String address) {
-        var trace = requireTrace();
         var prog = ctx.currentProgram();
+        if (anchor != null && dbg.getCurrentTrace() == null) {
+            var slide = connectorlessSlide(prog);
+            if (slide == null) return "No live main-module base for connector-less translation";
+            var cand = prog.getImageBase().getNewAddress(parseOffset(address) - slide);
+            return prog.getMemory().contains(cand)
+                    ? Responses.addr(cand) : "No mapping for dynamic address " + address;
+        }
+        var trace = requireTrace();
         var da = trace.getBaseLanguage().getDefaultSpace().getAddress(parseOffset(address));
         var sa = safeToStatic(da);
         if (sa == null && prog != null) {
@@ -1136,6 +1196,7 @@ public final class DebuggerHandlers {
         preflightPid(resolved);
         closeStaleResult();
         lastLaunch = "launching '" + offerName + "'...";
+        launchStartMs = System.currentTimeMillis();
         var launcher = new Thread(() -> runLaunch(offerName, theOffer, configurator(theOffer, resolved)),
                 "ghidra-mcp-launch");
         launcher.setDaemon(true);
@@ -1836,6 +1897,97 @@ public final class DebuggerHandlers {
         if (s.type == ScanValues.Type.STRING || s.type == ScanValues.Type.BYTES) return Bufs.hex(b);
         double d = ScanValues.decodeNumber(s.type, b, s.bigEndian);
         return d == Math.rint(d) ? Long.toString((long) d) : Double.toString(d);
+    }
+
+    private record StructField(String name, String type, int size, long offset) {}
+
+    private static List<StructField> parseStructSchema(String schema, int ptr) {
+        var out = new ArrayList<StructField>();
+        for (var raw : schema.split("[\\r\\n,]+")) {
+            var line = raw.trim();
+            if (line.isEmpty()) continue;
+            var m = STRUCT_FIELD.matcher(line);
+            if (!m.matches()) {
+                throw new IllegalArgumentException("invalid schema field: " + line);
+            }
+            var type = m.group(2).toLowerCase();
+            int size = structFieldSize(type, m.group(3), ptr);
+            out.add(new StructField(m.group(1), type, size, Http.parseFlexibleLong(m.group(4), 0)));
+        }
+        if (out.isEmpty()) throw new IllegalArgumentException("schema has no fields");
+        return out;
+    }
+
+    private static int structFieldSize(String type, String len, int ptr) {
+        return switch (type) {
+            case "ptr" -> ptr;
+            case "u8", "i8" -> 1;
+            case "u16", "i16" -> 2;
+            case "u32", "i32", "f32" -> 4;
+            case "u64", "i64", "f64" -> 8;
+            case "vec3" -> 12;
+            case "mat3x4" -> 48;
+            case "string", "bytes" -> {
+                if (len == null) throw new IllegalArgumentException(type + " fields need [length]");
+                int n = Integer.parseInt(len);
+                if (n <= 0 || n > 65536) throw new IllegalArgumentException(type + " length must be 1..65536");
+                yield n;
+            }
+            default -> throw new IllegalArgumentException("unsupported struct field type: " + type);
+        };
+    }
+
+    private static String decodeStructField(StructField f, byte[] b, boolean bigEndian, int ptr) {
+        return switch (f.type()) {
+            case "ptr" -> "0x" + Long.toHexString(unsigned(b, ptr, bigEndian));
+            case "u8", "u16", "u32", "u64" -> Long.toUnsignedString(unsigned(b, f.size(), bigEndian));
+            case "i8", "i16", "i32", "i64" -> Long.toString(signed(b, f.size(), bigEndian));
+            case "f32" -> Float.toString(Float.intBitsToFloat((int) unsigned(b, 4, bigEndian)));
+            case "f64" -> Double.toString(Double.longBitsToDouble(unsigned(b, 8, bigEndian)));
+            case "vec3" -> Float.toString(f32(b, 0, bigEndian)) + ","
+                    + f32(b, 4, bigEndian) + "," + f32(b, 8, bigEndian);
+            case "mat3x4" -> mat3x4(b, bigEndian);
+            case "string" -> cString(b);
+            case "bytes" -> Bufs.hex(b);
+            default -> "?";
+        };
+    }
+
+    private static long unsigned(byte[] b, int n, boolean bigEndian) {
+        long v = 0;
+        int limit = Math.min(n, b.length);
+        if (bigEndian) {
+            for (int i = 0; i < limit; i++) v = (v << 8) | (b[i] & 0xffL);
+        } else {
+            for (int i = limit - 1; i >= 0; i--) v = (v << 8) | (b[i] & 0xffL);
+        }
+        return v;
+    }
+
+    private static long signed(byte[] b, int n, boolean bigEndian) {
+        long v = unsigned(b, n, bigEndian);
+        int shift = 64 - n * 8;
+        return (v << shift) >> shift;
+    }
+
+    private static float f32(byte[] b, int off, boolean bigEndian) {
+        var slice = Arrays.copyOfRange(b, off, off + 4);
+        return Float.intBitsToFloat((int) unsigned(slice, 4, bigEndian));
+    }
+
+    private static String mat3x4(byte[] b, boolean bigEndian) {
+        var sb = new StringBuilder();
+        for (int i = 0; i < 12; i++) {
+            if (i > 0) sb.append(',');
+            sb.append(f32(b, i * 4, bigEndian));
+        }
+        return sb.toString();
+    }
+
+    private static String cString(byte[] b) {
+        int n = 0;
+        while (n < b.length && b[n] != 0) n++;
+        return new String(b, 0, n, StandardCharsets.US_ASCII);
     }
 
     private static int step(ScanValues.Type t) {

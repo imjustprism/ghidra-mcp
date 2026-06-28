@@ -56,11 +56,11 @@ MCP server for Ghidra. Rust bridge + Ghidra Java plugin. Wires any MCP client (C
 | Server Port | `8080` |
 | Bind Address | `127.0.0.1` |
 | Auth Token | empty (auth disabled) |
-| File IO Directory | empty (file I/O disabled) |
+| File IO Directory | empty (import/export/write_artifact disabled) |
 
 ## Tools
 
-181 tools total.
+187 tools total.
 
 Every paginated read tool accepts an optional `fmt` argument — `tsv` (default), `csv`, `json`, or `verbose` — alongside `offset`/`limit`, plus an optional `program` (open program name or sha256) to target a specific open program instead of the active one (the server honors `program` on every endpoint).
 
@@ -75,12 +75,14 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 | `list_scripts` | available Ghidra scripts (.java/.py); read-only discovery |
 | `list_segments` | memory segments |
 | `list_sections_detailed` | sections + RWX + entropy |
-| `list_imports` | imported symbols |
+| `detect_protector` | packer/protector indicators (RWX high-entropy + known section names) |
+| `analyze_virtualization` | protector-boundary map: VM/engine entry points + reverse calls |
+| `list_imports` | imported symbols (with IAT slot VA) |
 | `list_exports` | exported symbols |
 | `list_namespaces` | namespaces |
 | `list_data_items` | defined data |
 | `list_entry_points` | entry points |
-| `list_strings` | defined strings |
+| `list_strings` | defined strings, optional regex and xrefs |
 | `search_functions_by_name` | substring match |
 | `get_current_address` | cursor address |
 | `get_current_function` | cursor function |
@@ -108,7 +110,7 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 </details>
 
 <details>
-<summary><b>Xrefs / CFG</b> (22)</summary>
+<summary><b>Xrefs / CFG</b> (23)</summary>
 
 | tool | purpose |
 | --- | --- |
@@ -123,6 +125,7 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 | `callgraph` | Mermaid call graph (callees/callers/both, depth + max_nodes bounded) |
 | `function_cfg` | Mermaid control-flow graph of one function (blocks + flow-typed edges) |
 | `function_summary_bundle` | one-call context pack (decompile + callers + callees + strings) |
+| `function_field_writes` | compact field/vtable-write summary plus strings |
 | `xref_graph` | Mermaid one-hop reference graph around an address |
 | `xref_graph_html` | self-contained interactive HTML reference graph (pan/zoom/hover) |
 | `namespace_graph` | Mermaid namespace/class hierarchy |
@@ -138,7 +141,7 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 </details>
 
 <details>
-<summary><b>Bytes / patching</b> (11)</summary>
+<summary><b>Bytes / patching</b> (12)</summary>
 
 | tool | purpose |
 | --- | --- |
@@ -152,6 +155,7 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 | `xor_decrypt` | XOR a range |
 | `import_memory_dump` | load bytes from file |
 | `export_binary` | dump program |
+| `write_artifact` | write allow-listed UTF-8 TSV/JSON/text artifacts |
 | `save_program` | persist renames/comments/patches to the project |
 
 </details>
@@ -212,13 +216,14 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 </details>
 
 <details>
-<summary><b>Self-driving RE</b> (6)</summary>
+<summary><b>Self-driving RE</b> (7)</summary>
 
 | tool | purpose |
 | --- | --- |
 | `function_completeness` | score one function 0-100 with a breakdown |
 | `find_undocumented` | functions ranked least-documented first (work queue) |
 | `ghidra_eval` | run arbitrary Java/Python with the full Ghidra API + live-process access |
+| `live_probe_snippets` | reusable Java snippets for tolerant live probes |
 | `refine_function` | re-analyze + retype one function and report what changed |
 | `analysis_note` | record a freeform analysis note (optionally at an address) |
 | `analysis_notes` | list recorded analysis notes |
@@ -321,7 +326,7 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 </details>
 
 <details>
-<summary><b>Live RE / CheatEngine-style</b> (20)</summary>
+<summary><b>Live RE / CheatEngine-style</b> (21)</summary>
 
 | tool | purpose |
 | --- | --- |
@@ -345,6 +350,7 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 | `scan_results` | list candidates + static addrs |
 | `scan_close` | free a scan session |
 | `read_pointer_path` | resolve a multi-level pointer chain (base + hex offsets) |
+| `live_read_struct` | read typed live-memory fields from a small schema |
 | `pointer_scan` | reverse-scan the image for pointers into a target (feeds read_pointer_path) |
 
 </details>

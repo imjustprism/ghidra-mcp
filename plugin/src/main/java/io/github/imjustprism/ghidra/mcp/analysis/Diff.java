@@ -46,7 +46,7 @@ public final class Diff {
                         / Math.max(ma.instructions(), mb.instructions());
         int score = (int) Math.round(100 * (0.6 * mnem + 0.25 * calls + 0.15 * size));
 
-        var t = Responses.table(q, new String[]{"metric", "value"}, 10);
+        var t = Responses.table(q, new String[]{"metric", "value"}, 12);
         t.row("function_a", funcA.getName() + " (" + program.getName() + ")");
         t.row("function_b", funcB.getName() + " (" + programB.getName() + ")");
         t.row("score", score + "/100");
@@ -57,6 +57,12 @@ public final class Diff {
         t.row("size_ratio", pct(size) + "%");
         t.row("calls_a", String.join(",", ma.calls()));
         t.row("calls_b", String.join(",", mb.calls()));
+        var onlyA = new LinkedHashSet<>(ma.calls());
+        onlyA.removeAll(mb.calls());
+        var onlyB = new LinkedHashSet<>(mb.calls());
+        onlyB.removeAll(ma.calls());
+        t.row("calls_only_a", String.join(",", onlyA));
+        t.row("calls_only_b", String.join(",", onlyB));
         return t.build();
     }
 

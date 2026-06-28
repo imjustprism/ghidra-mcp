@@ -1,11 +1,15 @@
 package io.github.imjustprism.ghidra.mcp.handlers;
 
 import ghidra.app.services.CodeViewerService;
+import ghidra.program.model.address.Address;
 import ghidra.program.model.block.BasicBlockModel;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.Program;
+import ghidra.program.model.symbol.Reference;
+import ghidra.program.model.symbol.ReferenceIterator;
 import ghidra.util.task.ConsoleTaskMonitor;
 import io.github.imjustprism.ghidra.mcp.analysis.DecompileMinimal;
+import io.github.imjustprism.ghidra.mcp.analysis.FieldWrites;
 import io.github.imjustprism.ghidra.mcp.http.Page;
 import io.github.imjustprism.ghidra.mcp.http.RouteTable;
 import io.github.imjustprism.ghidra.mcp.util.Addresses;
@@ -42,6 +46,7 @@ public final class FunctionHandlers {
         routes.getQuery("/function_string_refs", q -> functionStringRefs(q.get("address"), Page.from(q), q));
         routes.getQuery("/function_stack_frame", q -> functionStackFrame(q.get("address"), q));
         routes.getQuery("/function_summary", q -> functionSummary(q.get("address"), q));
+        routes.getQuery("/function_field_writes", q -> functionFieldWrites(q.get("address"), q));
     }
 
     public String functionSummary(String addr, Map<String, String> q) {
@@ -57,6 +62,23 @@ public final class FunctionHandlers {
             sb.append("=== callees ===\n").append(section(() -> calleesTable(func, p, q))).append('\n');
             sb.append("=== strings ===\n").append(section(() -> stringRefsTable(program, func, p, q)));
             return sb.toString();
+        });
+    }
+
+    public String functionFieldWrites(String addr, Map<String, String> q) {
+        return ctx.withAddress(addr, (program, a) -> {
+            var func = Addresses.functionAtOrContaining(program, a);
+            if (func == null) throw new IllegalArgumentException("No function at " + addr);
+            var p = Page.from(q);
+            var writes = FieldWrites.extract(DecompileCache.decompile(program, func));
+            var t = Responses.table(p, q, new String[]{"kind", "offset", "target", "value"});
+            var w = new Responses.Window(p);
+            for (var r : writes) {
+                if (!w.take()) continue;
+                t.row(r.kind(), r.offset(), r.lhs(), r.rhs());
+            }
+            return "=== field_writes ===\n" + t.total(w.total()).build()
+                    + "=== strings ===\n" + stringRefsTable(program, func, p, q);
         });
     }
 
@@ -183,22 +205,39 @@ public final class FunctionHandlers {
         if (name == null || name.isBlank()) throw new IllegalArgumentException("Function name is required");
         return ctx.withProgram(program -> {
             var fm = program.getFunctionManager();
+            var rm = program.getReferenceManager();
             var t = Responses.table(p, q, new String[]{"from", "fn", "type"});
             var w = new Responses.Window(p);
+            var seen = new java.util.HashSet<Address>();
             for (var func : fm.getFunctions(true)) {
-                if (!func.getName().equals(name)) continue;
-                var it = program.getReferenceManager().getReferencesTo(func.getEntryPoint());
-                while (it.hasNext()) {
-                    var ref = it.next();
-                    if (!w.take()) continue;
+                if (func.getName().equals(name)) collectRefs(program, rm.getReferencesTo(func.getEntryPoint()), seen, t, w);
+            }
+            for (var s : program.getSymbolTable().getExternalSymbols()) {
+                if (!s.getName().equals(name)) continue;
+                for (var ref : rm.getReferencesTo(s.getAddress())) {
                     var from = ref.getFromAddress();
-                    var caller = fm.getFunctionContaining(from);
-                    t.row(Responses.addr(from), caller != null ? caller.getName() : "",
-                          ref.getReferenceType().getName());
+                    if (ref.getReferenceType().isData() && from.isMemoryAddress()) {
+                        collectRefs(program, rm.getReferencesTo(from), seen, t, w);
+                    } else {
+                        addRow(program, ref, seen, t, w);
+                    }
                 }
             }
             return t.total(w.total()).build();
         });
+    }
+
+    private static void collectRefs(Program program, ReferenceIterator refs,
+                                    java.util.Set<Address> seen, Responses.Table t, Responses.Window w) {
+        while (refs.hasNext()) addRow(program, refs.next(), seen, t, w);
+    }
+
+    private static void addRow(Program program, Reference ref, java.util.Set<Address> seen,
+                               Responses.Table t, Responses.Window w) {
+        var from = ref.getFromAddress();
+        if (!seen.add(from) || !w.take()) return;
+        var caller = program.getFunctionManager().getFunctionContaining(from);
+        t.row(Responses.addr(from), caller != null ? caller.getName() : "", ref.getReferenceType().getName());
     }
 
     public String listCallers(String addr, Page p, Map<String, String> q) {
@@ -213,7 +252,20 @@ public final class FunctionHandlers {
             if (!w.take()) continue;
             t.row(f.getName(), Responses.addr(f.getEntryPoint()));
         }
-        return t.total(w.total()).build();
+        var body = t.total(w.total()).build();
+        if (w.total() != 0) return body;
+        long dataRefs = addressTakenRefs(func);
+        if (dataRefs == 0) return body;
+        return body + "# 0 direct callers, but the entry address is taken as data " + dataRefs
+                + "x — likely reached indirectly (function pointer / vtable / callback)\n";
+    }
+
+    private static long addressTakenRefs(Function func) {
+        long n = 0;
+        for (var ref : func.getProgram().getReferenceManager().getReferencesTo(func.getEntryPoint())) {
+            if (ref.getReferenceType().isData()) n++;
+        }
+        return n;
     }
 
     public String listCallees(String addr, Page p, Map<String, String> q) {
