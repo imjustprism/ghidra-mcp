@@ -4066,7 +4066,7 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Find call sites of runtime API-resolution functions (GetProcAddress, LoadLibrary*, GetModuleHandle*, Ldr*, dlopen/dlsym). Reports each site, its calling function, and which resolver — surfaces where a program resolves APIs dynamically (a common malware/evasion pattern). Pairs with find_api_hashes",
+        description = "Find call sites of runtime API-resolution functions (GetProcAddress, LoadLibrary*, GetModuleHandle*, Ldr*, dlopen/dlsym). Reports each site, its calling function, the resolver, and the api column — the resolved name string recovered from the LEA of the name argument (RDX for GetProcAddress, RCX for LoadLibrary/GetModuleHandle) when statically present. Surfaces where and what a program resolves dynamically (a common malware/evasion pattern). Pairs with find_api_hashes",
         annotations(read_only_hint = true)
     )]
     async fn find_dynamic_api_resolution(
