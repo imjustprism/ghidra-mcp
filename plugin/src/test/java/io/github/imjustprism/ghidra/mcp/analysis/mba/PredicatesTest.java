@@ -46,6 +46,18 @@ class PredicatesTest {
     }
 
     @Test
+    void characterComparisonAgainstConstantIsNotOpaque() {
+        // v0 == 91 ('[') is a genuine branch; the constant must enter the probe set
+        // or it reads as ALWAYS_FALSE. Regression for the URL-parser false positives.
+        assertEquals(Predicates.Verdict.VARIABLE,
+                Predicates.classify(new Predicate.Cmp(Predicate.Kind.EQ, X, c(91)), 1));
+        assertEquals(Predicates.Verdict.VARIABLE,
+                Predicates.classify(new Predicate.Cmp(Predicate.Kind.NE, X, c(58)), 1));
+        assertEquals(Predicates.Verdict.VARIABLE,
+                Predicates.classify(new Predicate.Cmp(Predicate.Kind.ULT, X, c(47)), 1));
+    }
+
+    @Test
     void booleanCombinatorsEvaluate() {
         // (x == x) || (x <s y)  -> always true; !(x == x) -> always false
         var tru = new Predicate.Cmp(Predicate.Kind.EQ, X, X);

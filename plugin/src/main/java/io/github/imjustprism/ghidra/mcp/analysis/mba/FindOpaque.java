@@ -39,7 +39,9 @@ public final class FindOpaque {
                     t.row(Responses.addr(op.getSeqnum().getTarget()), verdict, Predicate.render(ex.pred()));
                 }
                 return "# opaque-predicate scan of " + func.getName() + " — " + branches
-                        + " conditional branch(es), " + opaque + " opaque\n" + t.total(opaque).build();
+                        + " conditional branch(es), " + opaque + " opaque (heuristic: probe-based over"
+                        + " the compared constants; confirm load-bearing hits with emulation/SMT)\n"
+                        + t.total(opaque).build();
             } finally {
                 decomp.dispose();
             }
