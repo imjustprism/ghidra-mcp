@@ -59,4 +59,13 @@ class LinearMbaTest {
         var nonLinear = new MbaExpr.Mul(X, Y);
         assertSame(nonLinear, LinearMba.simplify(nonLinear, 2));
     }
+
+    @Test
+    void doesNotExpandAlreadySimpleBitwiseExpression() {
+        var xor = new MbaExpr.Xor(X, Y);
+        var result = LinearMba.simplify(xor, 2);
+
+        assertTrue(LinearMba.equivalent(result, xor, 2));
+        assertTrue(LinearMba.nodeCount(result) <= LinearMba.nodeCount(xor));
+    }
 }

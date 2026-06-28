@@ -47,7 +47,23 @@ public final class LinearMba {
             coeff[v] = constant - signature[v] - sub;
         }
         var result = build(constant, coeff, nvars);
-        return equivalent(result, expr, nvars) ? result : expr;
+        if (!equivalent(result, expr, nvars)) return expr;
+        return nodeCount(result) < nodeCount(expr) ? result : expr;
+    }
+
+    public static int nodeCount(MbaExpr e) {
+        return switch (e) {
+            case MbaExpr.Var v -> 1;
+            case MbaExpr.Const c -> 1;
+            case MbaExpr.Not n -> 1 + nodeCount(n.a());
+            case MbaExpr.Neg n -> 1 + nodeCount(n.a());
+            case MbaExpr.And b -> 1 + nodeCount(b.a()) + nodeCount(b.b());
+            case MbaExpr.Or b -> 1 + nodeCount(b.a()) + nodeCount(b.b());
+            case MbaExpr.Xor b -> 1 + nodeCount(b.a()) + nodeCount(b.b());
+            case MbaExpr.Add b -> 1 + nodeCount(b.a()) + nodeCount(b.b());
+            case MbaExpr.Sub b -> 1 + nodeCount(b.a()) + nodeCount(b.b());
+            case MbaExpr.Mul b -> 1 + nodeCount(b.a()) + nodeCount(b.b());
+        };
     }
 
     private static MbaExpr build(long constant, long[] coeff, int nvars) {
