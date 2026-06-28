@@ -3754,6 +3754,20 @@ impl GhidraServer {
     }
 
     #[tool(
+        description = "Simplify the arithmetic/bitwise expression computed at an instruction address by recovering its linear mixed-boolean-arithmetic (MBA) normal form from high P-Code. Point at an INT_ADD/SUB/MULT/AND/OR/XOR/NEGATE site; reports the original and simplified expression plus the variable mapping. Reduces obfuscated identities like (x^y)+2*(x&y) to x+y. Guarded by an equivalence check (declines non-linear / >4-variable expressions rather than risk a wrong result)",
+        annotations(read_only_hint = true)
+    )]
+    async fn simplify_expression(
+        &self,
+        Parameters(p): Parameters<Address>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if p.address.trim().is_empty() {
+            return Err(ErrorData::invalid_params("address is required", None));
+        }
+        self.get("simplify_expression", p).await
+    }
+
+    #[tool(
         description = "Decompile a function and strip cosmetic noise: drop (int)/(uint)/(longlong) casts on iVar/uVar/param_/local_ identifiers, remove decompiler WARNING comment blocks, collapse blank lines. Anything not matching these templates passes through unchanged",
         annotations(read_only_hint = true)
     )]
