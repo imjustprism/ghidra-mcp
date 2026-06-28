@@ -1,15 +1,14 @@
 package io.github.imjustprism.ghidra.mcp.handlers;
 
-import ghidra.program.model.address.Address;
 import ghidra.program.model.address.GlobalNamespace;
 import ghidra.program.model.listing.Function;
-import ghidra.program.model.symbol.ReferenceManager;
 import ghidra.program.model.symbol.Symbol;
 import io.github.imjustprism.ghidra.mcp.analysis.Entropy;
 import io.github.imjustprism.ghidra.mcp.http.Http;
 import io.github.imjustprism.ghidra.mcp.http.Page;
 import io.github.imjustprism.ghidra.mcp.http.RouteTable;
 import io.github.imjustprism.ghidra.mcp.util.DataTypes;
+import io.github.imjustprism.ghidra.mcp.util.Imports;
 import io.github.imjustprism.ghidra.mcp.util.PluginContext;
 import io.github.imjustprism.ghidra.mcp.util.Programs;
 import io.github.imjustprism.ghidra.mcp.util.Responses;
@@ -140,23 +139,14 @@ public final class ListingHandlers {
 
     public String listImports(Page p, Map<String, String> q) {
         return ctx.withProgram(program -> {
-            var rm = program.getReferenceManager();
             var t = Responses.table(p, q, new String[]{"name", "addr", "iat_slot"});
             var w = new Responses.Window(p);
             for (var s : program.getSymbolTable().getExternalSymbols()) {
                 if (!w.take()) continue;
-                t.row(s.getName(), Responses.addr(s.getAddress()), iatSlot(rm, s.getAddress()));
+                t.row(s.getName(), Responses.addr(s.getAddress()), Imports.iatSlot(program, s.getAddress()));
             }
             return t.total(w.total()).build();
         });
-    }
-
-    private static String iatSlot(ReferenceManager rm, Address extAddr) {
-        for (var ref : rm.getReferencesTo(extAddr)) {
-            var from = ref.getFromAddress();
-            if (ref.getReferenceType().isData() && from.isMemoryAddress()) return Responses.addr(from);
-        }
-        return "";
     }
 
     public String listExports(Page p, Map<String, String> q) {

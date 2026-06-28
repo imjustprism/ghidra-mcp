@@ -2932,7 +2932,7 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Scan imports and functions for classic anti-debug / anti-tamper indicators (IsDebuggerPresent, NtQueryInformationProcess, RDTSC probes, etc.)",
+        description = "Scan imports and functions for classic anti-debug / anti-tamper indicators (IsDebuggerPresent, NtQueryInformationProcess, RDTSC probes, etc.). The sites column gives each indicator's call-site count, resolved through the IAT for imports — so you can jump straight to where the check is used",
         annotations(read_only_hint = true)
     )]
     async fn find_anti_debug(
