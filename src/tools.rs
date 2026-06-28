@@ -4055,7 +4055,7 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "List recovered C++ classes with each class's vftable address and method count, from Ghidra's class namespaces (populated by RTTI analysis / demangling). Run analyze_program with RTTI enabled first to populate them. Paginated",
+        description = "List recovered C++ classes with each class's vftable address and method count, from Ghidra's class namespaces (populated by RTTI analysis / demangling). Vtable-backed classes are listed first, ordered by method count, so real classes surface ahead of lambda/empty namespaces. Run analyze_program with RTTI enabled first to populate them. Paginated",
         annotations(read_only_hint = true)
     )]
     async fn recover_rtti_classes(

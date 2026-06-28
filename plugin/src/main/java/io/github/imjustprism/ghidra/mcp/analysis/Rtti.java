@@ -1,7 +1,6 @@
 package io.github.imjustprism.ghidra.mcp.analysis;
 
 import ghidra.program.model.address.Address;
-import ghidra.program.model.listing.GhidraClass;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.mem.Memory;
 import ghidra.program.model.symbol.Symbol;
@@ -24,21 +23,13 @@ public final class Rtti {
     public static String recover(PluginContext ctx, Page p, Map<String, String> q) {
         return ctx.withProgram(program -> {
             var st = program.getSymbolTable();
-            var classes = new ArrayList<GhidraClass>();
+            var classes = new ArrayList<ClassInfo>();
             for (var it = st.getClassNamespaces(); it.hasNext(); ) {
                 var c = it.next();
-                if (isRealClass(c.getName(false))) classes.add(c);
-            }
-            classes.sort(Comparator.comparing((GhidraClass c) -> c.getName(true)));
-
-            int from = Math.min(p.offset(), classes.size());
-            int to = (int) Math.min((long) p.offset() + p.limit(), classes.size());
-            var t = Responses.table(p, q, new String[]{"class", "vftable", "methods"});
-            for (int i = from; i < to; i++) {
-                var cls = classes.get(i);
+                if (!isRealClass(c.getName(false))) continue;
                 Address vftableAddr = null;
                 int methods = 0;
-                for (var s = st.getSymbols(cls); s.hasNext(); ) {
+                for (var s = st.getSymbols(c); s.hasNext(); ) {
                     Symbol sym = s.next();
                     if (sym.getSymbolType() == SymbolType.FUNCTION) {
                         methods++;
@@ -49,11 +40,24 @@ public final class Rtti {
                 if (methods == 0 && vftableAddr != null) {
                     methods = countVtableEntries(program, vftableAddr);
                 }
-                t.row(cls.getName(true), vftableAddr == null ? "" : Responses.addr(vftableAddr), methods);
+                classes.add(new ClassInfo(c.getName(true), vftableAddr, methods));
+            }
+            classes.sort(Comparator.comparing((ClassInfo c) -> c.vftable() == null)
+                    .thenComparing(Comparator.comparingInt(ClassInfo::methods).reversed())
+                    .thenComparing(ClassInfo::name));
+
+            int from = Math.min(p.offset(), classes.size());
+            int to = (int) Math.min((long) p.offset() + p.limit(), classes.size());
+            var t = Responses.table(p, q, new String[]{"class", "vftable", "methods"});
+            for (int i = from; i < to; i++) {
+                var ci = classes.get(i);
+                t.row(ci.name(), ci.vftable() == null ? "" : Responses.addr(ci.vftable()), ci.methods());
             }
             return t.total(classes.size()).build();
         });
     }
+
+    private record ClassInfo(String name, Address vftable, int methods) {}
 
     private static int countVtableEntries(Program program, Address vt) {
         Memory mem = program.getMemory();
