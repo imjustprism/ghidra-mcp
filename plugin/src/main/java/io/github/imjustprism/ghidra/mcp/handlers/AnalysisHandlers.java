@@ -110,6 +110,8 @@ public final class AnalysisHandlers {
         routes.getQuery("/extract_constraints", q -> Constraints.extract(ctx, q.get("address"), q));
         routes.getQuery("/simplify_expression",
                 q -> io.github.imjustprism.ghidra.mcp.analysis.mba.MbaSimplify.run(ctx, q.get("address"), q));
+        routes.getQuery("/find_opaque_predicates",
+                q -> io.github.imjustprism.ghidra.mcp.analysis.mba.FindOpaque.run(ctx, q.get("address"), q));
         routes.getQuery("/function_completeness", q -> Completeness.single(ctx, q.get("address"), q));
         routes.getQuery("/find_undocumented", q -> Completeness.findUndocumented(ctx, Page.from(q), q));
         routes.getQuery("/find_crypto_constants", q -> CryptoConstants.find(ctx, Page.from(q), q));

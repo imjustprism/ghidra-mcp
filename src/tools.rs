@@ -3768,6 +3768,20 @@ impl GhidraServer {
     }
 
     #[tool(
+        description = "Scan a function for opaque predicates: conditional branches whose condition is provably always-true or always-false regardless of input (a common obfuscation that inflates the CFG with dead edges). Extracts each CBRANCH condition from high P-Code into a predicate IR and classifies it by exhaustive probe evaluation. Reports each opaque branch with its verdict (ALWAYS_TRUE/ALWAYS_FALSE) and the recovered predicate. address is any instruction in the target function",
+        annotations(read_only_hint = true)
+    )]
+    async fn find_opaque_predicates(
+        &self,
+        Parameters(p): Parameters<Address>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if p.address.trim().is_empty() {
+            return Err(ErrorData::invalid_params("address is required", None));
+        }
+        self.get("find_opaque_predicates", p).await
+    }
+
+    #[tool(
         description = "Decompile a function and strip cosmetic noise: drop (int)/(uint)/(longlong) casts on iVar/uVar/param_/local_ identifiers, remove decompiler WARNING comment blocks, collapse blank lines. Anything not matching these templates passes through unchanged",
         annotations(read_only_hint = true)
     )]

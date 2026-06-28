@@ -21,6 +21,10 @@ public final class MbaExtract {
         return new Extracted(expr, leaves.size(), new ArrayList<>(leaves.keySet()));
     }
 
+    public static MbaExpr build(Varnode vn, Map<String, Integer> leaves) {
+        return build(vn, leaves, 0);
+    }
+
     private static MbaExpr build(Varnode vn, Map<String, Integer> leaves, int depth) {
         if (vn == null || depth > 64) return null;
         if (vn.isConstant()) return new MbaExpr.Const(vn.getOffset());
