@@ -42,15 +42,14 @@ public final class IdiomSimplifier {
         var listing = program.getListing();
         Address end = f.getBody().getMaxAddress();
         var it = listing.getInstructions(f.getEntryPoint(), true);
-        Instruction[] window = new Instruction[8];
-        int w = 0;
+        Instruction prev = null;
         while (it.hasNext()) {
             Instruction ins = it.next();
             if (ins.getAddress().compareTo(end) > 0) break;
-            window[w++ % window.length] = ins;
             tryUdivMagic(ins, listing, out);
             trySignExtDrop(ins, out);
-            tryModFold(window, out);
+            tryModFold(prev, ins, out);
+            prev = ins;
         }
         return out;
     }
@@ -93,15 +92,7 @@ public final class IdiomSimplifier {
             "idiom: sign-ext drop (dest later used 32-bit only)"));
     }
 
-    private static void tryModFold(Instruction[] w, java.util.List<Match> out) {
-        Instruction last = null, prev = null;
-        int n = w.length;
-        for (int i = 1; i <= n; i++) {
-            Instruction c = w[(n - i) % n];
-            if (c == null) break;
-            if (last == null) { last = c; continue; }
-            if (prev == null) { prev = c; break; }
-        }
+    private static void tryModFold(Instruction prev, Instruction last, java.util.List<Match> out) {
         if (last == null || prev == null) return;
         String lm = last.getMnemonicString().toUpperCase();
         String pm = prev.getMnemonicString().toUpperCase();
