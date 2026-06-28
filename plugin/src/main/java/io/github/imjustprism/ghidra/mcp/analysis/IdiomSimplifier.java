@@ -62,7 +62,7 @@ public final class IdiomSimplifier {
         var objs = ins.getOpObjects(1);
         if (objs == null || objs.length != 1 || !(objs[0] instanceof Scalar s)) return;
         long v = s.getUnsignedValue();
-        if (v < 0x8000_0000L) return;
+        if (v < 0x1000L) return;
         Integer d = recoverDivisor(v);
         if (d == null) return;
         out.add(new Match(ins.getAddress(), "udiv_magic",
@@ -72,7 +72,8 @@ public final class IdiomSimplifier {
     private static Integer recoverDivisor(long magic) {
         BigInteger m = BigInteger.valueOf(magic);
         if (m.signum() <= 0) return null;
-        for (int shift : new int[]{64, 65, 66, 67, 68, 69, 70, 71, 72}) {
+        for (int shift : new int[]{32, 33, 34, 35, 36, 37, 38, 39, 40,
+                64, 65, 66, 67, 68, 69, 70, 71, 72}) {
             BigInteger twoN = BigInteger.ONE.shiftLeft(shift);
             for (int d = 3; d <= 255; d++) {
                 if (d == 1 || (d & (d - 1)) == 0) continue;
