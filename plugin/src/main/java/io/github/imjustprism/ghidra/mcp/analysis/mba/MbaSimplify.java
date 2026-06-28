@@ -40,7 +40,8 @@ public final class MbaSimplify {
                             + " distinct variables or non-arithmetic ops in the tree";
                 }
                 var normalized = MbaNormalize.normalize(ex.expr());
-                var simplified = MbaNormalize.normalize(LinearMba.simplify(normalized, ex.nvars()));
+                var linear = LinearMba.simplify(normalized, ex.nvars());
+                var simplified = MbaNormalize.normalize(SimpleForms.simplest(linear, ex.nvars()));
                 var origRender = MbaExpr.render(ex.expr());
                 var simpRender = MbaExpr.render(simplified);
                 var sb = new StringBuilder();
