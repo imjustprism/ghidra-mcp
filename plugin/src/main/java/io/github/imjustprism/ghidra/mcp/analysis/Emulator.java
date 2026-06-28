@@ -9,13 +9,195 @@ import io.github.imjustprism.ghidra.mcp.util.Responses;
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
 
 public final class Emulator {
 
     private static final long STACK_BASE = 0x7fff0000L;
     private static final long RET_MARKER = 0xBADC0DE0L;
+    private static final long STACK_SCAN_WINDOW = 0x4000L;
+    private static final int RET_PTR_SCAN = 4096;
+    private static final int SCAN_CHUNK = 8192;
+    private static final int MAX_OUTPUT_SCAN = 0x100000;
 
     private Emulator() {}
+
+    public record DecodedString(String kind, String encoding, long address, String text) {}
+
+    public static String recoverDecodedStrings(PluginContext ctx, String funcAddr, String argsCsv,
+                                               int minLen, int maxSteps, String outAddr, int outLen,
+                                               Map<String, String> q) {
+        if (funcAddr == null || funcAddr.isBlank()) throw new IllegalArgumentException("function_address required");
+        if (maxSteps <= 0 || maxSteps > 10_000_000) throw new IllegalArgumentException("max_steps must be 1..10000000");
+        int min = Math.min(Math.max(minLen, 1), 256);
+        var program = ctx.currentProgram();
+        if (program == null) throw new IllegalArgumentException("No program loaded");
+        var entry = program.getAddressFactory().getAddress(funcAddr.trim());
+        if (entry == null) throw new IllegalArgumentException("invalid function_address: " + funcAddr);
+        var func = Addresses.functionAtOrContaining(program, entry);
+        if (func == null) throw new IllegalArgumentException("no function at " + funcAddr);
+        var defaultSpace = program.getAddressFactory().getDefaultAddressSpace();
+        if (!func.getEntryPoint().getAddressSpace().equals(defaultSpace)) {
+            throw new IllegalArgumentException("function must be in the default address space");
+        }
+        long[] args = parseArgs(argsCsv);
+        boolean bigEndian = program.getLanguage().isBigEndian();
+        int ptr = defaultSpace.getPointerSize();
+
+        var emu = new ghidra.app.emulator.EmulatorHelper(program);
+        try {
+            long entrySp = prepareCall(emu, program, func, args, bigEndian, ptr);
+            int steps = 0;
+            String reason = "max_steps";
+            for (; steps < maxSteps; steps++) {
+                var pc = emu.getExecutionAddress();
+                if (pc == null) { reason = "no execution address"; break; }
+                if (pc.getOffset() == RET_MARKER && pc.getAddressSpace().equals(defaultSpace)) {
+                    reason = "returned";
+                    break;
+                }
+                try {
+                    if (!emu.step(ghidra.util.task.TaskMonitor.DUMMY)) { reason = "halt: " + emu.getLastError(); break; }
+                } catch (Exception e) {
+                    reason = "error: " + e.getMessage();
+                    break;
+                }
+            }
+
+            var seen = new LinkedHashSet<String>();
+            var rows = new ArrayList<DecodedString>();
+            scanRegion(emu, defaultSpace, entrySp - STACK_SCAN_WINDOW, (int) STACK_SCAN_WINDOW, "stack", min, seen, rows);
+            if (reason.equals("returned")) {
+                long retPtr = returnPointer(emu, func);
+                if (retPtr != 0) scanRegion(emu, defaultSpace, retPtr, RET_PTR_SCAN, "return_ptr", min, seen, rows);
+            }
+            if (outAddr != null && !outAddr.isBlank() && outLen > 0) {
+                var a = program.getAddressFactory().getAddress(outAddr.trim());
+                if (a == null || !a.getAddressSpace().equals(defaultSpace)) {
+                    throw new IllegalArgumentException("invalid output_addr (must be in default address space)");
+                }
+                scanRegion(emu, defaultSpace, a.getOffset(), Math.min(outLen, MAX_OUTPUT_SCAN), "output", min, seen, rows);
+            }
+
+            var t = Responses.table(q, new String[]{"kind", "encoding", "address", "string"}, rows.size());
+            for (var r : rows) t.row(r.kind(), r.encoding(), "0x" + Long.toHexString(r.address()), r.text());
+            return "# recover_decoded_strings " + func.getName() + " — " + steps + " steps (" + reason
+                    + "), " + rows.size() + " string(s) min_len=" + min + "\n" + t.total(rows.size()).build();
+        } catch (IllegalArgumentException e) {
+            throw e;
+        } catch (Exception e) {
+            Msg.error(ctx.logOwner(), "recover_decoded_strings failed", e);
+            return "recover_decoded_strings error: " + e.getMessage();
+        } finally {
+            emu.dispose();
+        }
+    }
+
+    private static long prepareCall(ghidra.app.emulator.EmulatorHelper emu, ghidra.program.model.listing.Program program,
+                                    ghidra.program.model.listing.Function func, long[] args, boolean bigEndian, int ptr) {
+        var defaultSpace = program.getAddressFactory().getDefaultAddressSpace();
+        ghidra.program.model.lang.Register lrReg = null;
+        for (var rn : new String[]{"lr", "LR", "ra"}) {
+            var r = program.getLanguage().getRegister(rn);
+            if (r != null) { lrReg = r; break; }
+        }
+        long entrySp;
+        if (lrReg != null) {
+            entrySp = STACK_BASE;
+            emu.writeRegister(emu.getStackPointerRegister(), entrySp);
+            emu.writeRegister(lrReg, unsigned64(RET_MARKER));
+        } else {
+            entrySp = STACK_BASE - ptr;
+            emu.writeRegister(emu.getStackPointerRegister(), entrySp);
+            emu.writeMemory(defaultSpace.getAddress(entrySp), encode(RET_MARKER, ptr, bigEndian));
+        }
+        emu.writeRegister(emu.getPCRegister(), func.getEntryPoint().getOffset());
+        var params = func.getParameters();
+        for (int i = 0; i < args.length && i < params.length; i++) {
+            var storage = params[i].getVariableStorage();
+            if (storage == null || !storage.isValid()) continue;
+            if (storage.isRegisterStorage() && storage.getRegisters().size() == 1 && storage.getRegister() != null) {
+                emu.writeRegister(storage.getRegister(), unsigned64(args[i]));
+            } else if (storage.isStackStorage()) {
+                long at = entrySp + storage.getStackOffset();
+                int sz = Math.min(Math.max(storage.size(), 1), 8);
+                emu.writeMemory(defaultSpace.getAddress(at), encode(args[i], sz, bigEndian));
+            }
+        }
+        return entrySp;
+    }
+
+    private static long returnPointer(ghidra.app.emulator.EmulatorHelper emu, ghidra.program.model.listing.Function func) {
+        var ret = func.getReturn();
+        if (ret == null || ret.getVariableStorage() == null || !ret.getVariableStorage().isRegisterStorage()
+                || ret.getVariableStorage().getRegisters().size() != 1 || ret.getVariableStorage().getRegister() == null) {
+            return 0;
+        }
+        var v = emu.readRegister(ret.getVariableStorage().getRegister());
+        return v == null ? 0 : v.longValue();
+    }
+
+    private static void scanRegion(ghidra.app.emulator.EmulatorHelper emu,
+                                   ghidra.program.model.address.AddressSpace space, long base, int len,
+                                   String kind, int minLen, LinkedHashSet<String> seen, List<DecodedString> out) {
+        for (int off = 0; off < len; off += SCAN_CHUNK) {
+            int n = Math.min(SCAN_CHUNK, len - off);
+            byte[] data;
+            try {
+                data = emu.readMemory(space.getAddress(base + off), n);
+            } catch (RuntimeException e) {
+                continue;
+            }
+            if (data == null) continue;
+            for (var f : extractStrings(data, minLen)) {
+                if (seen.add(f.encoding() + ':' + f.text())) {
+                    out.add(new DecodedString(kind, f.encoding(), base + off + f.offset(), f.text()));
+                }
+            }
+        }
+    }
+
+    public record Found(String encoding, int offset, String text) {}
+
+    public static List<Found> extractStrings(byte[] b, int minLen) {
+        var out = new ArrayList<Found>();
+        int i = 0;
+        while (i < b.length) {
+            if (isPrintable(b[i])) {
+                int j = i;
+                while (j < b.length && isPrintable(b[j])) j++;
+                if (j - i >= minLen) out.add(new Found("ascii", i, new String(b, i, j - i, StandardCharsets.US_ASCII)));
+                i = j;
+            } else {
+                i++;
+            }
+        }
+        i = 0;
+        while (i + 1 < b.length) {
+            if (isPrintable(b[i]) && b[i + 1] == 0) {
+                int j = i;
+                var sb = new StringBuilder();
+                while (j + 1 < b.length && isPrintable(b[j]) && b[j + 1] == 0) {
+                    sb.append((char) (b[j] & 0xff));
+                    j += 2;
+                }
+                if (sb.length() >= minLen) out.add(new Found("utf16le", i, sb.toString()));
+                i = j;
+            } else {
+                i++;
+            }
+        }
+        return out;
+    }
+
+    private static boolean isPrintable(byte c) {
+        int v = c & 0xff;
+        return v >= 0x20 && v < 0x7f;
+    }
 
     public static String emulateFunction(PluginContext ctx, String funcAddr, String argsCsv,
                                          int maxSteps, String captureAddr, int captureLen) {

@@ -553,6 +553,28 @@ impl ToParams for EmulateFunction {
     }
 }
 
+impl ToParams for RecoverDecodedStrings {
+    fn into_params(self) -> Params {
+        let mut p = vec![("function_address", self.function_address)];
+        if let Some(a) = self.args {
+            p.push(("args", a));
+        }
+        if let Some(m) = self.min_len {
+            p.push(("min_len", m.to_string()));
+        }
+        if let Some(m) = self.max_steps {
+            p.push(("max_steps", m.to_string()));
+        }
+        if let Some(o) = self.output_addr {
+            p.push(("output_addr", o));
+        }
+        if let Some(o) = self.output_length {
+            p.push(("output_length", o.to_string()));
+        }
+        p
+    }
+}
+
 impl ToParams for EmuStep {
     fn into_params(self) -> Params {
         let mut p = vec![("emu_id", self.emu_id)];
@@ -1125,6 +1147,33 @@ pub struct EmulateFunction {
     pub capture_addr: Option<String>,
     #[serde(default)]
     pub capture_length: u32,
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct RecoverDecodedStrings {
+    pub function_address: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub args: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "de_opt_u32",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub min_len: Option<u32>,
+    #[serde(
+        default,
+        deserialize_with = "de_opt_u32",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub max_steps: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_addr: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "de_opt_u32",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub output_length: Option<u32>,
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
@@ -2717,6 +2766,23 @@ impl GhidraServer {
             ));
         }
         self.post("emulate_function", p).await
+    }
+
+    #[tool(
+        description = "FLOSS-style decoded-string recovery: emulate a suspected decoder function (optionally with args) on a fresh stack, then scan the memory it produced — the stack frame, the returned pointer, and an optional output_addr buffer — for emerging ASCII and UTF-16LE strings (min_len, default 4). The way to recover strings that exist only after a decode routine runs (stackstrings, return-a-buffer decoders, or a known global output via output_addr). Pure p-code emulation: no real API/syscalls, so API-dependent decoders may not complete — point output_addr at the destination buffer when known",
+        annotations(read_only_hint = true)
+    )]
+    async fn recover_decoded_strings(
+        &self,
+        Parameters(p): Parameters<RecoverDecodedStrings>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if p.function_address.trim().is_empty() {
+            return Err(ErrorData::invalid_params(
+                "function_address is required",
+                None,
+            ));
+        }
+        self.post("recover_decoded_strings", p).await
     }
 
     #[tool(
@@ -4873,6 +4939,27 @@ mod tests {
                 ("capture_length", "32".to_owned()),
                 ("args", "0x10,42".to_owned()),
                 ("capture_addr", "0x40a000".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn recover_decoded_strings_emits_set_fields_only() {
+        let p = RecoverDecodedStrings {
+            function_address: "0x401000".to_owned(),
+            args: Some("0x40a000".to_owned()),
+            min_len: Some(5),
+            max_steps: None,
+            output_addr: Some("0x40b000".to_owned()),
+            output_length: None,
+        };
+        assert_eq!(
+            p.into_params(),
+            vec![
+                ("function_address", "0x401000".to_owned()),
+                ("args", "0x40a000".to_owned()),
+                ("min_len", "5".to_owned()),
+                ("output_addr", "0x40b000".to_owned()),
             ]
         );
     }
