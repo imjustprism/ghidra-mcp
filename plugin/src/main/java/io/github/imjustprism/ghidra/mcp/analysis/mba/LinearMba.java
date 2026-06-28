@@ -19,6 +19,29 @@ public final class LinearMba {
         return probe(a, b, vars, 0);
     }
 
+    public static Long invariantValue(MbaExpr e, int nvars) {
+        var vars = new long[nvars];
+        var acc = new long[1];
+        return scanInvariant(e, vars, 0, acc, new boolean[1]) ? acc[0] : null;
+    }
+
+    private static boolean scanInvariant(MbaExpr e, long[] vars, int idx, long[] acc, boolean[] seen) {
+        if (idx == vars.length) {
+            long v = MbaExpr.eval(e, vars);
+            if (!seen[0]) {
+                seen[0] = true;
+                acc[0] = v;
+                return true;
+            }
+            return v == acc[0];
+        }
+        for (long val : PROBE_VALUES) {
+            vars[idx] = val;
+            if (!scanInvariant(e, vars, idx + 1, acc, seen)) return false;
+        }
+        return true;
+    }
+
     private static boolean probe(MbaExpr a, MbaExpr b, long[] vars, int idx) {
         if (idx == vars.length) {
             return MbaExpr.eval(a, vars) == MbaExpr.eval(b, vars);

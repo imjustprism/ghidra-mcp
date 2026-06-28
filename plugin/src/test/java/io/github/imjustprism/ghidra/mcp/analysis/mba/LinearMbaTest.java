@@ -61,6 +61,20 @@ class LinearMbaTest {
     }
 
     @Test
+    void detectsInvariantValueOpaquePredicate() {
+        // x ^ x is always 0; (x|y) - (x^y) - (x&y) is always 0
+        assertEquals(Long.valueOf(0), LinearMba.invariantValue(new MbaExpr.Xor(X, X), 1));
+        var zero = new MbaExpr.Sub(new MbaExpr.Sub(new MbaExpr.Or(X, Y), new MbaExpr.Xor(X, Y)),
+                new MbaExpr.And(X, Y));
+        assertEquals(Long.valueOf(0), LinearMba.invariantValue(zero, 2));
+    }
+
+    @Test
+    void variableExpressionHasNoInvariantValue() {
+        assertEquals(null, LinearMba.invariantValue(new MbaExpr.Add(X, Y), 2));
+    }
+
+    @Test
     void doesNotExpandAlreadySimpleBitwiseExpression() {
         var xor = new MbaExpr.Xor(X, Y);
         var result = LinearMba.simplify(xor, 2);
