@@ -24,6 +24,7 @@ import io.github.imjustprism.ghidra.mcp.analysis.FunctionHash;
 import io.github.imjustprism.ghidra.mcp.analysis.Emulator;
 import io.github.imjustprism.ghidra.mcp.analysis.EncodedStrings;
 import io.github.imjustprism.ghidra.mcp.analysis.ExtractIocs;
+import io.github.imjustprism.ghidra.mcp.analysis.FormatStringVulns;
 import io.github.imjustprism.ghidra.mcp.analysis.Entropy;
 import io.github.imjustprism.ghidra.mcp.analysis.IdiomSimplifier;
 import io.github.imjustprism.ghidra.mcp.analysis.MagicConstants;
@@ -84,6 +85,7 @@ public final class AnalysisHandlers {
         routes.getPage("/extract_iocs", (p, q) -> ExtractIocs.find(ctx, p, q));
         routes.getPage("/find_rop_gadgets", (p, q) -> RopGadgets.find(ctx, q.get("filter"),
                 Http.parseIntOrDefault(q.get("max_instrs"), 5), p, q));
+        routes.getPage("/find_format_string_vulns", (p, q) -> FormatStringVulns.find(ctx, p, q));
         routes.getQuery("/vm_descriptor_table", q -> VmDescriptor.parse(ctx, q.get("table_address"),
                 Http.parseIntOrDefault(q.get("max_entries"), 256), q));
         routes.getQuery("/program_info", this::programInfo);

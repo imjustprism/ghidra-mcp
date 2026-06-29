@@ -4139,6 +4139,17 @@ impl GhidraServer {
     }
 
     #[tool(
+        description = "Find potential format-string vulnerabilities (CWE-134): call sites to printf/sprintf/fprintf/snprintf/syslog/scanf-family functions whose format-string argument is NOT a constant string literal (i.e. attacker- or variable-controlled). Resolves the callee through thunks/IAT and checks whether the format-arg register is loaded by a LEA of a defined string just before the call",
+        annotations(read_only_hint = true)
+    )]
+    async fn find_format_string_vulns(
+        &self,
+        Parameters(p): Parameters<Page>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.get("find_format_string_vulns", p).await
+    }
+
+    #[tool(
         description = "Find direct syscall stubs in code: syscall (x64), sysenter, and int 0x2e instructions, each verified against the disassembly. Reports the address, kind, and the syscall number (SSN) when a preceding 'mov eax, imm' is found. Surfaces Hell's-Gate-style EDR-evasion and direct-syscall malware",
         annotations(read_only_hint = true)
     )]
