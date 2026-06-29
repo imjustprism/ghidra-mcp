@@ -32,6 +32,7 @@ import io.github.imjustprism.ghidra.mcp.analysis.Pcode;
 import io.github.imjustprism.ghidra.mcp.analysis.PointerScan;
 import io.github.imjustprism.ghidra.mcp.analysis.Protector;
 import io.github.imjustprism.ghidra.mcp.analysis.Rtti;
+import io.github.imjustprism.ghidra.mcp.analysis.SecurityMitigations;
 import io.github.imjustprism.ghidra.mcp.analysis.Scripts;
 import io.github.imjustprism.ghidra.mcp.analysis.Signatures;
 import io.github.imjustprism.ghidra.mcp.analysis.StackStrings;
@@ -73,6 +74,7 @@ public final class AnalysisHandlers {
         routes.getQuery("/detect_protector", q -> Protector.detect(ctx, q));
         routes.getQuery("/analyze_virtualization", q -> Virtualization.analyze(ctx, q));
         routes.getQuery("/obfuscation_profile", q -> Obfuscation.profile(ctx, q));
+        routes.getQuery("/detect_security_mitigations", q -> SecurityMitigations.detect(ctx, q));
         routes.getQuery("/vm_descriptor_table", q -> VmDescriptor.parse(ctx, q.get("table_address"),
                 Http.parseIntOrDefault(q.get("max_entries"), 256), q));
         routes.getQuery("/program_info", this::programInfo);

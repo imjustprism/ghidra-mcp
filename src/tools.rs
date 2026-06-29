@@ -2953,6 +2953,14 @@ impl GhidraServer {
     }
 
     #[tool(
+        description = "Decode the PE binary-hardening mitigations from the image's DllCharacteristics: ASLR (DYNAMICBASE), High-Entropy ASLR, DEP/NX, Control Flow Guard, SEH-disabled, Force Integrity, AppContainer, plus a /GS stack-cookie heuristic. The fast 'how hardened is this target' triage for exploit/security work",
+        annotations(read_only_hint = true)
+    )]
+    async fn detect_security_mitigations(&self) -> Result<CallToolResult, ErrorData> {
+        self.get_bare("detect_security_mitigations").await
+    }
+
+    #[tool(
         description = "Parse a virtualizer dispatch/descriptor table into a function map. Reads 8-byte entries (u32 call_site_RVA, u32 bytecode_dest_RVA) at table_address until a zero entry or max_entries, resolves each call-site RVA to its absolute address + containing function, and reports the bytecode destination. For Oreans Code Virtualizer the table sits at the engine's self-located header + 0x40 (each engine call site keys on its return-address RVA). Turns the raw dispatch structure into a 'virtualized function -> runtime bytecode address' map",
         annotations(read_only_hint = true)
     )]
