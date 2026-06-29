@@ -2853,7 +2853,7 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "FLOSS-style decoded-string recovery: emulate a suspected decoder function (optionally with args) on a fresh stack, then scan the memory it produced — the stack frame, the returned pointer, and an optional output_addr buffer — for emerging ASCII and UTF-16LE strings (min_len, default 4). The way to recover strings that exist only after a decode routine runs (stackstrings, return-a-buffer decoders, or a known global output via output_addr). Pure p-code emulation: no real API/syscalls, so API-dependent decoders may not complete — point output_addr at the destination buffer when known",
+        description = "FLOSS-style decoded-string recovery: emulate a suspected decoder function (optionally with args) on a fresh stack with memory-write tracking, then scan EVERY region the function wrote (stack, heap, or global — captured via the emulator's write set), plus an optional output_addr buffer, for emerging ASCII and UTF-16LE strings (min_len, default 4). Recovers strings that exist only after a decode routine runs (stackstrings, return-a-buffer, in-place, or global-buffer decoders) without you knowing where the output lands. Pure p-code emulation: no real API/syscalls, so API-dependent decoders may not complete — point output_addr at the destination buffer when known",
         annotations(read_only_hint = true)
     )]
     async fn recover_decoded_strings(

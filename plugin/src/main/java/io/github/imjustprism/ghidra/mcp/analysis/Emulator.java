@@ -19,8 +19,6 @@ public final class Emulator {
 
     private static final long STACK_BASE = 0x7fff0000L;
     private static final long RET_MARKER = 0xBADC0DE0L;
-    private static final long STACK_SCAN_WINDOW = 0x4000L;
-    private static final int RET_PTR_SCAN = 4096;
     private static final int SCAN_CHUNK = 8192;
     private static final int MAX_OUTPUT_SCAN = 0x100000;
 
@@ -50,7 +48,8 @@ public final class Emulator {
 
         var emu = new ghidra.app.emulator.EmulatorHelper(program);
         try {
-            long entrySp = prepareCall(emu, program, func, args, bigEndian, ptr);
+            prepareCall(emu, program, func, args, bigEndian, ptr);
+            emu.enableMemoryWriteTracking(true);
             int steps = 0;
             String reason = "max_steps";
             for (; steps < maxSteps; steps++) {
@@ -70,10 +69,18 @@ public final class Emulator {
 
             var seen = new LinkedHashSet<String>();
             var rows = new ArrayList<DecodedString>();
-            scanRegion(emu, defaultSpace, entrySp - STACK_SCAN_WINDOW, (int) STACK_SCAN_WINDOW, "stack", min, seen, rows);
-            if (reason.equals("returned")) {
-                long retPtr = returnPointer(emu, func);
-                if (retPtr != 0) scanRegion(emu, defaultSpace, retPtr, RET_PTR_SCAN, "return_ptr", min, seen, rows);
+            // FLOSS-style: scan everything the function actually wrote (any buffer — stack, heap, global),
+            // restricted to the real (default) address space, not p-code temporaries.
+            var written = emu.getTrackedMemoryWriteSet();
+            long scanned = 0;
+            if (written != null) {
+                for (var range : written) {
+                    if (!range.getMinAddress().getAddressSpace().equals(defaultSpace)) continue;
+                    if (scanned >= MAX_OUTPUT_SCAN) break;
+                    int take = (int) Math.min(range.getLength(), MAX_OUTPUT_SCAN - scanned);
+                    scanRegion(emu, defaultSpace, range.getMinAddress().getOffset(), take, "write", min, seen, rows);
+                    scanned += take;
+                }
             }
             if (outAddr != null && !outAddr.isBlank() && outLen > 0) {
                 var a = program.getAddressFactory().getAddress(outAddr.trim());
@@ -129,16 +136,6 @@ public final class Emulator {
             }
         }
         return entrySp;
-    }
-
-    private static long returnPointer(ghidra.app.emulator.EmulatorHelper emu, ghidra.program.model.listing.Function func) {
-        var ret = func.getReturn();
-        if (ret == null || ret.getVariableStorage() == null || !ret.getVariableStorage().isRegisterStorage()
-                || ret.getVariableStorage().getRegisters().size() != 1 || ret.getVariableStorage().getRegister() == null) {
-            return 0;
-        }
-        var v = emu.readRegister(ret.getVariableStorage().getRegister());
-        return v == null ? 0 : v.longValue();
     }
 
     private static void scanRegion(ghidra.app.emulator.EmulatorHelper emu,
