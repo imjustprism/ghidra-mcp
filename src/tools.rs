@@ -883,6 +883,19 @@ impl ToParams for FindSignature {
     }
 }
 
+impl ToParams for FindRopGadgets {
+    fn into_params(self) -> Params {
+        let mut p = self.page.into_params();
+        if let Some(f) = self.filter {
+            p.push(("filter", f));
+        }
+        if let Some(m) = self.max_instrs {
+            p.push(("max_instrs", m.to_string()));
+        }
+        p
+    }
+}
+
 impl ToParams for FindFunctionByString {
     fn into_params(self) -> Params {
         vec![
@@ -1462,6 +1475,20 @@ pub struct MakeSignature {
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
 pub struct FindSignature {
     pub pattern: String,
+    #[serde(flatten)]
+    pub page: Page,
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct FindRopGadgets {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filter: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "de_opt_u32",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub max_instrs: Option<u32>,
     #[serde(flatten)]
     pub page: Page,
 }
@@ -4037,6 +4064,17 @@ impl GhidraServer {
         Parameters(p): Parameters<Page>,
     ) -> Result<CallToolResult, ErrorData> {
         self.get("extract_iocs", p).await
+    }
+
+    #[tool(
+        description = "Find ROP gadgets in executable memory: byte-scans for ret (c3/c2) and builds short linear instruction sequences ending in ret (via Ghidra's pseudo-disassembler, so unaligned gadgets are found too). filter is a case-insensitive substring over the gadget text (e.g. 'pop rdi', 'mov rsp'); max_instrs caps gadget length (default 5). For exploit/ROP-chain work",
+        annotations(read_only_hint = true)
+    )]
+    async fn find_rop_gadgets(
+        &self,
+        Parameters(p): Parameters<FindRopGadgets>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.get("find_rop_gadgets", p).await
     }
 
     #[tool(

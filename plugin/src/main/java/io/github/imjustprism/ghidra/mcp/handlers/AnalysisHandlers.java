@@ -32,6 +32,7 @@ import io.github.imjustprism.ghidra.mcp.analysis.OrphanGaps;
 import io.github.imjustprism.ghidra.mcp.analysis.Pcode;
 import io.github.imjustprism.ghidra.mcp.analysis.PointerScan;
 import io.github.imjustprism.ghidra.mcp.analysis.Protector;
+import io.github.imjustprism.ghidra.mcp.analysis.RopGadgets;
 import io.github.imjustprism.ghidra.mcp.analysis.Rtti;
 import io.github.imjustprism.ghidra.mcp.analysis.SecurityMitigations;
 import io.github.imjustprism.ghidra.mcp.analysis.Scripts;
@@ -77,6 +78,8 @@ public final class AnalysisHandlers {
         routes.getQuery("/obfuscation_profile", q -> Obfuscation.profile(ctx, q));
         routes.getQuery("/detect_security_mitigations", q -> SecurityMitigations.detect(ctx, q));
         routes.getPage("/extract_iocs", (p, q) -> ExtractIocs.find(ctx, p, q));
+        routes.getPage("/find_rop_gadgets", (p, q) -> RopGadgets.find(ctx, q.get("filter"),
+                Http.parseIntOrDefault(q.get("max_instrs"), 5), p, q));
         routes.getQuery("/vm_descriptor_table", q -> VmDescriptor.parse(ctx, q.get("table_address"),
                 Http.parseIntOrDefault(q.get("max_entries"), 256), q));
         routes.getQuery("/program_info", this::programInfo);

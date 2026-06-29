@@ -60,7 +60,7 @@ MCP server for Ghidra. Rust bridge + Ghidra Java plugin. Wires any MCP client (C
 
 ## Tools
 
-194 tools total.
+195 tools total.
 
 Every paginated read tool accepts an optional `fmt` argument — `tsv` (default), `csv`, `json`, or `verbose` — alongside `offset`/`limit`, plus an optional `program` (open program name or sha256) to target a specific open program instead of the active one (the server honors `program` on every endpoint).
 
@@ -80,6 +80,7 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 | `obfuscation_profile` | one-call program obfuscation verdict (protector + VM boundary + entropy) |
 | `detect_security_mitigations` | decode PE hardening (ASLR/DEP/CFG/SafeSEH/GS) |
 | `extract_iocs` | URLs/IPs/emails/registry/paths/GUIDs/wallets from strings |
+| `find_rop_gadgets` | ROP gadgets (ret-terminated, unaligned, filterable) |
 | `vm_descriptor_table` | parse a virtualizer dispatch table into a function-bytecode map |
 | `list_imports` | imported symbols (with IAT slot VA) |
 | `list_exports` | exported symbols |
