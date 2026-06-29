@@ -40,6 +40,7 @@ import io.github.imjustprism.ghidra.mcp.analysis.Syscalls;
 import io.github.imjustprism.ghidra.mcp.analysis.Taint;
 import io.github.imjustprism.ghidra.mcp.analysis.UnpackAssist;
 import io.github.imjustprism.ghidra.mcp.analysis.Virtualization;
+import io.github.imjustprism.ghidra.mcp.analysis.VmDescriptor;
 import io.github.imjustprism.ghidra.mcp.analysis.VTableScan;
 import io.github.imjustprism.ghidra.mcp.analysis.XrefGraph;
 import io.github.imjustprism.ghidra.mcp.http.Http;
@@ -72,6 +73,8 @@ public final class AnalysisHandlers {
         routes.getQuery("/detect_protector", q -> Protector.detect(ctx, q));
         routes.getQuery("/analyze_virtualization", q -> Virtualization.analyze(ctx, q));
         routes.getQuery("/obfuscation_profile", q -> Obfuscation.profile(ctx, q));
+        routes.getQuery("/vm_descriptor_table", q -> VmDescriptor.parse(ctx, q.get("table_address"),
+                Http.parseIntOrDefault(q.get("max_entries"), 256), q));
         routes.getQuery("/program_info", this::programInfo);
         routes.getQuery("/program_metadata", q -> programMetadata(Page.from(q), q));
         routes.getQuery("/demangle_symbol", q -> Demangler.demangleSymbol(q.get("mangled")));

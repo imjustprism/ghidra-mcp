@@ -553,6 +553,16 @@ impl ToParams for EmulateFunction {
     }
 }
 
+impl ToParams for VmDescriptorArgs {
+    fn into_params(self) -> Params {
+        let mut p = vec![("table_address", self.table_address)];
+        if let Some(m) = self.max_entries {
+            p.push(("max_entries", m.to_string()));
+        }
+        p
+    }
+}
+
 impl ToParams for RecoverDecodedStrings {
     fn into_params(self) -> Params {
         let mut p = vec![("function_address", self.function_address)];
@@ -902,6 +912,17 @@ const fn default_limit() -> u32 {
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
 pub struct Address {
     pub address: String,
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct VmDescriptorArgs {
+    pub table_address: String,
+    #[serde(
+        default,
+        deserialize_with = "de_opt_u32",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub max_entries: Option<u32>,
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
@@ -2926,6 +2947,20 @@ impl GhidraServer {
     )]
     async fn obfuscation_profile(&self) -> Result<CallToolResult, ErrorData> {
         self.get_bare("obfuscation_profile").await
+    }
+
+    #[tool(
+        description = "Parse a virtualizer dispatch/descriptor table into a function map. Reads 8-byte entries (u32 call_site_RVA, u32 bytecode_dest_RVA) at table_address until a zero entry or max_entries, resolves each call-site RVA to its absolute address + containing function, and reports the bytecode destination. For Oreans Code Virtualizer the table sits at the engine's self-located header + 0x40 (each engine call site keys on its return-address RVA). Turns the raw dispatch structure into a 'virtualized function -> runtime bytecode address' map",
+        annotations(read_only_hint = true)
+    )]
+    async fn vm_descriptor_table(
+        &self,
+        Parameters(p): Parameters<VmDescriptorArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if p.table_address.trim().is_empty() {
+            return Err(ErrorData::invalid_params("table_address is required", None));
+        }
+        self.get("vm_descriptor_table", p).await
     }
 
     #[tool(
