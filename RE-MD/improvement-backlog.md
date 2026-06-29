@@ -287,3 +287,12 @@ live process.
 - **[FINDING]** `find_orphan_gaps` = 964 gaps (code with no owning function) — candidate
   runtime-resolved thunks / VM artifacts; a lead generator, consistent with a protected binary.
 
+
+### Pass 10 (2026-06-29) — novel upgrade to existing tool
+- ✅ [TOOL-FIX/NOVEL] recover_decoded_strings now uses the emulator's built-in memory-write tracking
+  (enableMemoryWriteTracking/getTrackedMemoryWriteSet) to scan EVERY written region (stack/heap/
+  global), replacing the stack-window + return-ptr heuristics. Verified live: 10 real RAM write
+  ranges captured, 17 p-code-temp ranges filtered. Commit 6661047. (API note: the filter class is
+  not MemoryAccessFilter in this Ghidra; FilteredMemoryState + EmulatorHelper.enableMemoryWriteTracking
+  is the correct path.)
+- Next focus (user): keep finding NOVEL upgrades to EXISTING tools (not just new tools).
