@@ -172,7 +172,6 @@ public final class AnalysisHandlers {
                 : Signatures.make(ctx, q.get("address"),
                 Http.parseIntOrDefault(q.get("min_len"), 0),
                 Http.parseIntOrDefault(q.get("max_len"), 0), q.getOrDefault("format", "ida")));
-        routes.getQuery("/find_signature", q -> Signatures.findSignature(ctx, q.get("pattern"), Page.from(q), q));
         routes.getQuery("/resolve_relative", q -> Signatures.resolveRelative(ctx, q.get("address")));
         routes.getQuery("/find_function_by_string", q -> Signatures.findFunctionByString(ctx,
                 q.get("value"), Http.parseIntOrDefault(q.get("max"), 5), q.getOrDefault("format", "ida")));

@@ -60,7 +60,7 @@ MCP server for Ghidra. Rust bridge + Ghidra Java plugin. Wires any MCP client (C
 
 ## Tools
 
-183 tools total.
+181 tools total.
 
 Every paginated read tool accepts an optional `fmt` argument — `tsv` (default), `csv`, `json`, or `verbose` — alongside `offset`/`limit`, plus an optional `program` (open program name or sha256) to target a specific open program instead of the active one (the server honors `program` on every endpoint).
 
@@ -145,14 +145,13 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 </details>
 
 <details>
-<summary><b>Bytes / patching</b> (12)</summary>
+<summary><b>Bytes / patching</b> (11)</summary>
 
 | tool | purpose |
 | --- | --- |
 | `read_bytes` | raw hex |
 | `hex_dump` | formatted dump |
-| `search_bytes` | pattern search (cursor-resumable via `start`/`next_cursor`) |
-| `find_string` | literal search |
+| `search` | search the program (kind=bytes cursor-resumable, string, signature) |
 | `patch_bytes` | write hex (opt-in re-disassembly) |
 | `nop_range` | patch NOPs |
 | `create_label` | add label |
@@ -241,12 +240,11 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 </details>
 
 <details>
-<summary><b>Signatures / pattern scanning</b> (4)</summary>
+<summary><b>Signatures / pattern scanning</b> (3)</summary>
 
 | tool | purpose |
 | --- | --- |
 | `make_signature` | unique wildcarded AOB sig for an address |
-| `find_signature` | scan memory for a pattern (IDA/x64dbg/CE/code+mask) |
 | `resolve_relative` | resolve call/jmp/RIP-relative operand targets |
 | `find_function_by_string` | string xref to function entry + signature |
 

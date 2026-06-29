@@ -353,3 +353,9 @@ live process.
 - ✅ MERGE get_xrefs_to + get_xrefs_from + get_function_xrefs → xrefs (direction=to|from|both, target).
   direction=both = function-by-name with IAT resolution (preserved). Unified Xrefs struct (replaced
   NamePage, now orphaned); getQuery route dispatches direction. README -2 (185→183), Xrefs/CFG 21→19.
+
+### Pass 22 (2026-06-29) — Phase-B MERGE (-2)
+- ✅ MERGE search_bytes + find_string + find_signature → search (kind=bytes|string|signature, query).
+  bytes keeps start-cursor pagination. Unified Search struct (replaced SearchBytes/FindString/
+  FindSignature). /search route in BytesHandlers dispatches kind (signature → static Signatures.findSignature).
+  README -2 (183→181), Bytes/patching 12→11, Signatures 4→3.

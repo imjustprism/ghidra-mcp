@@ -32,8 +32,12 @@ public final class BytesHandlers {
     public void register(RouteTable routes) {
         routes.getQuery("/read_bytes", q -> readBytes(q.get("address"), Http.parseIntOrDefault(q.get("length"), 64)));
         routes.getQuery("/hex_dump", q -> hexDump(q.get("address"), Http.parseIntOrDefault(q.get("length"), 128)));
-        routes.getQuery("/search_bytes", q -> searchBytes(q.get("pattern"), Page.from(q), q));
-        routes.getQuery("/find_string", q -> findString(q.get("value"), Page.from(q), q));
+        routes.getQuery("/search", q -> switch (q.getOrDefault("kind", "bytes")) {
+            case "string" -> findString(q.get("query"), Page.from(q), q);
+            case "signature" -> io.github.imjustprism.ghidra.mcp.analysis.Signatures
+                    .findSignature(ctx, q.get("query"), Page.from(q), q);
+            default -> searchBytes(q.get("query"), Page.from(q), q);
+        });
         routes.postForm("/patch_bytes", p -> patchBytes(p.get("address"), p.get("hex"),
                 Http.parseBool(p.get("disassemble"), false)));
         routes.postForm("/nop_range", p -> nopRange(p.get("address"), Http.parseIntOrDefault(p.get("length"), 0)));

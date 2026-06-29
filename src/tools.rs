@@ -384,10 +384,11 @@ impl ToParams for PatchBytes {
     }
 }
 
-impl ToParams for SearchBytes {
+impl ToParams for Search {
     fn into_params(self) -> Params {
         let mut p = self.page.into_params();
-        p.push(("pattern", self.pattern));
+        p.push(("kind", self.kind));
+        p.push(("query", self.query));
         if let Some(start) = self.start {
             p.push(("start", start));
         }
@@ -407,14 +408,6 @@ impl ToParams for HexDump {
             ("address", self.address),
             ("length", self.length.to_string()),
         ]
-    }
-}
-
-impl ToParams for FindString {
-    fn into_params(self) -> Params {
-        let mut p = self.page.into_params();
-        p.push(("value", self.value));
-        p
     }
 }
 
@@ -868,14 +861,6 @@ impl ToParams for MakeSignature {
     }
 }
 
-impl ToParams for FindSignature {
-    fn into_params(self) -> Params {
-        let mut p = self.page.into_params();
-        p.push(("pattern", self.pattern));
-        p
-    }
-}
-
 impl ToParams for FindRopGadgets {
     fn into_params(self) -> Params {
         let mut p = self.page.into_params();
@@ -1030,8 +1015,11 @@ pub struct PatchBytes {
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
-pub struct SearchBytes {
-    pub pattern: String,
+pub struct Search {
+    /// "bytes" (hex pattern, ?? wildcards), "string" (substring of defined strings), or "signature" (AOB dialect).
+    pub kind: String,
+    /// The hex/AOB pattern (bytes/signature) or the substring (string).
+    pub query: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub start: Option<String>,
     #[serde(flatten)]
@@ -1052,13 +1040,6 @@ pub struct HexDump {
 }
 const fn default_dump_length() -> u32 {
     128
-}
-
-#[derive(Deserialize, Serialize, schemars::JsonSchema)]
-pub struct FindString {
-    pub value: String,
-    #[serde(flatten)]
-    pub page: Page,
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
@@ -1468,13 +1449,6 @@ pub struct MakeSignature {
     /// "bytes" (default, wildcarded AOB) or "semantic" (emulation behavioral fingerprint).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<String>,
-}
-
-#[derive(Deserialize, Serialize, schemars::JsonSchema)]
-pub struct FindSignature {
-    pub pattern: String,
-    #[serde(flatten)]
-    pub page: Page,
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
@@ -2633,17 +2607,20 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Search program memory for a hex pattern. Use '??' for wildcard bytes. Returns matching addresses. For large images, paginate forward with the cursor: pass the address from the '# next_cursor:' footer as 'start' on the next call to resume the scan in O(1) instead of rescanning from the start",
+        description = "Search the program. kind=bytes: scan memory for a hex pattern (query), '??' wildcards; for large images paginate with the cursor — pass the '# next_cursor:' address as start to resume in O(1). kind=string: defined string literals whose content contains query (case-insensitive). kind=signature: scan for an AOB in any dialect (IDA/x64dbg/CE token '48 8B ?? E8' or code+mask '\\x48\\x8B\\x00'/'xx?'). Paginated",
         annotations(read_only_hint = true)
     )]
-    async fn search_bytes(
+    async fn search(
         &self,
-        Parameters(p): Parameters<SearchBytes>,
+        Parameters(p): Parameters<Search>,
     ) -> Result<CallToolResult, ErrorData> {
-        if p.pattern.is_empty() {
-            return Err(ErrorData::invalid_params("pattern is required", None));
+        if p.query.is_empty() {
+            return Err(ErrorData::invalid_params("query is required", None));
         }
-        self.get("search_bytes", p).await
+        match p.kind.as_str() {
+            "bytes" | "string" | "signature" => self.get("search", p).await,
+            _ => Err(ErrorData::invalid_params("kind must be bytes, string, or signature", None)),
+        }
     }
 
     #[tool(
@@ -2665,20 +2642,6 @@ impl GhidraServer {
         Parameters(p): Parameters<HexDump>,
     ) -> Result<CallToolResult, ErrorData> {
         self.get("hex_dump", p).await
-    }
-
-    #[tool(
-        description = "Find defined string literals whose content contains the given substring (case-insensitive)",
-        annotations(read_only_hint = true)
-    )]
-    async fn find_string(
-        &self,
-        Parameters(p): Parameters<FindString>,
-    ) -> Result<CallToolResult, ErrorData> {
-        if p.value.is_empty() {
-            return Err(ErrorData::invalid_params("value is required", None));
-        }
-        self.get("find_string", p).await
     }
 
     #[tool(
@@ -3879,20 +3842,6 @@ impl GhidraServer {
             return Err(ErrorData::invalid_params("address is required", None));
         }
         self.get("make_signature", p).await
-    }
-
-    #[tool(
-        description = "Scan program memory for a byte pattern and return matching addresses. Accepts any common dialect: IDA/x64dbg/Cheat-Engine token form ('48 8B ?? E8 ? ? ? ?', spaced or contiguous, ? or ?? wildcards) or code+mask form ('\\x48\\x8B\\x00' with mask 'xx?'). Paginated",
-        annotations(read_only_hint = true)
-    )]
-    async fn find_signature(
-        &self,
-        Parameters(p): Parameters<FindSignature>,
-    ) -> Result<CallToolResult, ErrorData> {
-        if p.pattern.is_empty() {
-            return Err(ErrorData::invalid_params("pattern is required", None));
-        }
-        self.get("find_signature", p).await
     }
 
     #[tool(
@@ -5205,9 +5154,10 @@ mod tests {
     }
 
     #[test]
-    fn search_bytes_appends_start_cursor_when_set() {
-        let p = SearchBytes {
-            pattern: "48 8B ??".to_owned(),
+    fn search_appends_start_cursor_when_set() {
+        let p = Search {
+            kind: "bytes".to_owned(),
+            query: "48 8B ??".to_owned(),
             start: Some("0x401234".to_owned()),
             page: Page {
                 offset: 0,
@@ -5221,7 +5171,8 @@ mod tests {
             vec![
                 ("offset", "0".to_owned()),
                 ("limit", "20".to_owned()),
-                ("pattern", "48 8B ??".to_owned()),
+                ("kind", "bytes".to_owned()),
+                ("query", "48 8B ??".to_owned()),
                 ("start", "0x401234".to_owned()),
             ]
         );
@@ -5267,9 +5218,11 @@ mod tests {
     }
 
     #[test]
-    fn find_signature_composes_page_then_pattern() {
-        let p = FindSignature {
-            pattern: "48 8B ?? E8".to_owned(),
+    fn search_signature_composes_page_kind_query() {
+        let p = Search {
+            kind: "signature".to_owned(),
+            query: "48 8B ?? E8".to_owned(),
+            start: None,
             page: Page {
                 offset: 0,
                 limit: 20,
@@ -5282,7 +5235,8 @@ mod tests {
             vec![
                 ("offset", "0".to_owned()),
                 ("limit", "20".to_owned()),
-                ("pattern", "48 8B ?? E8".to_owned()),
+                ("kind", "signature".to_owned()),
+                ("query", "48 8B ?? E8".to_owned()),
             ]
         );
     }
