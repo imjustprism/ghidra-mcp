@@ -134,10 +134,13 @@ impl ToParams for AddressPage {
     }
 }
 
-impl ToParams for NamePage {
+impl ToParams for Xrefs {
     fn into_params(self) -> Params {
         let mut p = self.page.into_params();
-        p.push(("name", self.name));
+        p.push(("target", self.target));
+        if let Some(d) = self.direction {
+            p.push(("direction", d));
+        }
         p
     }
 }
@@ -954,8 +957,11 @@ pub struct AddressPage {
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
-pub struct NamePage {
-    pub name: String,
+pub struct Xrefs {
+    /// "both" (default), "to", or "from".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direction: Option<String>,
+    pub target: String,
     #[serde(flatten)]
     pub page: Page,
 }
@@ -2493,14 +2499,20 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Get all references to the specified address (xref to)",
+        description = "References for a target. direction=both (default): all references TO the function named by `target`, resolving imports through the IAT (call qword [__imp_X]) so Windows imports return their real call sites, not 0. direction=to: references to the address `target`. direction=from: references from the address `target`",
         annotations(read_only_hint = true)
     )]
-    async fn get_xrefs_to(
+    async fn xrefs(
         &self,
-        Parameters(p): Parameters<AddressPage>,
+        Parameters(p): Parameters<Xrefs>,
     ) -> Result<CallToolResult, ErrorData> {
-        self.get("xrefs_to", p).await
+        if p.target.is_empty() {
+            return Err(ErrorData::invalid_params("target is required", None));
+        }
+        match p.direction.as_deref().unwrap_or("both") {
+            "to" | "from" | "both" => self.get("xrefs", p).await,
+            _ => Err(ErrorData::invalid_params("direction must be to, from, or both", None)),
+        }
     }
 
     #[tool(
@@ -2574,28 +2586,6 @@ impl GhidraServer {
             return Err(ErrorData::invalid_params("program_b is required", None));
         }
         self.post("propagate_matches", p).await
-    }
-
-    #[tool(
-        description = "Get all references from the specified address (xref from)",
-        annotations(read_only_hint = true)
-    )]
-    async fn get_xrefs_from(
-        &self,
-        Parameters(p): Parameters<AddressPage>,
-    ) -> Result<CallToolResult, ErrorData> {
-        self.get("xrefs_from", p).await
-    }
-
-    #[tool(
-        description = "Get all references to the specified function by name. For imported/external functions, resolves call sites through the IAT (call qword [__imp_X]) by folding in references to the external symbol and its IAT slot — so Windows imports return their real call sites, not 0",
-        annotations(read_only_hint = true)
-    )]
-    async fn get_function_xrefs(
-        &self,
-        Parameters(p): Parameters<NamePage>,
-    ) -> Result<CallToolResult, ErrorData> {
-        self.get("function_xrefs", p).await
     }
 
     #[tool(

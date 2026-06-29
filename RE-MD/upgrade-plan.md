@@ -57,7 +57,7 @@ For each: new name, absorbed tools, selector param, gain. Net reduction noted.
 - [x] **`rename`** ← rename_function + rename_function_by_address + rename_data + rename_variable.
       Selector: `kind=function|data|variable` (+ accepts name|address for function). Gain: one rename
       verb. **−3**.
-- [ ] **`xrefs`** ← `get_xrefs_to` + `get_xrefs_from` + `get_function_xrefs`. Selector:
+- [x] **`xrefs`** ← get_xrefs_to + get_xrefs_from + get_function_xrefs. Selector:
       `direction=to|from|both`, target=name|address. Gain: directionally symmetric, `resolve_indirect`.
       **−2**.
 - [x] **`callgraph`** ← `callgraph` + `callgraph_dot`. Selector: `fmt=mermaid|dot` (fold into existing

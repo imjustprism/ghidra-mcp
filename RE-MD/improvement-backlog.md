@@ -348,3 +348,8 @@ live process.
   (kind=function|data|variable; function accepts old_name OR address). Unified Rename struct; one
   POST route dispatches kind to the preserved handler methods. README -3 (188→185), Rename/types 20→17.
   clippy + README-sync green. First of the bigger merges done.
+
+### Pass 21 (2026-06-29) — Phase-B MERGE (-2)
+- ✅ MERGE get_xrefs_to + get_xrefs_from + get_function_xrefs → xrefs (direction=to|from|both, target).
+  direction=both = function-by-name with IAT resolution (preserved). Unified Xrefs struct (replaced
+  NamePage, now orphaned); getQuery route dispatches direction. README -2 (185→183), Xrefs/CFG 21→19.

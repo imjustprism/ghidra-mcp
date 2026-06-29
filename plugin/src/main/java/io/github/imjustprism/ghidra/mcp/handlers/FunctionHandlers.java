@@ -37,9 +37,11 @@ public final class FunctionHandlers {
         routes.getQuery("/get_current_function", q -> describeCurrentFunction());
         routes.getQuery("/get_function_by_address", q -> describeFunctionAt(q.get("address")));
         routes.getQuery("/searchFunctions", q -> searchFunctions(q.get("query"), Page.from(q), q));
-        routes.getQuery("/xrefs_to", q -> xrefsTo(q.get("address"), Page.from(q), q));
-        routes.getQuery("/xrefs_from", q -> xrefsFrom(q.get("address"), Page.from(q), q));
-        routes.getQuery("/function_xrefs", q -> functionXrefs(q.get("name"), Page.from(q), q));
+        routes.getQuery("/xrefs", q -> switch (q.getOrDefault("direction", "both")) {
+            case "to" -> xrefsTo(q.get("target"), Page.from(q), q);
+            case "from" -> xrefsFrom(q.get("target"), Page.from(q), q);
+            default -> functionXrefs(q.get("target"), Page.from(q), q);
+        });
         routes.getQuery("/list_callers", q -> listCallers(q.get("address"), Page.from(q), q));
         routes.getQuery("/list_callees", q -> listCallees(q.get("address"), Page.from(q), q));
         routes.getQuery("/basic_blocks", q -> listBasicBlocks(q.get("address"), q));
