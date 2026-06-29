@@ -70,7 +70,7 @@ For each: new name, absorbed tools, selector param, gain. Net reduction noted.
       `emu_read_memory` + `emu_write_memory` + `emu_close`. Selector: `op=step|run_to|regs|setreg|read|
       write|close` on an `emu_id`. Keep `emu_start` separate (it returns the id). Gain: 7→1 verbs on a
       session handle. **−6**. (Skeptical: only do if clients tolerate a verb-dispatch tool; otherwise keep.)
-- [ ] **`coverage`** ← `coverage_report` + `coverage_diff` + `trace_to_coverage`. Selector:
+- [x] **`coverage`** ← `coverage_report` + `coverage_diff` + `trace_to_coverage`. Selector:
       `op=report|diff|from_trace`. **−2**.
 - [x] **`struct_field`** ← `struct_set_field` + `struct_delete_field`. Selector: `op=set|delete`. **−1**.
 - [x] **`freeze`** ← `freeze_value` + `unfreeze_value` + `list_frozen`. Selector: `op=on|off|list`. **−2**.

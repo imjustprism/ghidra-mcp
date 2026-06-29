@@ -320,3 +320,9 @@ live process.
 - ✅ MERGE freeze_value+unfreeze_value+list_frozen → freeze (op=on|off|list). New Freeze struct
   (flattens Page for op=list pagination); POST route dispatches op; DebuggerUnavailableHandlers
   updated (3 paths → /freeze). README -2 (197→195), Live RE 21→19. clippy + README-sync green.
+
+### Pass 16 (2026-06-29) — Phase-B MERGE
+- ✅ MERGE coverage_report+coverage_diff+trace_to_coverage → coverage (op=report|from_trace|diff).
+  Unified Coverage struct (op/path/path_a/path_b + flattened Page); getPage route dispatches op.
+  README -2 (195→193), Malware triage 23→21. clippy + README-sync green (fixed doc-markdown +
+  unused-parens lints on the way).

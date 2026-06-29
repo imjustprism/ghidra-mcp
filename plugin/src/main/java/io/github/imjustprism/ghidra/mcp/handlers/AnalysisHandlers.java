@@ -139,9 +139,11 @@ public final class AnalysisHandlers {
         routes.getQuery("/find_anti_vm", q -> AntiVm.find(ctx, Page.from(q), q));
         routes.getQuery("/cfg_obfuscation_score", q -> CfgObfuscation.score(ctx, q.get("address"), q));
         routes.getQuery("/unpack_assist", q -> UnpackAssist.report(ctx));
-        routes.getPage("/coverage_report", (p, q) -> Coverage.report(ctx, q.get("path"), p, q));
-        routes.getPage("/coverage_diff", (p, q) -> Coverage.diff(ctx, q.get("path_a"), q.get("path_b"), p, q));
-        routes.getPage("/trace_to_coverage", (p, q) -> Coverage.traceToCoverage(ctx, q.get("path"), p, q));
+        routes.getPage("/coverage", (p, q) -> switch (q.getOrDefault("op", "report")) {
+            case "diff" -> Coverage.diff(ctx, q.get("path_a"), q.get("path_b"), p, q);
+            case "from_trace" -> Coverage.traceToCoverage(ctx, q.get("path"), p, q);
+            default -> Coverage.report(ctx, q.get("path"), p, q);
+        });
         routes.getPage("/taint_forward", (p, q) -> Taint.slice(ctx, q.get("address"), true, p, q));
         routes.getPage("/taint_backward", (p, q) -> Taint.slice(ctx, q.get("address"), false, p, q));
         routes.getQuery("/diff_functions", q -> "semantic".equalsIgnoreCase(q.get("mode"))

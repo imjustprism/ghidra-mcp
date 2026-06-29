@@ -142,19 +142,21 @@ impl ToParams for NamePage {
     }
 }
 
-impl ToParams for CoverageReport {
+impl ToParams for Coverage {
     fn into_params(self) -> Params {
         let mut p = self.page.into_params();
-        p.push(("path", self.path));
-        p
-    }
-}
-
-impl ToParams for CoverageDiff {
-    fn into_params(self) -> Params {
-        let mut p = self.page.into_params();
-        p.push(("path_a", self.path_a));
-        p.push(("path_b", self.path_b));
+        if let Some(o) = self.op {
+            p.push(("op", o));
+        }
+        if !self.path.is_empty() {
+            p.push(("path", self.path));
+        }
+        if !self.path_a.is_empty() {
+            p.push(("path_a", self.path_a));
+        }
+        if !self.path_b.is_empty() {
+            p.push(("path_b", self.path_b));
+        }
         p
     }
 }
@@ -1791,15 +1793,15 @@ impl ToParams for DiffFunctions {
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
-pub struct CoverageReport {
+pub struct Coverage {
+    /// Which coverage operation to run (defaults to a function-level report).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub op: Option<String>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub path: String,
-    #[serde(flatten)]
-    pub page: Page,
-}
-
-#[derive(Deserialize, Serialize, schemars::JsonSchema)]
-pub struct CoverageDiff {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub path_a: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub path_b: String,
     #[serde(flatten)]
     pub page: Page,
@@ -4188,48 +4190,23 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Map an execution-coverage file to functions and report which were hit. path points to a text file of executed addresses (one hex address per line; '0x' optional, a trailing space-separated field like a hit count is ignored, '#'/';' comments skipped) under the allow-listed File IO Directory. Returns covered/total function count, percentage, and the covered function list. Use to triage which code a fuzzer/trace exercised",
+        description = "Map execution-coverage file(s) to the program. Files list executed addresses (one hex address/line; '0x' optional, trailing fields like hit counts ignored, '#'/';' comments skipped) under the allow-listed File IO Directory. op=report (default): path → covered/total functions + pct + covered list (which code a trace exercised). op=from_trace: path → per-function basic-block coverage (blocks_covered/blocks_total + pct, finer-grained — how deeply each function ran). op=diff: path_a vs path_b → functions only-in-A, only-in-B, and shared (what a new input reached that another didn't)",
         annotations(read_only_hint = true)
     )]
-    async fn coverage_report(
+    async fn coverage(
         &self,
-        Parameters(p): Parameters<CoverageReport>,
+        Parameters(p): Parameters<Coverage>,
     ) -> Result<CallToolResult, ErrorData> {
-        if p.path.is_empty() {
-            return Err(ErrorData::invalid_params("path is required", None));
+        match p.op.as_deref().unwrap_or("report") {
+            "diff" if p.path_a.is_empty() || p.path_b.is_empty() => {
+                Err(ErrorData::invalid_params("path_a and path_b are required for op=diff", None))
+            }
+            "report" | "from_trace" if p.path.is_empty() => {
+                Err(ErrorData::invalid_params("path is required", None))
+            }
+            "report" | "from_trace" | "diff" => self.get("coverage", p).await,
+            _ => Err(ErrorData::invalid_params("op must be report, from_trace, or diff", None)),
         }
-        self.get("coverage_report", p).await
-    }
-
-    #[tool(
-        description = "Block-level coverage from an execution-trace file (same address-list format as coverage_report). Maps each executed address to its basic block, then reports, per hit function, how many of its basic blocks were covered (blocks_covered/blocks_total + pct). Finer-grained than coverage_report — shows how deeply each function was exercised, for path/fuzzing triage",
-        annotations(read_only_hint = true)
-    )]
-    async fn trace_to_coverage(
-        &self,
-        Parameters(p): Parameters<CoverageReport>,
-    ) -> Result<CallToolResult, ErrorData> {
-        if p.path.is_empty() {
-            return Err(ErrorData::invalid_params("path is required", None));
-        }
-        self.get("trace_to_coverage", p).await
-    }
-
-    #[tool(
-        description = "Diff two execution-coverage files (same address-list format as coverage_report) at function granularity: reports functions covered only by A, only by B, and the shared count. Use to see what a new input/trace reached that another didn't",
-        annotations(read_only_hint = true)
-    )]
-    async fn coverage_diff(
-        &self,
-        Parameters(p): Parameters<CoverageDiff>,
-    ) -> Result<CallToolResult, ErrorData> {
-        if p.path_a.is_empty() || p.path_b.is_empty() {
-            return Err(ErrorData::invalid_params(
-                "path_a and path_b are required",
-                None,
-            ));
-        }
-        self.get("coverage_diff", p).await
     }
 
     #[tool(
@@ -5057,8 +5034,11 @@ mod tests {
 
     #[test]
     fn coverage_report_emits_path_with_page() {
-        let p = CoverageReport {
+        let p = Coverage {
+            op: None,
             path: "cov.txt".to_owned(),
+            path_a: String::new(),
+            path_b: String::new(),
             page: Page {
                 offset: 0,
                 limit: 100,
@@ -5078,7 +5058,9 @@ mod tests {
 
     #[test]
     fn coverage_diff_emits_both_paths() {
-        let p = CoverageDiff {
+        let p = Coverage {
+            op: Some("diff".to_owned()),
+            path: String::new(),
             path_a: "a.txt".to_owned(),
             path_b: "b.txt".to_owned(),
             page: Page {
@@ -5093,6 +5075,7 @@ mod tests {
             vec![
                 ("offset", "0".to_owned()),
                 ("limit", "100".to_owned()),
+                ("op", "diff".to_owned()),
                 ("path_a", "a.txt".to_owned()),
                 ("path_b", "b.txt".to_owned()),
             ]
