@@ -37,21 +37,20 @@ public final class Taint {
                 if (high == null) throw new IllegalStateException("decompilation failed for " + func.getName());
 
                 var queue = new ArrayDeque<ghidra.program.model.pcode.Varnode>();
-                int seedOps = 0;
-                for (var it = high.getPcodeOps(addr); it.hasNext(); ) {
-                    var op = it.next();
-                    seedOps++;
-                    if (forward) {
-                        if (op.getOutput() != null) queue.add(op.getOutput());
-                    } else {
-                        for (var in : op.getInputs()) {
-                            if (in != null) queue.add(in);
-                        }
+                var used = addr;
+                String snap = "";
+                int seedOps = seed(high, used, forward, queue);
+                if (seedOps == 0) {
+                    var nearest = nearestModeled(high, addr);
+                    if (nearest != null && !nearest.equals(addr)) {
+                        used = nearest;
+                        seedOps = seed(high, used, forward, queue);
+                        snap = "; snapped to nearest modeled op " + Responses.addr(used);
                     }
                 }
                 if (seedOps == 0) {
-                    return "# no p-code operations at " + Responses.addr(addr) + " in " + func.getName()
-                            + " (not a modeled instruction target; pick the address of an instruction the decompiler represents)";
+                    return "# no p-code operations at or near " + Responses.addr(addr) + " in "
+                            + func.getName() + " (the decompiler models no instruction here)";
                 }
                 if (queue.isEmpty()) {
                     return "# instruction at " + Responses.addr(addr) + " has no "
@@ -91,8 +90,9 @@ public final class Taint {
                     if (!w.take()) continue;
                     t.row(Responses.addr(e.getKey()), Responses.cell(e.getValue()));
                 }
-                return "# taint " + (forward ? "forward" : "backward") + " from " + Responses.addr(addr)
+                return "# taint " + (forward ? "forward" : "backward") + " from " + Responses.addr(used)
                         + " in " + func.getName() + " (intra-procedural; def-use only, not followed through memory"
+                        + snap
                         + (capped ? "; capped at " + MAX_REACHED : "")
                         + (stops.isEmpty() ? "" : "; stops at memory: " + String.join(", ", stops)) + ")\n"
                         + t.total(w.total()).build();
@@ -100,6 +100,38 @@ public final class Taint {
                 decomp.dispose();
             }
         });
+    }
+
+    private static int seed(ghidra.program.model.pcode.HighFunction high, Address addr, boolean forward,
+                            ArrayDeque<ghidra.program.model.pcode.Varnode> queue) {
+        int n = 0;
+        for (var it = high.getPcodeOps(addr); it.hasNext(); ) {
+            var op = it.next();
+            n++;
+            if (forward) {
+                if (op.getOutput() != null) queue.add(op.getOutput());
+            } else {
+                for (var in : op.getInputs()) {
+                    if (in != null) queue.add(in);
+                }
+            }
+        }
+        return n;
+    }
+
+    private static Address nearestModeled(ghidra.program.model.pcode.HighFunction high, Address addr) {
+        Address best = null;
+        long bestDist = Long.MAX_VALUE;
+        for (var it = high.getPcodeOps(); it.hasNext(); ) {
+            var target = it.next().getSeqnum().getTarget();
+            if (target == null) continue;
+            long dist = Math.abs(target.getOffset() - addr.getOffset());
+            if (dist < bestDist) {
+                bestDist = dist;
+                best = target;
+            }
+        }
+        return best;
     }
 
     private static void noteMemory(Program program, PcodeOp op, Set<String> stops) {
