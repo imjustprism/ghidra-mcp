@@ -4029,6 +4029,17 @@ impl GhidraServer {
     }
 
     #[tool(
+        description = "Extract indicators of compromise from defined strings: URLs, IPv4 addresses, emails, registry keys, Windows/UNC file paths, GUIDs, and crypto-wallet (BTC) addresses, each with its category and string address. Fast malware-triage convenience over the string table",
+        annotations(read_only_hint = true)
+    )]
+    async fn extract_iocs(
+        &self,
+        Parameters(p): Parameters<Page>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.get("extract_iocs", p).await
+    }
+
+    #[tool(
         description = "Find direct syscall stubs in code: syscall (x64), sysenter, and int 0x2e instructions, each verified against the disassembly. Reports the address, kind, and the syscall number (SSN) when a preceding 'mov eax, imm' is found. Surfaces Hell's-Gate-style EDR-evasion and direct-syscall malware",
         annotations(read_only_hint = true)
     )]

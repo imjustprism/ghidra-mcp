@@ -21,6 +21,7 @@ import io.github.imjustprism.ghidra.mcp.analysis.DominatorTree;
 import io.github.imjustprism.ghidra.mcp.analysis.FunctionHash;
 import io.github.imjustprism.ghidra.mcp.analysis.Emulator;
 import io.github.imjustprism.ghidra.mcp.analysis.EncodedStrings;
+import io.github.imjustprism.ghidra.mcp.analysis.ExtractIocs;
 import io.github.imjustprism.ghidra.mcp.analysis.Entropy;
 import io.github.imjustprism.ghidra.mcp.analysis.IdiomSimplifier;
 import io.github.imjustprism.ghidra.mcp.analysis.MagicConstants;
@@ -75,6 +76,7 @@ public final class AnalysisHandlers {
         routes.getQuery("/analyze_virtualization", q -> Virtualization.analyze(ctx, q));
         routes.getQuery("/obfuscation_profile", q -> Obfuscation.profile(ctx, q));
         routes.getQuery("/detect_security_mitigations", q -> SecurityMitigations.detect(ctx, q));
+        routes.getPage("/extract_iocs", (p, q) -> ExtractIocs.find(ctx, p, q));
         routes.getQuery("/vm_descriptor_table", q -> VmDescriptor.parse(ctx, q.get("table_address"),
                 Http.parseIntOrDefault(q.get("max_entries"), 256), q));
         routes.getQuery("/program_info", this::programInfo);
