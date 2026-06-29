@@ -553,6 +553,12 @@ impl ToParams for EmulateFunction {
     }
 }
 
+impl ToParams for AssembleCode {
+    fn into_params(self) -> Params {
+        vec![("address", self.address), ("assembly", self.assembly)]
+    }
+}
+
 impl ToParams for VmDescriptorArgs {
     fn into_params(self) -> Params {
         let mut p = vec![("table_address", self.table_address)];
@@ -926,6 +932,12 @@ const fn default_limit() -> u32 {
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
 pub struct Address {
     pub address: String,
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct AssembleCode {
+    pub address: String,
+    pub assembly: String,
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
@@ -2985,6 +2997,20 @@ impl GhidraServer {
     )]
     async fn detect_security_mitigations(&self) -> Result<CallToolResult, ErrorData> {
         self.get_bare("detect_security_mitigations").await
+    }
+
+    #[tool(
+        description = "Assemble x86/ARM/etc. assembly text to machine-code bytes at a given address (address matters for relative/RIP-relative encoding), via Ghidra's Assembler. Multiple instructions separated by newlines or ';' are assembled sequentially and the combined hex returned. Does NOT write — feed the bytes to patch_bytes to apply. The inverse of disassemble_function",
+        annotations(read_only_hint = true)
+    )]
+    async fn assemble_code(
+        &self,
+        Parameters(p): Parameters<AssembleCode>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if p.address.trim().is_empty() || p.assembly.trim().is_empty() {
+            return Err(ErrorData::invalid_params("address and assembly are required", None));
+        }
+        self.get("assemble_code", p).await
     }
 
     #[tool(
