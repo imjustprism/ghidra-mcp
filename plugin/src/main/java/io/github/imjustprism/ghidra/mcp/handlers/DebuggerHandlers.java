@@ -181,9 +181,11 @@ public final class DebuggerHandlers {
                 p -> luaExec(p.get("code"), p.get("state"), p.get("fn"), p.get("freeze"),
                         p.get("hook"), p.get("gettop"), p.get("loadbuffer"), p.get("pcall"),
                         p.get("settop")));
-        routes.postForm("/freeze_value", p -> freeze(p.get("address"), p.get("hex")));
-        routes.postForm("/unfreeze_value", p -> unfreeze(p.get("address")));
-        routes.getQuery("/list_frozen", this::listFrozen);
+        routes.postForm("/freeze", p -> switch (p.getOrDefault("op", "on")) {
+            case "off" -> unfreeze(p.get("address"));
+            case "list" -> listFrozen(p);
+            default -> freeze(p.get("address"), p.get("hex"));
+        });
         routes.getQuery("/value_scan", this::valueScan);
         routes.postForm("/next_scan", this::nextScan);
         routes.getQuery("/scan_results", this::scanResults);

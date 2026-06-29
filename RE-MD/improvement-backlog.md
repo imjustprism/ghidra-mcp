@@ -315,3 +315,8 @@ live process.
 - ✅ MERGE struct_set_field + struct_delete_field → struct_field (op=set|delete). Unified struct/tool;
   type now required only when op=set (validated bridge-side). README -1 (198→197), Type-recovery 19→18.
   clippy + README-sync green. Handler logic preserved (structSetField/structDeleteField unchanged).
+
+### Pass 15 (2026-06-29) — Phase-B MERGE
+- ✅ MERGE freeze_value+unfreeze_value+list_frozen → freeze (op=on|off|list). New Freeze struct
+  (flattens Page for op=list pagination); POST route dispatches op; DebuggerUnavailableHandlers
+  updated (3 paths → /freeze). README -2 (197→195), Live RE 21→19. clippy + README-sync green.

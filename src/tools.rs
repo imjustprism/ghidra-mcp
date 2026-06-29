@@ -2015,6 +2015,32 @@ impl ToParams for StructField {
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct Freeze {
+    /// "on" freezes address to hex, "off" unfreezes address, "list" shows frozen addresses.
+    pub op: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub address: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub hex: String,
+    #[serde(flatten)]
+    pub page: Page,
+}
+
+impl ToParams for Freeze {
+    fn into_params(self) -> Params {
+        let mut p = vec![("op", self.op)];
+        if !self.address.is_empty() {
+            p.push(("address", self.address));
+        }
+        if !self.hex.is_empty() {
+            p.push(("hex", self.hex));
+        }
+        p.extend(self.page.into_params());
+        p
+    }
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
 pub struct DecodeStringsAuto {
     pub address: String,
     #[serde(default = "default_decode_length")]
@@ -3748,44 +3774,22 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Freeze a live memory address to a fixed value, re-written ~4x/sec like CheatEngine. hex is the bytes to hold at the address"
+        description = "Freeze/unfreeze live memory values, CheatEngine-style. op=on: hold address at hex bytes, re-written ~4x/sec; op=off: stop freezing address; op=list: show currently frozen addresses and the values held"
     )]
-    async fn freeze_value(
+    async fn freeze(
         &self,
-        Parameters(p): Parameters<PatchBytes>,
+        Parameters(p): Parameters<Freeze>,
     ) -> Result<CallToolResult, ErrorData> {
-        if p.address.is_empty() {
-            return Err(ErrorData::invalid_params("address is required", None));
+        match p.op.as_str() {
+            "on" if p.address.is_empty() || p.hex.is_empty() => {
+                Err(ErrorData::invalid_params("address and hex are required for op=on", None))
+            }
+            "off" if p.address.is_empty() => {
+                Err(ErrorData::invalid_params("address is required for op=off", None))
+            }
+            "on" | "off" | "list" => self.post("freeze", p).await,
+            _ => Err(ErrorData::invalid_params("op must be on, off, or list", None)),
         }
-        if p.hex.is_empty() {
-            return Err(ErrorData::invalid_params("hex is required", None));
-        }
-        self.post("freeze_value", p).await
-    }
-
-    #[tool(
-        description = "Stop freezing a previously frozen address",
-        annotations(destructive_hint = false)
-    )]
-    async fn unfreeze_value(
-        &self,
-        Parameters(p): Parameters<Address>,
-    ) -> Result<CallToolResult, ErrorData> {
-        if p.address.is_empty() {
-            return Err(ErrorData::invalid_params("address is required", None));
-        }
-        self.post("unfreeze_value", p).await
-    }
-
-    #[tool(
-        description = "List currently frozen addresses and the values held",
-        annotations(read_only_hint = true)
-    )]
-    async fn list_frozen(
-        &self,
-        Parameters(p): Parameters<Page>,
-    ) -> Result<CallToolResult, ErrorData> {
-        self.get("list_frozen", p).await
     }
 
     #[tool(

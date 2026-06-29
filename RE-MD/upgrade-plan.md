@@ -73,7 +73,7 @@ For each: new name, absorbed tools, selector param, gain. Net reduction noted.
 - [ ] **`coverage`** ← `coverage_report` + `coverage_diff` + `trace_to_coverage`. Selector:
       `op=report|diff|from_trace`. **−2**.
 - [x] **`struct_field`** ← `struct_set_field` + `struct_delete_field`. Selector: `op=set|delete`. **−1**.
-- [ ] **`freeze`** ← `freeze_value` + `unfreeze_value` + `list_frozen`. Selector: `op=on|off|list`. **−2**.
+- [x] **`freeze`** ← `freeze_value` + `unfreeze_value` + `list_frozen`. Selector: `op=on|off|list`. **−2**.
 - [ ] **`scan`** ← `value_scan` + `next_scan` + `scan_results` + `scan_close`. Selector:
       `op=first|next|results|close` on a `scan_id`. CE-style lifecycle in one tool. **−3**.
 - [ ] **`list`** (cautious) ← `list_methods` + `list_functions`. These are near-dupes (names vs
