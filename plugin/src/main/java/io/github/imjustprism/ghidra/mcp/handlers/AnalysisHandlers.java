@@ -149,6 +149,7 @@ public final class AnalysisHandlers {
         routes.postForm("/neutralize_anti_debug", p -> NeutralizeAntiDebug.run(ctx, p));
         routes.postForm("/idiom_simplifier", p -> IdiomSimplifier.run(ctx, p.get("address"), p));
         routes.getQuery("/make_signature", q -> Signatures.make(ctx, q.get("address"),
+                Http.parseIntOrDefault(q.get("min_len"), 0),
                 Http.parseIntOrDefault(q.get("max_len"), 0), q.getOrDefault("format", "ida")));
         routes.getQuery("/find_signature", q -> Signatures.findSignature(ctx, q.get("pattern"), Page.from(q), q));
         routes.getQuery("/resolve_relative", q -> Signatures.resolveRelative(ctx, q.get("address")));

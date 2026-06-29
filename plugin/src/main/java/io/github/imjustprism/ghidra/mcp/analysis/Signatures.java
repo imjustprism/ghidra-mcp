@@ -22,15 +22,16 @@ public final class Signatures {
     private Signatures() {}
 
     private static final int DEFAULT_MAX_BYTES = 256;
-    private static final int MIN_BYTES = 1;
+    private static final int DEFAULT_MIN_BYTES = 8;
     private static final long NON_UNIQUE_CAP = 1000;
 
-    public static String make(PluginContext ctx, String addrStr, int maxLen, String format) {
+    public static String make(PluginContext ctx, String addrStr, int minLen, int maxLen, String format) {
         return ctx.withAddress(addrStr, (program, start) -> {
             var listing = program.getListing();
             var insn = listing.getInstructionContaining(start);
             if (insn == null) throw new IllegalArgumentException("No instruction at " + addrStr);
             var built = build(program.getMemory(), insn, bodyLimit(program, start),
+                    minLen > 0 ? minLen : DEFAULT_MIN_BYTES,
                     maxLen > 0 ? maxLen : DEFAULT_MAX_BYTES);
             if (built == null) return "Could not read instruction bytes at " + addrStr;
             return header(built) + built.sig.render(format);
@@ -111,7 +112,7 @@ public final class Signatures {
                     if (fn == null || !seen.add(fn.getEntryPoint())) continue;
                     var insn = listing.getInstructionContaining(fn.getEntryPoint());
                     var built = insn == null ? null
-                            : build(mem, insn, fn.getBody().getMaxAddress(), DEFAULT_MAX_BYTES);
+                            : build(mem, insn, fn.getBody().getMaxAddress(), DEFAULT_MIN_BYTES, DEFAULT_MAX_BYTES);
                     t.row(fn.getName(), Responses.addr(fn.getEntryPoint()),
                             Responses.addr(ref.getFromAddress()), Responses.addr(data.getAddress()),
                             built == null ? 0 : built.matches,
@@ -134,17 +135,16 @@ public final class Signatures {
 
     private record Built(Patterns.Sig sig, long matches) {}
 
-    private static Built build(Memory mem, Instruction insn, Address bodyMax, int limit) {
+    private static Built build(Memory mem, Instruction insn, Address bodyMax, int minLen, int limit) {
         var bytes = new ArrayList<Byte>();
         var mask = new ArrayList<Byte>();
         while (insn != null && bytes.size() < limit) {
             if (bodyMax != null && insn.getAddress().compareTo(bodyMax) > 0) break;
             if (!appendInstruction(insn, bytes, mask)) break;
-            if (bytes.size() >= MIN_BYTES) {
-                var trimmed = trim(bytes, mask);
-                if (!trimmed.allWildcard() && Patterns.countMatches(mem, trimmed, 2) == 1) {
-                    return new Built(trimmed, 1);
-                }
+            var trimmed = trim(bytes, mask);
+            if (trimmed.length() >= minLen && !trimmed.allWildcard()
+                    && Patterns.countMatches(mem, trimmed, 2) == 1) {
+                return new Built(trimmed, 1);
             }
             insn = insn.getNext();
         }

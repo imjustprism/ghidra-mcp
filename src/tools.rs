@@ -868,6 +868,7 @@ impl ToParams for MakeSignature {
     fn into_params(self) -> Params {
         vec![
             ("address", self.address),
+            ("min_len", self.min_len.to_string()),
             ("max_len", self.max_len.to_string()),
             ("format", self.format),
         ]
@@ -1450,6 +1451,8 @@ fn default_format() -> String {
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
 pub struct MakeSignature {
     pub address: String,
+    #[serde(default)]
+    pub min_len: u32,
     #[serde(default)]
     pub max_len: u32,
     #[serde(default = "default_format")]
@@ -3868,7 +3871,7 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Generate a unique wildcarded byte signature (AOB pattern) for the code at an address. Walks instructions from the address, keeps opcode/modrm bytes, wildcards address/relative/RIP-relative operands (keeps stable immediates), extends until the pattern is globally unique, and trims trailing wildcards. format=ida ('48 8B ?? E8 ? ? ? ?') or code ('\\x48\\x8B\\x00' + mask). Output starts with a header line reporting byte length, wildcard count, match count, and whether it is unique",
+        description = "Generate a unique wildcarded byte signature (AOB pattern) for the code at an address. Walks instructions from the address, keeps opcode/modrm bytes, wildcards address/relative/RIP-relative operands (keeps stable immediates), extends until the pattern is globally unique AND at least min_len bytes (default 8, for robustness — avoids fragile 3-byte sigs), then trims trailing wildcards. format=ida ('48 8B ?? E8 ? ? ? ?') or code ('\\x48\\x8B\\x00' + mask). Output starts with a header line reporting byte length, wildcard count, match count, and whether it is unique",
         annotations(read_only_hint = true)
     )]
     async fn make_signature(
@@ -5241,6 +5244,7 @@ mod tests {
     fn make_signature_emits_address_maxlen_format() {
         let p = MakeSignature {
             address: "0x401000".to_owned(),
+            min_len: 8,
             max_len: 64,
             format: "ida".to_owned(),
         };
@@ -5248,6 +5252,7 @@ mod tests {
             p.into_params(),
             vec![
                 ("address", "0x401000".to_owned()),
+                ("min_len", "8".to_owned()),
                 ("max_len", "64".to_owned()),
                 ("format", "ida".to_owned()),
             ]
