@@ -68,7 +68,7 @@ public final class IdiomSimplifier {
             "idiom: udiv by " + d + " (magic 0x" + Long.toHexString(v) + ")"));
     }
 
-    private static Integer recoverDivisor(long magic) {
+    static Integer recoverDivisor(long magic) {
         BigInteger m = BigInteger.valueOf(magic);
         if (m.signum() <= 0) return null;
         for (int shift : new int[]{32, 33, 34, 35, 36, 37, 38, 39, 40,

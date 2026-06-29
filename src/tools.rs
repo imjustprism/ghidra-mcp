@@ -3793,7 +3793,7 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Scan executable memory for magic-constant immediate operands used in CMP/MOV/ADD/SUB/XOR/AND/OR/IMUL/TEST/LEA/SHL/SHR/SAR/ROL/ROR/PUSH. Filters small integers (0..4, 8, 16, ...) and full-ones masks. Optional min/max (hex via 0x) narrow the range",
+        description = "Scan executable memory for magic-constant immediate operands used in CMP/MOV/ADD/SUB/XOR/AND/OR/IMUL/TEST/LEA/SHL/SHR/SAR/ROL/ROR/PUSH. Filters small integers (0..4, 8, 16, ...) and full-ones masks. The meaning column classifies recognized constants — float sign/abs masks, unsigned-division reciprocals (udiv-by-N), crypto inits (SHA/MD5/CRC), hash seeds (FNV, golden ratio), and debug-fill markers. Optional min/max (hex via 0x) narrow the range",
         annotations(read_only_hint = true)
     )]
     async fn find_magic_constants(

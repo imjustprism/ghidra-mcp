@@ -15,7 +15,43 @@ import java.util.Map;
 
 public final class MagicConstants {
 
+    private static final Map<Long, String> KNOWN = Map.ofEntries(
+            Map.entry(0x6a09e667L, "SHA-256 H0"),
+            Map.entry(0xbb67ae85L, "SHA-256 H1"),
+            Map.entry(0x428a2f98L, "SHA-256 K0"),
+            Map.entry(0x67452301L, "MD5/SHA-1 A init"),
+            Map.entry(0xefcdab89L, "MD5/SHA-1 B init"),
+            Map.entry(0x98badcfeL, "MD5/SHA-1 C init"),
+            Map.entry(0x10325476L, "MD5/SHA-1 D init"),
+            Map.entry(0xc3d2e1f0L, "SHA-1 E init"),
+            Map.entry(0xd76aa478L, "MD5 K[0]"),
+            Map.entry(0x5a827999L, "SHA-1 round K1"),
+            Map.entry(0x6ed9eba1L, "SHA-1 round K2"),
+            Map.entry(0x8f1bbcdcL, "SHA-1 round K3"),
+            Map.entry(0xca62c1d6L, "SHA-1 round K4"),
+            Map.entry(0x9e3779b9L, "golden ratio (TEA delta / hash mix)"),
+            Map.entry(0x811c9dc5L, "FNV-1 32 offset basis"),
+            Map.entry(0x01000193L, "FNV-1 32 prime"),
+            Map.entry(0xedb88320L, "CRC-32 reversed poly"),
+            Map.entry(0x04c11db7L, "CRC-32 poly"),
+            Map.entry(0xdeadbeefL, "marker 0xDEADBEEF"),
+            Map.entry(0xcafebabeL, "marker 0xCAFEBABE"),
+            Map.entry(0xccccccccL, "MSVC uninit-stack fill"),
+            Map.entry(0xfeeefeeeL, "MSVC freed-heap fill"),
+            Map.entry(0xbaadf00dL, "MSVC uninit-heap fill"));
+
     private MagicConstants() {}
+
+    static String classify(long v) {
+        if (v == 0x80000000L) return "f32 sign/neg mask";
+        if (v == 0x7fffffffL) return "f32 abs mask";
+        if (v == 0x8000000000000000L) return "f64 sign/neg mask";
+        if (v == 0x7fffffffffffffffL) return "f64 abs mask";
+        var known = KNOWN.get(v);
+        if (known != null) return known;
+        var d = IdiomSimplifier.recoverDivisor(v);
+        return d != null ? "udiv-by-" + d + " magic" : "";
+    }
 
     public static String find(PluginContext ctx, Page p, Map<String, String> q) {
         long min = parseLong(q.get("min"), 0x100L);
@@ -24,7 +60,7 @@ public final class MagicConstants {
     }
 
     private static String run(Program program, long min, long max, Page p, Map<String, String> q) {
-        var t = Responses.table(p, q, new String[]{"addr", "func", "instr", "value", "dec"});
+        var t = Responses.table(p, q, new String[]{"addr", "func", "instr", "value", "dec", "meaning"});
         var w = new Responses.Window(p);
         var listing = program.getListing();
         for (MemoryBlock block : program.getMemory().getBlocks()) {
@@ -49,7 +85,7 @@ public final class MagicConstants {
                         Function f = program.getFunctionManager().getFunctionContaining(ins.getAddress());
                         String fname = f == null ? "" : f.getName();
                         t.row(Responses.addr(ins.getAddress()), fname, ins.toString(),
-                              "0x" + Long.toHexString(v), v);
+                              "0x" + Long.toHexString(v), v, classify(v));
                     }
                 }
             }
