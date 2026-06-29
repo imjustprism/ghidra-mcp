@@ -43,6 +43,7 @@ import io.github.imjustprism.ghidra.mcp.analysis.Signatures;
 import io.github.imjustprism.ghidra.mcp.analysis.StackStrings;
 import io.github.imjustprism.ghidra.mcp.analysis.StructDiagram;
 import io.github.imjustprism.ghidra.mcp.analysis.Syscalls;
+import io.github.imjustprism.ghidra.mcp.analysis.TlsCallbacks;
 import io.github.imjustprism.ghidra.mcp.analysis.Taint;
 import io.github.imjustprism.ghidra.mcp.analysis.UnpackAssist;
 import io.github.imjustprism.ghidra.mcp.analysis.Virtualization;
@@ -80,6 +81,7 @@ public final class AnalysisHandlers {
         routes.getQuery("/analyze_virtualization", q -> Virtualization.analyze(ctx, q));
         routes.getQuery("/obfuscation_profile", q -> Obfuscation.profile(ctx, q));
         routes.getQuery("/detect_security_mitigations", q -> SecurityMitigations.detect(ctx, q));
+        routes.getQuery("/list_tls_callbacks", q -> TlsCallbacks.list(ctx, q));
         routes.getQuery("/assemble_code", q -> Assemble.assemble(ctx, q.get("address"), q.get("assembly")));
         routes.getQuery("/extract_api_call_sequences", q -> ApiCallSequence.extract(ctx, q.get("address"), q));
         routes.getPage("/extract_iocs", (p, q) -> ExtractIocs.find(ctx, p, q));

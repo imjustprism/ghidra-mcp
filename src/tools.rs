@@ -3021,6 +3021,14 @@ impl GhidraServer {
     }
 
     #[tool(
+        description = "Enumerate PE TLS callbacks — functions registered in the TLS directory's AddressOfCallBacks array that run BEFORE the entry point. A classic anti-debug / early-init / execution-hiding spot in malware and protectors. Reports each callback address and its containing function (empty list if none)",
+        annotations(read_only_hint = true)
+    )]
+    async fn list_tls_callbacks(&self) -> Result<CallToolResult, ErrorData> {
+        self.get_bare("list_tls_callbacks").await
+    }
+
+    #[tool(
         description = "Assemble x86/ARM/etc. assembly text to machine-code bytes at a given address (address matters for relative/RIP-relative encoding), via Ghidra's Assembler. Multiple instructions separated by newlines or ';' are assembled sequentially and the combined hex returned. Does NOT write — feed the bytes to patch_bytes to apply. The inverse of disassemble_function",
         annotations(read_only_hint = true)
     )]
