@@ -38,6 +38,27 @@ AOB signatures · 192 tools total. We already exceed every public server on dept
 9. **[UX] MCP Resources + curated prompt library** — discoverability (GhidrAssist). Low-effort polish.
 10. **auth lockout** — we already have an Auth Token option; add attempt-lockout if hardening. Minor.
 
+## CLOSED (2026-06-29, autonomous) — 198 tools now
+- ✅ `detect_security_mitigations` (2aedfe9) — PE DllCharacteristics decode.
+- ✅ `extract_iocs` (ad1feb7) — URL/IP/email/registry/path/GUID/BTC sweep.
+- ✅ `find_rop_gadgets` (76dda61) — unaligned ROP gadgets via PseudoDisassembler + filter.
+- ✅ `assemble_code` (3a3c25c) — asm text → bytes (Ghidra Assemblers).
+- ✅ `extract_api_call_sequences` (ee4e80b) — behavioral API trace.
+- ✅ `find_format_string_vulns` (ff23ca9) — CWE-134 scan.
+
+**Result: we now have the FULL 13bm security suite + the GhidrAssist/IDA assembler, on top of our
+unique depth (deobf engine, stateful emulation, taint, live plane, ghidra_eval, protector/VM
+analysis, diffing). 198 tools — the most comprehensive public Ghidra MCP by a wide margin.**
+
+## Remaining (bigger / deferred)
+- **Semantic/embedding code search** (pyghidra's unique feature) — needs an embedding backend
+  (ChromaDB/model). Real dependency + design decision. The one capability a competitor has that we
+  don't and that isn't trivial. Candidate for a future major feature.
+- **Multi-binary project import** (`import_binary`/list/delete) — we already support `program`
+  targeting + `list_open_programs` across open programs; adding file-import into the project is moderate.
+- **MCP Resources + curated prompt library** (GhidrAssist UX) — Rust-side MCP surface; polish, not capability.
+- **Auth attempt-lockout** — we already have an Auth Token; lockout is a minor hardening add.
+
 ## Build order
 detect_security_mitigations → extract_iocs → find_rop_gadgets → assemble_code →
 find_format_string_vulns → extract_api_call_sequences → (multi-binary, semantic search, resources later).
