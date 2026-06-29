@@ -144,8 +144,9 @@ public final class AnalysisHandlers {
         routes.getPage("/trace_to_coverage", (p, q) -> Coverage.traceToCoverage(ctx, q.get("path"), p, q));
         routes.getPage("/taint_forward", (p, q) -> Taint.slice(ctx, q.get("address"), true, p, q));
         routes.getPage("/taint_backward", (p, q) -> Taint.slice(ctx, q.get("address"), false, p, q));
-        routes.getQuery("/diff_functions", q -> Diff.compare(ctx,
-                q.get("address_a"), q.get("address_b"), q.get("program_b"), q));
+        routes.getQuery("/diff_functions", q -> "semantic".equalsIgnoreCase(q.get("mode"))
+                ? Emulator.semanticDiff(ctx, q.get("address_a"), q.get("address_b"), q)
+                : Diff.compare(ctx, q.get("address_a"), q.get("address_b"), q.get("program_b"), q));
         routes.getPage("/diff_programs", (p, q) -> Diff.diffPrograms(ctx, q.get("program_b"), p, q));
         routes.postForm("/propagate_matches", p -> Diff.propagateMatches(ctx,
                 p.get("program_b"), Http.parseBool(p.get("apply"), false)));

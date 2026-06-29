@@ -127,37 +127,76 @@ public final class Emulator {
         long hash = 0xcbf29ce484222325L;
         var t = Responses.table(q, new String[]{"vector", "ret", "write_bytes", "steps", "halt"}, FINGERPRINT_VECTORS.length);
         for (var vec : FINGERPRINT_VECTORS) {
-            var emu = new ghidra.app.emulator.EmulatorHelper(program);
-            try {
-                prepareCall(emu, program, func, vec, bigEndian, ptr);
-                emu.enableMemoryWriteTracking(true);
-                String reason = "max_steps";
-                int steps = 0;
-                for (; steps < 50_000; steps++) {
-                    var pc = emu.getExecutionAddress();
-                    if (pc == null) { reason = "no-pc"; break; }
-                    if (pc.getOffset() == RET_MARKER && pc.getAddressSpace().equals(defaultSpace)) { reason = "ret"; break; }
-                    try {
-                        if (!emu.step(ghidra.util.task.TaskMonitor.DUMMY)) { reason = "halt"; break; }
-                    } catch (Exception e) {
-                        reason = "fault";
-                        break;
-                    }
-                }
-                long ret = reason.equals("ret") ? returnValue(emu, func) : 0;
-                long writeBytes = trackedBytes(emu, defaultSpace);
-                var line = vecStr(vec) + "|" + ret + "|" + writeBytes + "|" + reason;
-                for (int i = 0; i < line.length(); i++) {
-                    hash = (hash ^ line.charAt(i)) * 0x100000001b3L;
-                }
-                t.row(vecStr(vec), "0x" + Long.toHexString(ret), writeBytes, steps, reason);
-            } finally {
-                emu.dispose();
+            var bh = behavior(program, func, vec, bigEndian, ptr, defaultSpace);
+            var line = vecStr(vec) + "|" + bh.ret() + "|" + bh.writeBytes() + "|" + bh.reason();
+            for (int i = 0; i < line.length(); i++) {
+                hash = (hash ^ line.charAt(i)) * 0x100000001b3L;
             }
+            t.row(vecStr(vec), "0x" + Long.toHexString(bh.ret()), bh.writeBytes(), bh.steps(), bh.reason());
         }
         return "# semantic fingerprint " + func.getName() + ": 0x" + Long.toHexString(hash)
                 + " (behavioral — emulated over " + FINGERPRINT_VECTORS.length
                 + " input vectors; robust to instruction substitution / recompilation)\n" + t.build();
+    }
+
+    public static String semanticDiff(PluginContext ctx, String addrA, String addrB, Map<String, String> q) {
+        if (addrA == null || addrA.isBlank() || addrB == null || addrB.isBlank()) {
+            throw new IllegalArgumentException("address_a and address_b are required");
+        }
+        var program = ctx.currentProgram();
+        if (program == null) throw new IllegalArgumentException("No program loaded");
+        var defaultSpace = program.getAddressFactory().getDefaultAddressSpace();
+        var funcA = Addresses.functionAtOrContaining(program, program.getAddressFactory().getAddress(addrA.trim()));
+        var funcB = Addresses.functionAtOrContaining(program, program.getAddressFactory().getAddress(addrB.trim()));
+        if (funcA == null || funcB == null) throw new IllegalArgumentException("no function at address_a or address_b");
+        boolean bigEndian = program.getLanguage().isBigEndian();
+        int ptr = defaultSpace.getPointerSize();
+        int match = 0;
+        var t = Responses.table(q, new String[]{"vector", "a_ret", "b_ret", "a_wbytes", "b_wbytes", "same"},
+                FINGERPRINT_VECTORS.length);
+        for (var vec : FINGERPRINT_VECTORS) {
+            var a = behavior(program, funcA, vec, bigEndian, ptr, defaultSpace);
+            var b = behavior(program, funcB, vec, bigEndian, ptr, defaultSpace);
+            boolean same = a.ret() == b.ret() && a.writeBytes() == b.writeBytes() && a.reason().equals(b.reason());
+            if (same) match++;
+            t.row(vecStr(vec), "0x" + Long.toHexString(a.ret()), "0x" + Long.toHexString(b.ret()),
+                    a.writeBytes(), b.writeBytes(), same);
+        }
+        int score = match * 100 / FINGERPRINT_VECTORS.length;
+        return "# semantic diff " + funcA.getName() + " vs " + funcB.getName() + ": " + score
+                + "/100 (" + match + "/" + FINGERPRINT_VECTORS.length
+                + " input vectors produce identical observable behavior; matches across instruction substitution)\n"
+                + t.build();
+    }
+
+    private record Behavior(long ret, long writeBytes, String reason, int steps) {}
+
+    private static Behavior behavior(ghidra.program.model.listing.Program program,
+                                     ghidra.program.model.listing.Function func, long[] vec,
+                                     boolean bigEndian, int ptr,
+                                     ghidra.program.model.address.AddressSpace defaultSpace) {
+        var emu = new ghidra.app.emulator.EmulatorHelper(program);
+        try {
+            prepareCall(emu, program, func, vec, bigEndian, ptr);
+            emu.enableMemoryWriteTracking(true);
+            String reason = "max_steps";
+            int steps = 0;
+            for (; steps < 50_000; steps++) {
+                var pc = emu.getExecutionAddress();
+                if (pc == null) { reason = "no-pc"; break; }
+                if (pc.getOffset() == RET_MARKER && pc.getAddressSpace().equals(defaultSpace)) { reason = "ret"; break; }
+                try {
+                    if (!emu.step(ghidra.util.task.TaskMonitor.DUMMY)) { reason = "halt"; break; }
+                } catch (Exception e) {
+                    reason = "fault";
+                    break;
+                }
+            }
+            long ret = reason.equals("ret") ? returnValue(emu, func) : 0;
+            return new Behavior(ret, trackedBytes(emu, defaultSpace), reason, steps);
+        } finally {
+            emu.dispose();
+        }
     }
 
     private static long returnValue(ghidra.app.emulator.EmulatorHelper emu, ghidra.program.model.listing.Function func) {

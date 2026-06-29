@@ -301,3 +301,7 @@ live process.
 - ✅ make_signature mode=semantic (fa379ce): emulation behavioral fingerprint (return+writes+halt
   over 6 input vectors, FNV-hashed). Verified live: deterministic per fn, distinct across fns.
   First Phase-A item of the master upgrade plan shipped.
+
+### Pass 12 (2026-06-29) — Phase-A upgrade
+- ✅ diff_functions mode=semantic (behavioral I/O similarity via shared Emulator.behavior() helper).
+  Verified live: self=100/100, cross=0/100. Refactored semanticFingerprint to share behavior().

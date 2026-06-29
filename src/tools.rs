@@ -1782,6 +1782,9 @@ pub struct DiffFunctions {
     pub address_b: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub program_b: Option<String>,
+    /// "structural" (default) or "semantic" (emulation I/O behavior; same-program only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
 }
 
 impl ToParams for DiffFunctions {
@@ -1789,6 +1792,9 @@ impl ToParams for DiffFunctions {
         let mut p = vec![("address_a", self.address_a), ("address_b", self.address_b)];
         if let Some(b) = self.program_b {
             p.push(("program_b", b));
+        }
+        if let Some(m) = self.mode {
+            p.push(("mode", m));
         }
         p
     }
@@ -2555,7 +2561,7 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Structurally compare two functions and score their similarity 0-100. Compares instruction-mnemonic multisets (Jaccard), called-function-name sets, and size ratio. address_a is in the active program; address_b is in program_b if given (an open program by name/sha256, e.g. for cross-binary variant matching) else the active program. Returns the score plus the per-metric breakdown and each function's call set",
+        description = "Compare two functions and score similarity 0-100. mode=structural (default): instruction-mnemonic multisets (Jaccard) + called-function sets + size ratio; address_b may live in program_b (another open program) for cross-binary variant matching. mode=semantic: emulates both over fixed input vectors and scores how often they produce identical observable behavior (return + bytes written + halt) — matches functions across instruction substitution / obfuscation that structural diff misses (same-program only)",
         annotations(read_only_hint = true)
     )]
     async fn diff_functions(
@@ -5055,6 +5061,7 @@ mod tests {
             address_a: "0x401000".to_owned(),
             address_b: "0x401500".to_owned(),
             program_b: Some("variant_b.exe".to_owned()),
+            mode: None,
         };
         assert_eq!(
             p.into_params(),
@@ -5072,6 +5079,7 @@ mod tests {
             address_a: "0x401000".to_owned(),
             address_b: "0x402000".to_owned(),
             program_b: None,
+            mode: None,
         };
         assert_eq!(
             p.into_params(),
