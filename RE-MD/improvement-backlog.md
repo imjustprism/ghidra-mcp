@@ -296,3 +296,8 @@ live process.
   not MemoryAccessFilter in this Ghidra; FilteredMemoryState + EmulatorHelper.enableMemoryWriteTracking
   is the correct path.)
 - Next focus (user): keep finding NOVEL upgrades to EXISTING tools (not just new tools).
+
+### Pass 11 (2026-06-29) — Phase-A upgrade
+- ✅ make_signature mode=semantic (fa379ce): emulation behavioral fingerprint (return+writes+halt
+  over 6 input vectors, FNV-hashed). Verified live: deterministic per fn, distinct across fns.
+  First Phase-A item of the master upgrade plan shipped.
