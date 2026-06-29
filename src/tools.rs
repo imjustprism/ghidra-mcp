@@ -2243,19 +2243,40 @@ impl GhidraServer {
     }
 }
 
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct ListFunctions {
+    #[serde(flatten)]
+    pub page: Page,
+    /// Include the entry-point address column (true, default) or list names only (false).
+    #[serde(
+        default,
+        deserialize_with = "de_opt_bool",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub with_address: Option<bool>,
+    #[serde(
+        default,
+        deserialize_with = "de_opt_bool",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub include_auto: Option<bool>,
+}
+
+impl ToParams for ListFunctions {
+    fn into_params(self) -> Params {
+        let mut p = self.page.into_params();
+        if let Some(w) = self.with_address {
+            p.push(("with_address", if w { "1" } else { "0" }.to_string()));
+        }
+        if self.include_auto.unwrap_or(false) {
+            p.push(("include_auto", "1".to_string()));
+        }
+        p
+    }
+}
+
 #[tool_router]
 impl GhidraServer {
-    #[tool(
-        description = "List all function names in the program with pagination",
-        annotations(read_only_hint = true)
-    )]
-    async fn list_methods(
-        &self,
-        Parameters(p): Parameters<Page>,
-    ) -> Result<CallToolResult, ErrorData> {
-        self.get("methods", p).await
-    }
-
     #[tool(
         description = "List the Ghidra scripts (.java/.py) available on the script source directories, with each script's name and directory. Read-only discovery; this server does not execute scripts",
         annotations(read_only_hint = true)
@@ -2419,11 +2440,14 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "List all functions in the database",
+        description = "List functions in the program, paginated. with_address=true (default) gives a fn+addr table that excludes auto-named (FUN_*) functions unless include_auto=true; with_address=false lists every function name including auto-named (the former list_methods)",
         annotations(read_only_hint = true)
     )]
-    async fn list_functions(&self) -> Result<CallToolResult, ErrorData> {
-        self.get_bare("list_functions").await
+    async fn list_functions(
+        &self,
+        Parameters(p): Parameters<ListFunctions>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.get("list_functions", p).await
     }
 
     #[tool(
@@ -4885,7 +4909,7 @@ mod tests {
             .into_iter()
             .map(|t| t.name.to_string())
             .collect();
-        assert!(names.iter().any(|n| n == "list_methods"));
+        assert!(names.iter().any(|n| n == "list_functions"));
         assert!(names.iter().any(|n| n == "search_tools"));
         assert!(names.iter().any(|n| n == "get_tool_schema"));
         assert!(

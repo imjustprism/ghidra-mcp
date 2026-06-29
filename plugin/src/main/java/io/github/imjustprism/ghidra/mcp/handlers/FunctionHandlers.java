@@ -92,6 +92,11 @@ public final class FunctionHandlers {
 
     public String listFunctions(Map<String, String> q) {
         var p = Page.from(q);
+        var withAddr = q.get("with_address");
+        if ("0".equals(withAddr) || "false".equalsIgnoreCase(withAddr)) {
+            return ctx.withProgram(program ->
+                    Responses.pageStream(q, p, "fn", Programs.functions(program).map(Function::getName)));
+        }
         return ctx.withProgram(program -> {
             boolean includeAuto = "1".equals(q.get("include_auto"));
             var t = Responses.table(p, q, new String[]{"fn", "addr"});

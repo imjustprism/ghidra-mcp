@@ -331,3 +331,9 @@ live process.
 - ✅ MERGE value_scan+next_scan+scan_results+scan_close → scan (op=first|next|results|close). Unified
   Scan struct (union of all fields); POST route dispatches op; DebuggerUnavailableHandlers updated
   (4 paths → /scan). README -3 (193→190), Live RE 19→16. clippy + README-sync green.
+
+### Pass 18 (2026-06-29) — Phase-B MERGE
+- ✅ MERGE list_methods → list_functions with_address=true|false. list_functions now takes a
+  ListFunctions struct (Page + with_address + include_auto) — gained pagination it lacked (was
+  get_bare). with_address=false reproduces old list_methods (all names incl auto). Dropped /methods
+  route + listFunctionNames + 2 orphaned imports. README -1 (190→189), Listing/metadata 21→20.

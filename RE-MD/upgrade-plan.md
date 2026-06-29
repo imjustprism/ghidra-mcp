@@ -76,7 +76,7 @@ For each: new name, absorbed tools, selector param, gain. Net reduction noted.
 - [x] **`freeze`** ← `freeze_value` + `unfreeze_value` + `list_frozen`. Selector: `op=on|off|list`. **−2**.
 - [x] **`scan`** ← `value_scan` + `next_scan` + `scan_results` + `scan_close`. Selector:
       `op=first|next|results|close` on a `scan_id`. CE-style lifecycle in one tool. **−3**.
-- [ ] **`list`** (cautious) ← `list_methods` + `list_functions`. These are near-dupes (names vs
+- [x] **`list_functions`** ← absorbs `list_methods` via with_address. These are near-dupes (names vs
       names+addresses). Merge to `list_functions` with `with_address=true|false`; drop `list_methods`. **−1**.
 
 **Total reduction if all done: ~26 tools (199 → ~173).** Conservative subset (skip emu_session/scan

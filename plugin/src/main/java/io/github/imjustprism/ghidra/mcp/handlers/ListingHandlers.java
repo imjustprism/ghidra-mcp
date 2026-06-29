@@ -1,7 +1,6 @@
 package io.github.imjustprism.ghidra.mcp.handlers;
 
 import ghidra.program.model.address.GlobalNamespace;
-import ghidra.program.model.listing.Function;
 import ghidra.program.model.symbol.Symbol;
 import io.github.imjustprism.ghidra.mcp.analysis.Entropy;
 import io.github.imjustprism.ghidra.mcp.http.Http;
@@ -10,7 +9,6 @@ import io.github.imjustprism.ghidra.mcp.http.RouteTable;
 import io.github.imjustprism.ghidra.mcp.util.DataTypes;
 import io.github.imjustprism.ghidra.mcp.util.Imports;
 import io.github.imjustprism.ghidra.mcp.util.PluginContext;
-import io.github.imjustprism.ghidra.mcp.util.Programs;
 import io.github.imjustprism.ghidra.mcp.util.Responses;
 import io.github.imjustprism.ghidra.mcp.util.Strings;
 
@@ -27,7 +25,6 @@ public final class ListingHandlers {
     }
 
     public void register(RouteTable routes) {
-        routes.getPage("/methods", this::listFunctionNames);
         routes.getPage("/classes", this::listClassNames);
         routes.getPage("/segments", this::listSegments);
         routes.getPage("/imports", this::listImports);
@@ -88,11 +85,6 @@ public final class ListingHandlers {
             }
             return t.total((int) Math.min(total, Integer.MAX_VALUE)).build();
         });
-    }
-
-    public String listFunctionNames(Page p, Map<String, String> q) {
-        return ctx.withProgram(program ->
-                Responses.pageStream(q, p, "fn", Programs.functions(program).map(Function::getName)));
     }
 
     public String listClassNames(Page p, Map<String, String> q) {
