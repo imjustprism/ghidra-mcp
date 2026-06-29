@@ -2225,6 +2225,31 @@ pub struct FunctionHashArgs {
     pub mode: Option<String>,
 }
 
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct FunctionSummaryArgs {
+    pub address: String,
+    /// Append an ordered API-call-sequence section (behavioral trace).
+    #[serde(
+        default,
+        deserialize_with = "de_opt_bool",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub api_calls: Option<bool>,
+    #[serde(flatten)]
+    pub page: Page,
+}
+
+impl ToParams for FunctionSummaryArgs {
+    fn into_params(self) -> Params {
+        let mut p = self.page.into_params();
+        p.push(("address", self.address));
+        if self.api_calls.unwrap_or(false) {
+            p.push(("api_calls", "1".to_string()));
+        }
+        p
+    }
+}
+
 impl ToParams for FunctionHashArgs {
     fn into_params(self) -> Params {
         let mut p = vec![("address", self.address)];
@@ -3896,13 +3921,16 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "One-call context pack for a function at an address: metadata + signature, cleaned decompiled C, callers, callees, and referenced strings, in one response. The fastest way to load everything needed to understand and name a function. limit caps each list section",
+        description = "One-call context pack for a function at an address: metadata + signature, cleaned decompiled C, callers, callees, and referenced strings, in one response. The fastest way to load everything needed to understand and name a function. limit caps each list section. api_calls=true appends an ordered API-call-sequence section (behavioral trace)",
         annotations(read_only_hint = true)
     )]
     async fn function_summary_bundle(
         &self,
-        Parameters(p): Parameters<AddressPage>,
+        Parameters(p): Parameters<FunctionSummaryArgs>,
     ) -> Result<CallToolResult, ErrorData> {
+        if p.address.is_empty() {
+            return Err(ErrorData::invalid_params("address is required", None));
+        }
         self.get("function_summary", p).await
     }
 

@@ -371,3 +371,9 @@ live process.
 - ✅ function_hash mode=semantic — behavioral hash via Emulator.semanticFingerprint (reuses the
   verified write-tracking fingerprint). New FunctionHashArgs struct (address + mode); route dispatches
   mode. Additive, default mode=structural unchanged. clippy + README-sync green (179, no count change).
+
+### Pass 25 (2026-06-29) — Phase-A upgrade
+- ✅ function_summary_bundle api_calls=true — appends an ordered API-call-sequence section (behavioral
+  trace) by reusing ApiCallSequence. Refactored ApiCallSequence to expose build(program,func,apiOnly,q)
+  so the bundle calls it directly (no nested ctx.withAddress). New FunctionSummaryArgs struct (address +
+  api_calls + page). Additive, default unchanged. clippy + README-sync green (179).

@@ -8,6 +8,7 @@ import ghidra.program.model.listing.Program;
 import ghidra.program.model.symbol.Reference;
 import ghidra.program.model.symbol.ReferenceIterator;
 import ghidra.util.task.ConsoleTaskMonitor;
+import io.github.imjustprism.ghidra.mcp.analysis.ApiCallSequence;
 import io.github.imjustprism.ghidra.mcp.analysis.DecompileMinimal;
 import io.github.imjustprism.ghidra.mcp.analysis.FieldWrites;
 import io.github.imjustprism.ghidra.mcp.http.Page;
@@ -63,6 +64,10 @@ public final class FunctionHandlers {
             sb.append("=== callers ===\n").append(section(() -> callersTable(func, p, q))).append('\n');
             sb.append("=== callees ===\n").append(section(() -> calleesTable(func, p, q))).append('\n');
             sb.append("=== strings ===\n").append(section(() -> stringRefsTable(program, func, p, q)));
+            if ("1".equals(q.get("api_calls")) || "true".equalsIgnoreCase(q.get("api_calls"))) {
+                sb.append("\n=== api_calls ===\n")
+                  .append(section(() -> ApiCallSequence.build(program, func, true, q)));
+            }
             return sb.toString();
         });
     }
