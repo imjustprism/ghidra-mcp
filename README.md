@@ -60,7 +60,7 @@ MCP server for Ghidra. Rust bridge + Ghidra Java plugin. Wires any MCP client (C
 
 ## Tools
 
-198 tools total.
+197 tools total.
 
 Every paginated read tool accepts an optional `fmt` argument — `tsv` (default), `csv`, `json`, or `verbose` — alongside `offset`/`limit`, plus an optional `program` (open program name or sha256) to target a specific open program instead of the active one (the server honors `program` on every endpoint).
 
@@ -197,7 +197,7 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 </details>
 
 <details>
-<summary><b>Type recovery / analysis control</b> (19)</summary>
+<summary><b>Type recovery / analysis control</b> (18)</summary>
 
 | tool | purpose |
 | --- | --- |
@@ -216,8 +216,7 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 | `propose_struct_from_accesses` | infer a struct layout from how a pointer variable is used |
 | `list_open_programs` | all open programs (name, active, sha256) |
 | `select_program` | switch the active program by name/sha256 |
-| `struct_set_field` | replace/insert a field in an existing struct |
-| `struct_delete_field` | clear a field at an offset |
+| `struct_field` | edit a struct field at an offset (op=set replace/insert, op=delete) |
 | `batch_apply_data_type` | apply many types, one transaction |
 | `struct_diagram` | Mermaid classDiagram of struct fields + composition edges |
 

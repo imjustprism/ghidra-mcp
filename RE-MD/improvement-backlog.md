@@ -310,3 +310,8 @@ live process.
 - ✅ MERGE callgraph_dot → callgraph (format=mermaid|dot). Removed CallgraphDot struct/ToParams/tool +
   /callgraph_dot route + orphaned default_callgraph_depth; README -1 (199→198), Xrefs/CFG 23→22.
   clippy + README-sync green. First Phase-B merge landed; CallGraph.dot logic preserved.
+
+### Pass 14 (2026-06-29) — Phase-B MERGE
+- ✅ MERGE struct_set_field + struct_delete_field → struct_field (op=set|delete). Unified struct/tool;
+  type now required only when op=set (validated bridge-side). README -1 (198→197), Type-recovery 19→18.
+  clippy + README-sync green. Handler logic preserved (structSetField/structDeleteField unchanged).

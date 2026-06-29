@@ -50,11 +50,10 @@ public final class RecoveryHandlers {
         routes.postForm("/batch_apply_data_type", p -> batchApplyDataType(p.get("items")));
         routes.postForm("/create_function", p -> createFunction(p.get("address")));
         routes.postForm("/propagate_function_types", p -> propagateTypes(p.get("function_address")));
-        routes.postForm("/struct_set_field", p -> structSetField(p.get("struct"),
-                Http.parseIntOrDefault(p.get("offset"), -1), p.get("type"),
-                p.getOrDefault("name", ""), p.getOrDefault("mode", "replace")));
-        routes.postForm("/struct_delete_field", p -> structDeleteField(p.get("struct"),
-                Http.parseIntOrDefault(p.get("offset"), -1)));
+        routes.postForm("/struct_field", p -> "delete".equalsIgnoreCase(p.get("op"))
+                ? structDeleteField(p.get("struct"), Http.parseIntOrDefault(p.get("offset"), -1))
+                : structSetField(p.get("struct"), Http.parseIntOrDefault(p.get("offset"), -1),
+                p.get("type"), p.getOrDefault("name", ""), p.getOrDefault("mode", "replace")));
         routes.getQuery("/list_data_type_archives", this::listDataTypeArchives);
         routes.postForm("/apply_gdt", p -> applyGdt(p.get("path")));
         routes.postForm("/import_dwarf", p -> runAnalyzer(

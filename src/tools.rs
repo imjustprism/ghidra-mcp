@@ -1978,24 +1978,32 @@ impl ToParams for FunctionAddress {
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
-pub struct StructSetField {
+pub struct StructField {
+    /// "set" (default) overwrites/inserts a field; "delete" replaces it with undefined space.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub op: Option<String>,
     pub struct_name: String,
     pub offset: u32,
-    #[serde(rename = "type")]
-    pub data_type: String,
+    #[serde(rename = "type", default, skip_serializing_if = "Option::is_none")]
+    pub data_type: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<String>,
 }
 
-impl ToParams for StructSetField {
+impl ToParams for StructField {
     fn into_params(self) -> Params {
         let mut p = vec![
             ("struct", self.struct_name),
             ("offset", self.offset.to_string()),
-            ("type", self.data_type),
         ];
+        if let Some(o) = self.op {
+            p.push(("op", o));
+        }
+        if let Some(t) = self.data_type {
+            p.push(("type", t));
+        }
         if let Some(n) = self.name {
             p.push(("name", n));
         }
@@ -2003,21 +2011,6 @@ impl ToParams for StructSetField {
             p.push(("mode", m));
         }
         p
-    }
-}
-
-#[derive(Deserialize, Serialize, schemars::JsonSchema)]
-pub struct StructDeleteField {
-    pub struct_name: String,
-    pub offset: u32,
-}
-
-impl ToParams for StructDeleteField {
-    fn into_params(self) -> Params {
-        vec![
-            ("struct", self.struct_name),
-            ("offset", self.offset.to_string()),
-        ]
     }
 }
 
@@ -4484,31 +4477,20 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Set a field in an existing structure at a byte offset. mode=replace (default) overwrites whatever occupies the offset; mode=insert shifts later fields down. type accepts builtins or any defined type name. name is optional",
+        description = "Edit a field of an existing structure at a byte offset. op=set (default): create/overwrite a field — mode=replace (default) overwrites whatever occupies the offset, mode=insert shifts later fields down; type accepts builtins or any defined type name; name optional. op=delete: replace the field at offset with undefined space (type/name ignored)",
         annotations(destructive_hint = false)
     )]
-    async fn struct_set_field(
+    async fn struct_field(
         &self,
-        Parameters(p): Parameters<StructSetField>,
+        Parameters(p): Parameters<StructField>,
     ) -> Result<CallToolResult, ErrorData> {
         if p.struct_name.is_empty() {
             return Err(ErrorData::invalid_params("struct_name is required", None));
         }
-        self.post("struct_set_field", p).await
-    }
-
-    #[tool(
-        description = "Delete the field at a byte offset in an existing structure, replacing it with undefined space",
-        annotations(destructive_hint = false)
-    )]
-    async fn struct_delete_field(
-        &self,
-        Parameters(p): Parameters<StructDeleteField>,
-    ) -> Result<CallToolResult, ErrorData> {
-        if p.struct_name.is_empty() {
-            return Err(ErrorData::invalid_params("struct_name is required", None));
+        if p.op.as_deref() != Some("delete") && p.data_type.is_none() {
+            return Err(ErrorData::invalid_params("type is required when op=set", None));
         }
-        self.post("struct_delete_field", p).await
+        self.post("struct_field", p).await
     }
 
     #[tool(
