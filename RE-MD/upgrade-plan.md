@@ -62,7 +62,7 @@ For each: new name, absorbed tools, selector param, gain. Net reduction noted.
       **−2**.
 - [x] **`callgraph`** ← `callgraph` + `callgraph_dot`. Selector: `fmt=mermaid|dot` (fold into existing
       `fmt`). **−1**.
-- [ ] **`xref_graph`** ← `xref_graph` + `xref_graph_html`. Selector: `fmt=mermaid|html`. **−1**.
+- [x] **`xref_graph`** ← `xref_graph` + `xref_graph_html`. Selector: `fmt=mermaid|html`. **−1**.
 - [ ] **`search`** ← `search_bytes` + `find_string` + `find_signature`. Selector:
       `kind=bytes|string|signature` (sig dialect stays a sub-param). Gain: one search surface,
       cursor-resumable, `from_decompiler`. **−2**.

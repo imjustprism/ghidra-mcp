@@ -60,7 +60,7 @@ MCP server for Ghidra. Rust bridge + Ghidra Java plugin. Wires any MCP client (C
 
 ## Tools
 
-189 tools total.
+188 tools total.
 
 Every paginated read tool accepts an optional `fmt` argument — `tsv` (default), `csv`, `json`, or `verbose` — alongside `offset`/`limit`, plus an optional `program` (open program name or sha256) to target a specific open program instead of the active one (the server honors `program` on every endpoint).
 
@@ -118,7 +118,7 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 </details>
 
 <details>
-<summary><b>Xrefs / CFG</b> (22)</summary>
+<summary><b>Xrefs / CFG</b> (21)</summary>
 
 | tool | purpose |
 | --- | --- |
@@ -133,8 +133,7 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 | `function_cfg` | Mermaid control-flow graph of one function (blocks + flow-typed edges) |
 | `function_summary_bundle` | one-call context pack (decompile + callers + callees + strings) |
 | `function_field_writes` | compact field/vtable-write summary plus strings |
-| `xref_graph` | Mermaid one-hop reference graph around an address |
-| `xref_graph_html` | self-contained interactive HTML reference graph (pan/zoom/hover) |
+| `xref_graph` | one-hop reference graph around an address (fmt=mermaid|html) |
 | `namespace_graph` | Mermaid namespace/class hierarchy |
 | `cfg_metrics` | block/edge/cyclomatic/loop complexity for a function |
 | `dominator_tree` | immediate-dominator of each basic block |

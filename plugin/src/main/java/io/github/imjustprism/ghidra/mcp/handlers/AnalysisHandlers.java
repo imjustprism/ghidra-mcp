@@ -102,8 +102,9 @@ public final class AnalysisHandlers {
         routes.getQuery("/function_cfg", q -> Cfg.mermaid(ctx, q.get("address")));
         routes.getQuery("/cfg_metrics", q -> CfgMetrics.metrics(ctx, q.get("address"), q));
         routes.getQuery("/dominator_tree", q -> DominatorTree.compute(ctx, q.get("address"), Page.from(q), q));
-        routes.getQuery("/xref_graph", q -> XrefGraph.mermaid(ctx, q.get("address"), q.get("max")));
-        routes.getHtml("/xref_graph_html", q -> XrefGraph.html(ctx, q.get("address"), q.get("max")));
+        routes.getQuery("/xref_graph", q -> "html".equalsIgnoreCase(q.get("fmt"))
+                ? XrefGraph.html(ctx, q.get("address"), q.get("max"))
+                : XrefGraph.mermaid(ctx, q.get("address"), q.get("max")));
         routes.getQuery("/namespace_graph", q -> NamespaceGraph.mermaid(ctx, q.get("max")));
         routes.getQuery("/struct_diagram", q -> StructDiagram.mermaid(ctx, q.get("filter"),
                 Http.parseIntOrDefault(q.get("max"), 0)));

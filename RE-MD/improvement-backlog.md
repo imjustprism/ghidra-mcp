@@ -337,3 +337,8 @@ live process.
   ListFunctions struct (Page + with_address + include_auto) — gained pagination it lacked (was
   get_bare). with_address=false reproduces old list_methods (all names incl auto). Dropped /methods
   route + listFunctionNames + 2 orphaned imports. README -1 (190→189), Listing/metadata 21→20.
+
+### Pass 19 (2026-06-29) — Phase-B MERGE
+- ✅ MERGE xref_graph_html → xref_graph fmt=mermaid|html. fmt dispatched at the getQuery route
+  (XrefGraph.html body returns as text for MCP). README -1 (189→188), Xrefs/CFG 22→21.
+  clippy + README-sync green. The simple/safe merge batch is DONE (7 merges, 199→188).

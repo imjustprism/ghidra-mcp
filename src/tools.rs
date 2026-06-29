@@ -2053,6 +2053,9 @@ pub struct XrefGraphArgs {
         skip_serializing_if = "Option::is_none"
     )]
     pub max: Option<u32>,
+    /// "mermaid" (default, inline graph) or "html" (self-contained interactive page).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fmt: Option<String>,
 }
 
 impl ToParams for XrefGraphArgs {
@@ -2060,6 +2063,9 @@ impl ToParams for XrefGraphArgs {
         let mut p = vec![("address", self.address)];
         if let Some(m) = self.max {
             p.push(("max", m.to_string()));
+        }
+        if let Some(f) = self.fmt {
+            p.push(("fmt", f));
         }
         p
     }
@@ -3278,7 +3284,7 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Render a one-hop reference graph around an address as Mermaid: inbound references (callers/readers) and outbound references (call/jump/data targets), edges labeled by reference type. max caps the number of references shown, split fairly between the two directions (default 40, hard cap 200)",
+        description = "Render a one-hop reference graph around an address: inbound references (callers/readers) and outbound references (call/jump/data targets), edges labeled by reference type. fmt=mermaid (default) renders inline in chat; fmt=html emits a self-contained offline interactive page (pan/zoom/drag, hover edge-highlight) to save as .html and open in a browser. max caps references shown, split fairly between directions (default 40, hard cap 200)",
         annotations(read_only_hint = true)
     )]
     async fn xref_graph(
@@ -3286,17 +3292,6 @@ impl GhidraServer {
         Parameters(p): Parameters<XrefGraphArgs>,
     ) -> Result<CallToolResult, ErrorData> {
         self.get("xref_graph", p).await
-    }
-
-    #[tool(
-        description = "Render the same one-hop reference graph as xref_graph but as a self-contained, offline interactive HTML page (no external dependencies): inbound references on the left, outbound on the right, the center node highlighted, with mouse pan/zoom/drag and hover edge-highlighting. Save the output to a .html file and open it in a browser. max caps the references shown (default 40, hard cap 200)",
-        annotations(read_only_hint = true)
-    )]
-    async fn xref_graph_html(
-        &self,
-        Parameters(p): Parameters<XrefGraphArgs>,
-    ) -> Result<CallToolResult, ErrorData> {
-        self.get("xref_graph_html", p).await
     }
 
     #[tool(
