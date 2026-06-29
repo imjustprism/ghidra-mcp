@@ -2,6 +2,7 @@ package io.github.imjustprism.ghidra.mcp.handlers;
 
 import ghidra.util.Msg;
 import io.github.imjustprism.ghidra.mcp.analysis.AntiDebug;
+import io.github.imjustprism.ghidra.mcp.analysis.ApiCallSequence;
 import io.github.imjustprism.ghidra.mcp.analysis.Assemble;
 import io.github.imjustprism.ghidra.mcp.analysis.AntiVm;
 import io.github.imjustprism.ghidra.mcp.analysis.ApiHashes;
@@ -79,6 +80,7 @@ public final class AnalysisHandlers {
         routes.getQuery("/obfuscation_profile", q -> Obfuscation.profile(ctx, q));
         routes.getQuery("/detect_security_mitigations", q -> SecurityMitigations.detect(ctx, q));
         routes.getQuery("/assemble_code", q -> Assemble.assemble(ctx, q.get("address"), q.get("assembly")));
+        routes.getQuery("/extract_api_call_sequences", q -> ApiCallSequence.extract(ctx, q.get("address"), q));
         routes.getPage("/extract_iocs", (p, q) -> ExtractIocs.find(ctx, p, q));
         routes.getPage("/find_rop_gadgets", (p, q) -> RopGadgets.find(ctx, q.get("filter"),
                 Http.parseIntOrDefault(q.get("max_instrs"), 5), p, q));

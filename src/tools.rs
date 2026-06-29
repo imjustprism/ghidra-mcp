@@ -559,6 +559,16 @@ impl ToParams for AssembleCode {
     }
 }
 
+impl ToParams for ApiCallSequence {
+    fn into_params(self) -> Params {
+        let mut p = vec![("address", self.address)];
+        if let Some(a) = self.api_only {
+            p.push(("api_only", if a { "1".to_owned() } else { "0".to_owned() }));
+        }
+        p
+    }
+}
+
 impl ToParams for VmDescriptorArgs {
     fn into_params(self) -> Params {
         let mut p = vec![("table_address", self.table_address)];
@@ -938,6 +948,17 @@ pub struct Address {
 pub struct AssembleCode {
     pub address: String,
     pub assembly: String,
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct ApiCallSequence {
+    pub address: String,
+    #[serde(
+        default,
+        deserialize_with = "de_opt_bool",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub api_only: Option<bool>,
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
@@ -3011,6 +3032,20 @@ impl GhidraServer {
             return Err(ErrorData::invalid_params("address and assembly are required", None));
         }
         self.get("assemble_code", p).await
+    }
+
+    #[tool(
+        description = "Extract the ordered sequence of calls a function makes — a behavioral fingerprint for malware triage. Walks the function body in address order and resolves each call target; api_only (default true) keeps only imported-API calls (resolved through thunks/IAT), api_only=false includes internal calls. Pairs with function_summary_bundle",
+        annotations(read_only_hint = true)
+    )]
+    async fn extract_api_call_sequences(
+        &self,
+        Parameters(p): Parameters<ApiCallSequence>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if p.address.trim().is_empty() {
+            return Err(ErrorData::invalid_params("address is required", None));
+        }
+        self.get("extract_api_call_sequences", p).await
     }
 
     #[tool(
