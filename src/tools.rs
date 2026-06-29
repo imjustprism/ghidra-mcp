@@ -570,37 +570,35 @@ impl ToParams for RecoverDecodedStrings {
     }
 }
 
-impl ToParams for EmuStep {
+impl ToParams for EmuSession {
     fn into_params(self) -> Params {
-        let mut p = vec![("emu_id", self.emu_id)];
+        let mut p = vec![("op", self.op), ("emu_id", self.emu_id)];
         if let Some(c) = self.count {
             p.push(("count", c.to_string()));
         }
-        p
-    }
-}
-
-impl ToParams for EmuRunTo {
-    fn into_params(self) -> Params {
-        let mut p = vec![("emu_id", self.emu_id), ("stop", self.stop)];
+        if let Some(s) = self.stop {
+            p.push(("stop", s));
+        }
         if let Some(m) = self.max_steps {
             p.push(("max_steps", m.to_string()));
         }
-        p
-    }
-}
-
-impl ToParams for EmuId {
-    fn into_params(self) -> Params {
-        vec![("emu_id", self.emu_id)]
-    }
-}
-
-impl ToParams for EmuRegisters {
-    fn into_params(self) -> Params {
-        let mut p = vec![("emu_id", self.emu_id)];
         if self.full.unwrap_or(false) {
             p.push(("full", "1".to_string()));
+        }
+        if let Some(r) = self.register {
+            p.push(("register", r));
+        }
+        if let Some(v) = self.value {
+            p.push(("value", v));
+        }
+        if let Some(a) = self.address {
+            p.push(("address", a));
+        }
+        if let Some(l) = self.length {
+            p.push(("length", l.to_string()));
+        }
+        if let Some(h) = self.hex {
+            p.push(("hex", h));
         }
         p
     }
@@ -613,36 +611,6 @@ impl ToParams for DebuggerRegisters {
             p.push(("full", "1".to_string()));
         }
         p
-    }
-}
-
-impl ToParams for EmuSetRegister {
-    fn into_params(self) -> Params {
-        vec![
-            ("emu_id", self.emu_id),
-            ("register", self.register),
-            ("value", self.value),
-        ]
-    }
-}
-
-impl ToParams for EmuReadMemory {
-    fn into_params(self) -> Params {
-        let mut p = vec![("emu_id", self.emu_id), ("address", self.address)];
-        if let Some(l) = self.length {
-            p.push(("length", l.to_string()));
-        }
-        p
-    }
-}
-
-impl ToParams for EmuWriteMemory {
-    fn into_params(self) -> Params {
-        vec![
-            ("emu_id", self.emu_id),
-            ("address", self.address),
-            ("hex", self.hex),
-        ]
     }
 }
 
@@ -1213,7 +1181,9 @@ pub struct RecoverDecodedStrings {
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
-pub struct EmuStep {
+pub struct EmuSession {
+    /// Which session operation to run (see the tool description for the verbs).
+    pub op: String,
     pub emu_id: String,
     #[serde(
         default,
@@ -1221,34 +1191,34 @@ pub struct EmuStep {
         skip_serializing_if = "Option::is_none"
     )]
     pub count: Option<u32>,
-}
-
-#[derive(Deserialize, Serialize, schemars::JsonSchema)]
-pub struct EmuRunTo {
-    pub emu_id: String,
-    pub stop: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop: Option<String>,
     #[serde(
         default,
         deserialize_with = "de_opt_u32",
         skip_serializing_if = "Option::is_none"
     )]
     pub max_steps: Option<u32>,
-}
-
-#[derive(Deserialize, Serialize, schemars::JsonSchema)]
-pub struct EmuId {
-    pub emu_id: String,
-}
-
-#[derive(Deserialize, Serialize, schemars::JsonSchema)]
-pub struct EmuRegisters {
-    pub emu_id: String,
     #[serde(
         default,
         deserialize_with = "de_opt_bool",
         skip_serializing_if = "Option::is_none"
     )]
     pub full: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub register: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "de_opt_u32",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub length: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hex: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema, Default)]
@@ -1261,32 +1231,6 @@ pub struct DebuggerRegisters {
         skip_serializing_if = "Option::is_none"
     )]
     pub full: Option<bool>,
-}
-
-#[derive(Deserialize, Serialize, schemars::JsonSchema)]
-pub struct EmuSetRegister {
-    pub emu_id: String,
-    pub register: String,
-    pub value: String,
-}
-
-#[derive(Deserialize, Serialize, schemars::JsonSchema)]
-pub struct EmuReadMemory {
-    pub emu_id: String,
-    pub address: String,
-    #[serde(
-        default,
-        deserialize_with = "de_opt_u32",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub length: Option<u32>,
-}
-
-#[derive(Deserialize, Serialize, schemars::JsonSchema)]
-pub struct EmuWriteMemory {
-    pub emu_id: String,
-    pub address: String,
-    pub hex: String,
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema, Default)]
@@ -2854,7 +2798,7 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Start a persistent p-code emulator session at an address and return an emu_id. Unlike one-shot emulate, the session keeps register/memory state alive across calls so you can interactively step, inspect, and continue. stack sets the initial stack pointer (default 0x7fff0000). Pair with emu_step/emu_run_to/emu_registers/emu_read_memory and emu_close when done. Idle sessions are garbage-collected after 30 minutes"
+        description = "Start a persistent p-code emulator session at an address and return an emu_id. Unlike one-shot emulate, the session keeps register/memory state alive across calls so you can interactively step, inspect, and continue. stack sets the initial stack pointer (default 0x7fff0000). Drive it with emu_session (op=step/run_to/regs/setreg/read/write/close). Idle sessions are garbage-collected after 30 minutes"
     )]
     async fn emu_start(
         &self,
@@ -2867,76 +2811,36 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Step a persistent emulator session forward by count instructions (default 1). Stops early on emulator halt. Returns instructions stepped and the new PC"
+        description = "Drive a persistent emulator session (from emu_start) by emu_id. op=step: advance count instructions (default 1), stops early on halt. op=run_to: run until PC reaches stop (required) or max_steps (default 100000). op=regs: dump common registers (full=true for the whole bank). op=setreg: set register=value (0x-hex or decimal, negatives ok) to seed args/pointers. op=read: read length bytes (default 64) of emulator memory at address (reflects emulated writes). op=write: write hex bytes at address to stage input. op=close: dispose the session"
     )]
-    async fn emu_step(
+    async fn emu_session(
         &self,
-        Parameters(p): Parameters<EmuStep>,
+        Parameters(p): Parameters<EmuSession>,
     ) -> Result<CallToolResult, ErrorData> {
-        self.post("emu_step", p).await
-    }
-
-    #[tool(
-        description = "Run a persistent emulator session until the program counter reaches stop or max_steps is exhausted (default 100000). Returns steps executed, stop reason, and the final PC"
-    )]
-    async fn emu_run_to(
-        &self,
-        Parameters(p): Parameters<EmuRunTo>,
-    ) -> Result<CallToolResult, ErrorData> {
-        if p.stop.is_empty() {
-            return Err(ErrorData::invalid_params("stop is required", None));
+        if p.emu_id.is_empty() {
+            return Err(ErrorData::invalid_params("emu_id is required", None));
         }
-        self.post("emu_run_to", p).await
-    }
-
-    #[tool(
-        description = "Dump register values of a persistent emulator session. Shows the common GP/flags/segment registers by default; pass full=true for the entire bank (ZMM/K/ST/CR/DR/...)",
-        annotations(read_only_hint = true)
-    )]
-    async fn emu_registers(
-        &self,
-        Parameters(p): Parameters<EmuRegisters>,
-    ) -> Result<CallToolResult, ErrorData> {
-        self.get("emu_registers", p).await
-    }
-
-    #[tool(
-        description = "Set a register in a persistent emulator session. value accepts 0x-prefixed hex or decimal (negatives allowed). Use to seed function arguments or pointers before stepping"
-    )]
-    async fn emu_set_register(
-        &self,
-        Parameters(p): Parameters<EmuSetRegister>,
-    ) -> Result<CallToolResult, ErrorData> {
-        self.post("emu_set_register", p).await
-    }
-
-    #[tool(
-        description = "Read length bytes (default 64) of emulator memory at an address in a persistent session. Reflects writes made by the emulated code",
-        annotations(read_only_hint = true)
-    )]
-    async fn emu_read_memory(
-        &self,
-        Parameters(p): Parameters<EmuReadMemory>,
-    ) -> Result<CallToolResult, ErrorData> {
-        self.get("emu_read_memory", p).await
-    }
-
-    #[tool(
-        description = "Write raw hex bytes into emulator memory at an address in a persistent session. Use to stage input buffers before running"
-    )]
-    async fn emu_write_memory(
-        &self,
-        Parameters(p): Parameters<EmuWriteMemory>,
-    ) -> Result<CallToolResult, ErrorData> {
-        self.post("emu_write_memory", p).await
-    }
-
-    #[tool(description = "Dispose a persistent emulator session and free its resources")]
-    async fn emu_close(
-        &self,
-        Parameters(p): Parameters<EmuId>,
-    ) -> Result<CallToolResult, ErrorData> {
-        self.post("emu_close", p).await
+        match p.op.as_str() {
+            "run_to" if p.stop.is_none() => {
+                Err(ErrorData::invalid_params("stop is required for op=run_to", None))
+            }
+            "setreg" if p.register.is_none() || p.value.is_none() => {
+                Err(ErrorData::invalid_params("register and value are required for op=setreg", None))
+            }
+            "read" | "write" if p.address.is_none() => {
+                Err(ErrorData::invalid_params("address is required for op=read/write", None))
+            }
+            "write" if p.hex.is_none() => {
+                Err(ErrorData::invalid_params("hex is required for op=write", None))
+            }
+            "step" | "run_to" | "regs" | "setreg" | "read" | "write" | "close" => {
+                self.post("emu_session", p).await
+            }
+            _ => Err(ErrorData::invalid_params(
+                "op must be step, run_to, regs, setreg, read, write, or close",
+                None,
+            )),
+        }
     }
 
     #[tool(
@@ -5048,31 +4952,49 @@ mod tests {
     }
 
     #[test]
-    fn emu_run_to_emits_id_stop_and_optional_max() {
-        let p = EmuRunTo {
+    fn emu_session_run_to_emits_op_id_stop() {
+        let p = EmuSession {
+            op: "run_to".to_owned(),
             emu_id: "emu3".to_owned(),
-            stop: "0x401050".to_owned(),
+            count: None,
+            stop: Some("0x401050".to_owned()),
             max_steps: None,
+            full: None,
+            register: None,
+            value: None,
+            address: None,
+            length: None,
+            hex: None,
         };
         assert_eq!(
             p.into_params(),
             vec![
+                ("op", "run_to".to_owned()),
                 ("emu_id", "emu3".to_owned()),
-                ("stop", "0x401050".to_owned())
+                ("stop", "0x401050".to_owned()),
             ]
         );
     }
 
     #[test]
-    fn emu_set_register_emits_all_fields() {
-        let p = EmuSetRegister {
+    fn emu_session_setreg_emits_register_and_value() {
+        let p = EmuSession {
+            op: "setreg".to_owned(),
             emu_id: "emu1".to_owned(),
-            register: "RDI".to_owned(),
-            value: "0x10".to_owned(),
+            count: None,
+            stop: None,
+            max_steps: None,
+            full: None,
+            register: Some("RDI".to_owned()),
+            value: Some("0x10".to_owned()),
+            address: None,
+            length: None,
+            hex: None,
         };
         assert_eq!(
             p.into_params(),
             vec![
+                ("op", "setreg".to_owned()),
                 ("emu_id", "emu1".to_owned()),
                 ("register", "RDI".to_owned()),
                 ("value", "0x10".to_owned()),

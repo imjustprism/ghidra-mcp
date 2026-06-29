@@ -377,3 +377,10 @@ live process.
   trace) by reusing ApiCallSequence. Refactored ApiCallSequence to expose build(program,func,apiOnly,q)
   so the bundle calls it directly (no nested ctx.withAddress). New FunctionSummaryArgs struct (address +
   api_calls + page). Additive, default unchanged. clippy + README-sync green (179).
+
+### Pass 26 (2026-06-29) — Phase-B MERGE (-6, biggest reduction; all merges done)
+- ✅ MERGE emu_step+emu_run_to+emu_registers+emu_set_register+emu_read_memory+emu_write_memory+
+  emu_close → emu_session (op=step|run_to|regs|setreg|read|write|close on emu_id). emu_start kept
+  separate (returns the id). Unified EmuSession struct (replaced 7); POST route dispatches op to the
+  preserved handlers. README -6 (179→173), Emulation 9→3. clippy + README-sync green.
+  ALL 12 MERGES COMPLETE: 199→173 tools.

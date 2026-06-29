@@ -66,7 +66,7 @@ For each: new name, absorbed tools, selector param, gain. Net reduction noted.
 - [x] **`search`** ← search_bytes + find_string + find_signature. Selector:
       `kind=bytes|string|signature` (sig dialect stays a sub-param). Gain: one search surface,
       cursor-resumable, `from_decompiler`. **−2**.
-- [ ] **`emu_session`** ← `emu_step` + `emu_run_to` + `emu_registers` + `emu_set_register` +
+- [x] **`emu_session`** ← `emu_step` + `emu_run_to` + `emu_registers` + `emu_set_register` +
       `emu_read_memory` + `emu_write_memory` + `emu_close`. Selector: `op=step|run_to|regs|setreg|read|
       write|close` on an `emu_id`. Keep `emu_start` separate (it returns the id). Gain: 7→1 verbs on a
       session handle. **−6**. (Skeptical: only do if clients tolerate a verb-dispatch tool; otherwise keep.)

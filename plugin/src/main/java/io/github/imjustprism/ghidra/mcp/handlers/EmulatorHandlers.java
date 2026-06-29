@@ -38,15 +38,16 @@ public final class EmulatorHandlers {
 
     public void register(RouteTable routes) {
         routes.postForm("/emu_start", p -> start(p.get("start"), p.get("stack")));
-        routes.postForm("/emu_step", p -> step(p.get("emu_id"), parseLong(p.get("count"), 1)));
-        routes.postForm("/emu_run_to", p -> runTo(p.get("emu_id"), p.get("stop"),
-                parseLong(p.get("max_steps"), 100000)));
-        routes.getQuery("/emu_registers", q -> registers(q.get("emu_id"), "1".equals(q.get("full"))));
-        routes.postForm("/emu_set_register", p -> setRegister(p.get("emu_id"), p.get("register"), p.get("value")));
-        routes.getQuery("/emu_read_memory", q -> readMemory(q.get("emu_id"), q.get("address"),
-                parseLong(q.get("length"), 64)));
-        routes.postForm("/emu_write_memory", p -> writeMemory(p.get("emu_id"), p.get("address"), p.get("hex")));
-        routes.postForm("/emu_close", p -> closeSession(p.get("emu_id")));
+        routes.postForm("/emu_session", p -> switch (p.getOrDefault("op", "")) {
+            case "step" -> step(p.get("emu_id"), parseLong(p.get("count"), 1));
+            case "run_to" -> runTo(p.get("emu_id"), p.get("stop"), parseLong(p.get("max_steps"), 100000));
+            case "regs" -> registers(p.get("emu_id"), "1".equals(p.get("full")));
+            case "setreg" -> setRegister(p.get("emu_id"), p.get("register"), p.get("value"));
+            case "read" -> readMemory(p.get("emu_id"), p.get("address"), parseLong(p.get("length"), 64));
+            case "write" -> writeMemory(p.get("emu_id"), p.get("address"), p.get("hex"));
+            case "close" -> closeSession(p.get("emu_id"));
+            default -> throw new IllegalArgumentException("op must be step, run_to, regs, setreg, read, write, or close");
+        });
     }
 
     public void close() {
