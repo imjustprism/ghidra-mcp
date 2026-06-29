@@ -60,7 +60,7 @@ MCP server for Ghidra. Rust bridge + Ghidra Java plugin. Wires any MCP client (C
 
 ## Tools
 
-181 tools total.
+179 tools total.
 
 Every paginated read tool accepts an optional `fmt` argument — `tsv` (default), `csv`, `json`, or `verbose` — alongside `offset`/`limit`, plus an optional `program` (open program name or sha256) to target a specific open program instead of the active one (the server honors `program` on every endpoint).
 
@@ -104,13 +104,11 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 </details>
 
 <details>
-<summary><b>Decompile / disasm</b> (6)</summary>
+<summary><b>Decompile / disasm</b> (4)</summary>
 
 | tool | purpose |
 | --- | --- |
-| `decompile_function` | C pseudocode by name |
-| `decompile_function_by_address` | C pseudocode by address |
-| `decompile_minimal` | pseudocode, cosmetic noise stripped |
+| `decompile` | C pseudocode for a function by name or address (clean=true strips noise) |
 | `disassemble_function` | raw asm |
 | `instruction_at` | single insn |
 | `pcode_function` | raw p-code per insn |

@@ -51,7 +51,7 @@ Each adds an opt-in flag/output column; default behavior unchanged. Risk: Low un
 
 For each: new name, absorbed tools, selector param, gain. Net reduction noted.
 
-- [ ] **`decompile`** ← `decompile_function` + `decompile_function_by_address` + `decompile_minimal`.
+- [x] **`decompile`** ← decompile_function + decompile_function_by_address + decompile_minimal.
       Selector: accepts `name|address`; flags `clean`, `deobf`. Gain: one entry point, deobf built in.
       **−2**.
 - [x] **`rename`** ← rename_function + rename_function_by_address + rename_data + rename_variable.

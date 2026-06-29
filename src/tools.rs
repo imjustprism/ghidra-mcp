@@ -959,8 +959,26 @@ pub struct SearchFunctions {
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
-pub struct DecompileByName {
-    pub name: String,
+pub struct Decompile {
+    /// Function name OR address (interior address resolves to the enclosing function).
+    pub target: String,
+    /// Strip cosmetic noise (redundant casts, decompiler WARNING blocks, blank lines).
+    #[serde(
+        default,
+        deserialize_with = "de_opt_bool",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub clean: Option<bool>,
+}
+
+impl ToParams for Decompile {
+    fn into_params(self) -> Params {
+        let mut p = vec![("target", self.target)];
+        if self.clean.unwrap_or(false) {
+            p.push(("clean", "1".to_string()));
+        }
+        p
+    }
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
@@ -2197,13 +2215,6 @@ impl GhidraServer {
             .map_err(map_err)
     }
 
-    async fn post_raw(&self, path: &str, body: &str) -> Result<CallToolResult, ErrorData> {
-        self.http
-            .post_raw(path, body)
-            .await
-            .map(ok_text)
-            .map_err(map_err)
-    }
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
@@ -2263,14 +2274,17 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Decompile a specific function by name and return the decompiled C code",
+        description = "Decompile a function to C. target is a function name OR an address (an interior address resolves to its enclosing function). clean=true strips cosmetic noise (redundant (int)/(uint)/(longlong) casts on iVar/uVar/param_/local_, decompiler WARNING comment blocks, blank lines)",
         annotations(read_only_hint = true)
     )]
-    async fn decompile_function(
+    async fn decompile(
         &self,
-        Parameters(p): Parameters<DecompileByName>,
+        Parameters(p): Parameters<Decompile>,
     ) -> Result<CallToolResult, ErrorData> {
-        self.post_raw("decompile", &p.name).await
+        if p.target.is_empty() {
+            return Err(ErrorData::invalid_params("target is required", None));
+        }
+        self.get("decompile", p).await
     }
 
     #[tool(
@@ -2406,16 +2420,6 @@ impl GhidraServer {
         self.get("list_functions", p).await
     }
 
-    #[tool(
-        description = "Decompile the function at or containing the given address (an interior address resolves to its enclosing function)",
-        annotations(read_only_hint = true)
-    )]
-    async fn decompile_function_by_address(
-        &self,
-        Parameters(p): Parameters<Address>,
-    ) -> Result<CallToolResult, ErrorData> {
-        self.get("decompile_function", p).await
-    }
 
     #[tool(
         description = "Get assembly code (address: instruction; comment) for a function",
@@ -3787,16 +3791,6 @@ impl GhidraServer {
         self.get("find_opaque_predicates", p).await
     }
 
-    #[tool(
-        description = "Decompile a function and strip cosmetic noise: drop (int)/(uint)/(longlong) casts on iVar/uVar/param_/local_ identifiers, remove decompiler WARNING comment blocks, collapse blank lines. Anything not matching these templates passes through unchanged",
-        annotations(read_only_hint = true)
-    )]
-    async fn decompile_minimal(
-        &self,
-        Parameters(p): Parameters<Address>,
-    ) -> Result<CallToolResult, ErrorData> {
-        self.get("decompile_minimal", p).await
-    }
 
     #[tool(
         description = "Scan executable memory for magic-constant immediate operands used in CMP/MOV/ADD/SUB/XOR/AND/OR/IMUL/TEST/LEA/SHL/SHR/SAR/ROL/ROR/PUSH. Filters small integers (0..4, 8, 16, ...) and full-ones masks. The meaning column classifies recognized constants — float sign/abs masks, unsigned-division reciprocals (udiv-by-N), crypto inits (SHA/MD5/CRC), hash seeds (FNV, golden ratio), and debug-fill markers. Optional min/max (hex via 0x) narrow the range",
@@ -4417,7 +4411,7 @@ impl GhidraServer {
             "Survey the program loaded in Ghidra and report findings.\n\
              1. program_info — arch, bits, base, sha256.\n\
              2. list_imports and list_strings — flag URLs, file paths, registry keys, suspicious APIs.\n\
-             3. list_entry_points, then decompile_minimal each entry.\n\
+             3. list_entry_points, then decompile (clean=true) each entry.\n\
              4. high_entropy_regions — packed/encrypted zones.\n\
              5. Capability triage: find_anti_debug, find_anti_vm, find_api_hashes, find_crypto_constants, find_syscalls.\n\
              6. find_undocumented, then function_summary_bundle on the worst-scored few.\n\

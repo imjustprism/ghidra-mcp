@@ -18,7 +18,6 @@ import io.github.imjustprism.ghidra.mcp.analysis.Diff;
 import io.github.imjustprism.ghidra.mcp.analysis.DecodeStrings;
 import io.github.imjustprism.ghidra.mcp.analysis.DynamicApi;
 import io.github.imjustprism.ghidra.mcp.analysis.CryptoConstants;
-import io.github.imjustprism.ghidra.mcp.analysis.DecompileMinimal;
 import io.github.imjustprism.ghidra.mcp.analysis.DominatorTree;
 import io.github.imjustprism.ghidra.mcp.analysis.FunctionHash;
 import io.github.imjustprism.ghidra.mcp.analysis.Emulator;
@@ -163,7 +162,6 @@ public final class AnalysisHandlers {
                 Http.parseIntOrDefault(q.get("length"), 256),
                 Double.parseDouble(q.getOrDefault("min_printable", "0.85")),
                 Http.parseIntOrDefault(q.get("max"), 10), q));
-        routes.getQuery("/decompile_minimal", q -> DecompileMinimal.run(ctx, q.get("address")));
         routes.getPage("/find_magic_constants", (p, q) -> MagicConstants.find(ctx, p, q));
         routes.postForm("/neutralize_anti_debug", p -> NeutralizeAntiDebug.run(ctx, p));
         routes.postForm("/idiom_simplifier", p -> IdiomSimplifier.run(ctx, p.get("address"), p));

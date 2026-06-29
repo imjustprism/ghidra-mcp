@@ -359,3 +359,10 @@ live process.
   bytes keeps start-cursor pagination. Unified Search struct (replaced SearchBytes/FindString/
   FindSignature). /search route in BytesHandlers dispatches kind (signature → static Signatures.findSignature).
   README -2 (183→181), Bytes/patching 12→11, Signatures 4→3.
+
+### Pass 23 (2026-06-29) — Phase-B MERGE (-2, last core merge)
+- ✅ MERGE decompile_function + decompile_function_by_address + decompile_minimal → decompile
+  (target=name|address, clean=true). Unified Java decompile() resolves name-or-address then
+  full/minimal; getQuery route. Removed DecompileByName struct + now-dead post_raw plumbing
+  (GhidraServer::post_raw, HttpClient::post_raw + its test). README -2 (181→179), Decompile 6→4.
+  ALL CORE MERGES DONE (11): 199→179 tools. Only emu_session (skeptical, -6) remains optional.

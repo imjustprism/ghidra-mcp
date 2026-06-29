@@ -2,6 +2,8 @@ package io.github.imjustprism.ghidra.mcp.handlers;
 
 import ghidra.program.model.listing.CodeUnit;
 import ghidra.util.Msg;
+import io.github.imjustprism.ghidra.mcp.analysis.DecompileMinimal;
+import io.github.imjustprism.ghidra.mcp.http.Http;
 import io.github.imjustprism.ghidra.mcp.http.RouteTable;
 import io.github.imjustprism.ghidra.mcp.util.Addresses;
 import io.github.imjustprism.ghidra.mcp.util.Bufs;
@@ -21,26 +23,29 @@ public final class DecompileHandlers {
     }
 
     public void register(RouteTable routes) {
-        routes.getQuery("/decompile_function", q -> decompileAt(q.get("address")));
+        routes.getQuery("/decompile", q -> decompile(q.get("target"), Http.parseBool(q.get("clean"), false)));
         routes.getQuery("/disassemble_function", q -> disassembleAt(q.get("address")));
         routes.getQuery("/instruction_at", q -> instructionAt(q.get("address")));
-        routes.postRaw("/decompile", this::decompileByName);
     }
 
-    public String decompileByName(String name) {
+    public String decompile(String target, boolean clean) {
         return ctx.withProgram(program -> {
-            if (name == null || name.isBlank()) throw new IllegalArgumentException("Function name is required");
-            var func = Programs.findFunctionByName(program, name.trim());
-            if (func == null) throw new IllegalArgumentException("Function not found: " + name.trim());
-            return DecompileCache.decompile(program, func);
-        });
-    }
-
-    public String decompileAt(String addr) {
-        return ctx.withAddress(addr, (program, a) -> {
-            var func = Addresses.functionAtOrContaining(program, a);
-            if (func == null) throw new IllegalArgumentException("No function at or containing " + addr);
-            return DecompileCache.decompile(program, func);
+            if (target == null || target.isBlank()) {
+                throw new IllegalArgumentException("target (function name or address) is required");
+            }
+            var t = target.trim();
+            var func = Programs.findFunctionByName(program, t);
+            if (func == null) {
+                try {
+                    var a = program.getAddressFactory().getAddress(t);
+                    if (a != null) func = Addresses.functionAtOrContaining(program, a);
+                } catch (Exception ignored) {
+                    // not an address; fall through to the not-found error
+                }
+            }
+            if (func == null) throw new IllegalArgumentException("no function named or at " + t);
+            var c = DecompileCache.decompile(program, func);
+            return clean ? DecompileMinimal.minimize(c) : c;
         });
     }
 

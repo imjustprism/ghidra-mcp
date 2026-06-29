@@ -60,11 +60,6 @@ impl GhidraHttp {
         Self::dispatch(self.http.post(url).form(form)).await
     }
 
-    pub async fn post_raw(&self, path: &str, body: &str) -> Result<String, BridgeError> {
-        let url = self.base.join(path)?;
-        Self::dispatch(self.http.post(url).body(body.to_owned())).await
-    }
-
     async fn dispatch(req: reqwest::RequestBuilder) -> Result<String, BridgeError> {
         let res = req.send().await?;
         let status = res.status();
@@ -150,13 +145,5 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(out, "ok");
-    }
-
-    #[tokio::test]
-    async fn post_raw_returns_body_on_success() {
-        let base = serve_once("200 OK", "void main(void){}").await;
-        let http = GhidraHttp::new(base, 5, None).unwrap();
-        let out = http.post_raw("decompile", "main").await.unwrap();
-        assert_eq!(out, "void main(void){}");
     }
 }
