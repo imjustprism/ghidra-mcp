@@ -2921,6 +2921,14 @@ impl GhidraServer {
     }
 
     #[tool(
+        description = "One-call obfuscation verdict for the whole program: combines protector-section detection, the VM/protector boundary (entry-site count, engine targets, count of functions that enter the protector), and high-entropy block count into a single triage summary (VIRTUALIZED/PACKED/CLEAN). The fast first-look that no single existing tool gives — run it during intake before deciding whether you need detect_protector/analyze_virtualization detail",
+        annotations(read_only_hint = true)
+    )]
+    async fn obfuscation_profile(&self) -> Result<CallToolResult, ErrorData> {
+        self.get_bare("obfuscation_profile").await
+    }
+
+    #[tool(
         description = "List program entry points (main/export addresses)",
         annotations(read_only_hint = true)
     )]

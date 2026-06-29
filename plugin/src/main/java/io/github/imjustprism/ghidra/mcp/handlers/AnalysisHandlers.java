@@ -26,6 +26,7 @@ import io.github.imjustprism.ghidra.mcp.analysis.IdiomSimplifier;
 import io.github.imjustprism.ghidra.mcp.analysis.MagicConstants;
 import io.github.imjustprism.ghidra.mcp.analysis.NamespaceGraph;
 import io.github.imjustprism.ghidra.mcp.analysis.NeutralizeAntiDebug;
+import io.github.imjustprism.ghidra.mcp.analysis.Obfuscation;
 import io.github.imjustprism.ghidra.mcp.analysis.OrphanGaps;
 import io.github.imjustprism.ghidra.mcp.analysis.Pcode;
 import io.github.imjustprism.ghidra.mcp.analysis.PointerScan;
@@ -70,6 +71,7 @@ public final class AnalysisHandlers {
                 Http.parseIntOrDefault(q.get("window"), 256), Page.from(q), q));
         routes.getQuery("/detect_protector", q -> Protector.detect(ctx, q));
         routes.getQuery("/analyze_virtualization", q -> Virtualization.analyze(ctx, q));
+        routes.getQuery("/obfuscation_profile", q -> Obfuscation.profile(ctx, q));
         routes.getQuery("/program_info", this::programInfo);
         routes.getQuery("/program_metadata", q -> programMetadata(Page.from(q), q));
         routes.getQuery("/demangle_symbol", q -> Demangler.demangleSymbol(q.get("mangled")));
