@@ -163,7 +163,9 @@ public final class AnalysisHandlers {
         routes.getPage("/find_magic_constants", (p, q) -> MagicConstants.find(ctx, p, q));
         routes.postForm("/neutralize_anti_debug", p -> NeutralizeAntiDebug.run(ctx, p));
         routes.postForm("/idiom_simplifier", p -> IdiomSimplifier.run(ctx, p.get("address"), p));
-        routes.getQuery("/make_signature", q -> Signatures.make(ctx, q.get("address"),
+        routes.getQuery("/make_signature", q -> "semantic".equalsIgnoreCase(q.get("mode"))
+                ? Emulator.semanticFingerprint(ctx, q.get("address"), q)
+                : Signatures.make(ctx, q.get("address"),
                 Http.parseIntOrDefault(q.get("min_len"), 0),
                 Http.parseIntOrDefault(q.get("max_len"), 0), q.getOrDefault("format", "ida")));
         routes.getQuery("/find_signature", q -> Signatures.findSignature(ctx, q.get("pattern"), Page.from(q), q));

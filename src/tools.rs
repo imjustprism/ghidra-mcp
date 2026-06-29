@@ -882,12 +882,16 @@ impl ToParams for IdiomSimplifierInput {
 
 impl ToParams for MakeSignature {
     fn into_params(self) -> Params {
-        vec![
+        let mut p = vec![
             ("address", self.address),
             ("min_len", self.min_len.to_string()),
             ("max_len", self.max_len.to_string()),
             ("format", self.format),
-        ]
+        ];
+        if let Some(m) = self.mode {
+            p.push(("mode", m));
+        }
+        p
     }
 }
 
@@ -1503,6 +1507,9 @@ pub struct MakeSignature {
     pub max_len: u32,
     #[serde(default = "default_format")]
     pub format: String,
+    /// "bytes" (default, wildcarded AOB) or "semantic" (emulation behavioral fingerprint).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
@@ -3975,7 +3982,7 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Generate a unique wildcarded byte signature (AOB pattern) for the code at an address. Walks instructions from the address, keeps opcode/modrm bytes, wildcards address/relative/RIP-relative operands (keeps stable immediates), extends until the pattern is globally unique AND at least min_len bytes (default 8, for robustness — avoids fragile 3-byte sigs), then trims trailing wildcards. format=ida ('48 8B ?? E8 ? ? ? ?') or code ('\\x48\\x8B\\x00' + mask). Output starts with a header line reporting byte length, wildcard count, match count, and whether it is unique",
+        description = "Signature/fingerprint for the code at an address. mode=bytes (default): a unique wildcarded byte AOB — walks instructions, keeps opcode/modrm, wildcards address/relative/RIP operands, extends until globally unique AND >= min_len bytes (default 8, avoids fragile sigs), trims trailing wildcards; format=ida ('48 8B ?? E8') or code ('\\x48\\x8B\\x00' + mask). mode=semantic: a BEHAVIORAL fingerprint — emulates the function over fixed input vectors with memory-write tracking and hashes its observable effects (return value, bytes written, halt reason), giving an identity robust to instruction substitution / recompilation that a byte AOB can't match",
         annotations(read_only_hint = true)
     )]
     async fn make_signature(
@@ -5384,6 +5391,7 @@ mod tests {
             min_len: 8,
             max_len: 64,
             format: "ida".to_owned(),
+            mode: Some("semantic".to_owned()),
         };
         assert_eq!(
             p.into_params(),
@@ -5392,6 +5400,7 @@ mod tests {
                 ("min_len", "8".to_owned()),
                 ("max_len", "64".to_owned()),
                 ("format", "ida".to_owned()),
+                ("mode", "semantic".to_owned()),
             ]
         );
     }

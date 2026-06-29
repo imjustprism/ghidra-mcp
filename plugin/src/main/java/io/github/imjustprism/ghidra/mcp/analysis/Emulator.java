@@ -104,6 +104,92 @@ public final class Emulator {
         }
     }
 
+    private static final long[][] FINGERPRINT_VECTORS = {
+        {1, 2, 3, 4}, {0, 0, 0, 0}, {-1, -1, -1, -1},
+        {0x1111_1111L, 0x2222_2222L, 0x3333_3333L, 0x4444_4444L},
+        {0xdead_beefL, 0xcafe_f00dL, 5, 7}, {7, 11, 13, 17},
+    };
+
+    public static String semanticFingerprint(PluginContext ctx, String funcAddr, Map<String, String> q) {
+        if (funcAddr == null || funcAddr.isBlank()) throw new IllegalArgumentException("function_address required");
+        var program = ctx.currentProgram();
+        if (program == null) throw new IllegalArgumentException("No program loaded");
+        var entry = program.getAddressFactory().getAddress(funcAddr.trim());
+        if (entry == null) throw new IllegalArgumentException("invalid function_address: " + funcAddr);
+        var func = Addresses.functionAtOrContaining(program, entry);
+        if (func == null) throw new IllegalArgumentException("no function at " + funcAddr);
+        var defaultSpace = program.getAddressFactory().getDefaultAddressSpace();
+        if (!func.getEntryPoint().getAddressSpace().equals(defaultSpace)) {
+            throw new IllegalArgumentException("function must be in the default address space");
+        }
+        boolean bigEndian = program.getLanguage().isBigEndian();
+        int ptr = defaultSpace.getPointerSize();
+        long hash = 0xcbf29ce484222325L;
+        var t = Responses.table(q, new String[]{"vector", "ret", "write_bytes", "steps", "halt"}, FINGERPRINT_VECTORS.length);
+        for (var vec : FINGERPRINT_VECTORS) {
+            var emu = new ghidra.app.emulator.EmulatorHelper(program);
+            try {
+                prepareCall(emu, program, func, vec, bigEndian, ptr);
+                emu.enableMemoryWriteTracking(true);
+                String reason = "max_steps";
+                int steps = 0;
+                for (; steps < 50_000; steps++) {
+                    var pc = emu.getExecutionAddress();
+                    if (pc == null) { reason = "no-pc"; break; }
+                    if (pc.getOffset() == RET_MARKER && pc.getAddressSpace().equals(defaultSpace)) { reason = "ret"; break; }
+                    try {
+                        if (!emu.step(ghidra.util.task.TaskMonitor.DUMMY)) { reason = "halt"; break; }
+                    } catch (Exception e) {
+                        reason = "fault";
+                        break;
+                    }
+                }
+                long ret = reason.equals("ret") ? returnValue(emu, func) : 0;
+                long writeBytes = trackedBytes(emu, defaultSpace);
+                var line = vecStr(vec) + "|" + ret + "|" + writeBytes + "|" + reason;
+                for (int i = 0; i < line.length(); i++) {
+                    hash = (hash ^ line.charAt(i)) * 0x100000001b3L;
+                }
+                t.row(vecStr(vec), "0x" + Long.toHexString(ret), writeBytes, steps, reason);
+            } finally {
+                emu.dispose();
+            }
+        }
+        return "# semantic fingerprint " + func.getName() + ": 0x" + Long.toHexString(hash)
+                + " (behavioral — emulated over " + FINGERPRINT_VECTORS.length
+                + " input vectors; robust to instruction substitution / recompilation)\n" + t.build();
+    }
+
+    private static long returnValue(ghidra.app.emulator.EmulatorHelper emu, ghidra.program.model.listing.Function func) {
+        var ret = func.getReturn();
+        if (ret == null || ret.getVariableStorage() == null || !ret.getVariableStorage().isRegisterStorage()
+                || ret.getVariableStorage().getRegister() == null) {
+            return 0;
+        }
+        var v = emu.readRegister(ret.getVariableStorage().getRegister());
+        return v == null ? 0 : v.longValue();
+    }
+
+    private static long trackedBytes(ghidra.app.emulator.EmulatorHelper emu,
+                                     ghidra.program.model.address.AddressSpace defaultSpace) {
+        var ws = emu.getTrackedMemoryWriteSet();
+        if (ws == null) return 0;
+        long n = 0;
+        for (var r : ws) {
+            if (r.getMinAddress().getAddressSpace().equals(defaultSpace)) n += r.getLength();
+        }
+        return n;
+    }
+
+    private static String vecStr(long[] vec) {
+        var sb = new StringBuilder();
+        for (int i = 0; i < vec.length; i++) {
+            if (i > 0) sb.append(',');
+            sb.append(Long.toHexString(vec[i]));
+        }
+        return sb.toString();
+    }
+
     private static long prepareCall(ghidra.app.emulator.EmulatorHelper emu, ghidra.program.model.listing.Program program,
                                     ghidra.program.model.listing.Function func, long[] args, boolean bigEndian, int ptr) {
         var defaultSpace = program.getAddressFactory().getDefaultAddressSpace();
