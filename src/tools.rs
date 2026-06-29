@@ -2218,6 +2218,24 @@ impl GhidraServer {
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct FunctionHashArgs {
+    pub address: String,
+    /// "structural" (default) or "semantic" (emulation behavioral hash).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
+}
+
+impl ToParams for FunctionHashArgs {
+    fn into_params(self) -> Params {
+        let mut p = vec![("address", self.address)];
+        if let Some(m) = self.mode {
+            p.push(("mode", m));
+        }
+        p
+    }
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
 pub struct ListFunctions {
     #[serde(flatten)]
     pub page: Page,
@@ -4066,13 +4084,16 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Compute a structural hash of the function at an address, independent of addresses and immediate values: a mnemonic_hash (instruction opcodes only) and a shape_hash (opcodes + operand count per instruction). Hashed over the body in address order, so it is an exact-match fingerprint best for deduping identical functions and matching the same function across builds with stable layout (not a fuzzy cross-compiler matcher). Matching hashes imply structurally identical code",
+        description = "Hash/fingerprint the function at an address. mode=structural (default): address- and immediate-independent mnemonic_hash (opcodes) + shape_hash (opcodes + operand count), hashed over the body in order — an exact-match fingerprint for deduping identical functions and matching across builds with stable layout. mode=semantic: a behavioral fingerprint — emulates the function over fixed input vectors and hashes its observable effects (return + bytes written + halt), robust to instruction substitution / recompilation where the structural hash differs",
         annotations(read_only_hint = true)
     )]
     async fn function_hash(
         &self,
-        Parameters(p): Parameters<Address>,
+        Parameters(p): Parameters<FunctionHashArgs>,
     ) -> Result<CallToolResult, ErrorData> {
+        if p.address.is_empty() {
+            return Err(ErrorData::invalid_params("address is required", None));
+        }
         self.get("function_hash", p).await
     }
 

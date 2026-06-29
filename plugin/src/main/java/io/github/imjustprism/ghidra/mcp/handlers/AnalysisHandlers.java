@@ -155,7 +155,9 @@ public final class AnalysisHandlers {
         routes.getPage("/list_scripts", (p, q) -> Scripts.list(p, q));
         routes.getQuery("/pointer_scan", q -> PointerScan.scan(ctx, q.get("target"),
                 Http.parseFlexibleLong(q.get("max_offset"), 1024), Http.parseFlexibleLong(q.get("limit"), 100)));
-        routes.getQuery("/function_hash", q -> FunctionHash.hash(ctx, q.get("address"), q));
+        routes.getQuery("/function_hash", q -> "semantic".equalsIgnoreCase(q.get("mode"))
+                ? Emulator.semanticFingerprint(ctx, q.get("address"), q)
+                : FunctionHash.hash(ctx, q.get("address"), q));
         routes.getQuery("/recover_rtti_classes", q -> Rtti.recover(ctx, Page.from(q), q));
         routes.getQuery("/find_dynamic_api_resolution", q -> DynamicApi.find(ctx, Page.from(q), q));
         routes.getQuery("/decode_strings_auto", q -> DecodeStrings.decode(ctx, q.get("address"),

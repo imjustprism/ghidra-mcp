@@ -366,3 +366,8 @@ live process.
   full/minimal; getQuery route. Removed DecompileByName struct + now-dead post_raw plumbing
   (GhidraServer::post_raw, HttpClient::post_raw + its test). README -2 (181→179), Decompile 6→4.
   ALL CORE MERGES DONE (11): 199→179 tools. Only emu_session (skeptical, -6) remains optional.
+
+### Pass 24 (2026-06-29) — Phase-A upgrade
+- ✅ function_hash mode=semantic — behavioral hash via Emulator.semanticFingerprint (reuses the
+  verified write-tracking fingerprint). New FunctionHashArgs struct (address + mode); route dispatches
+  mode. Additive, default mode=structural unchanged. clippy + README-sync green (179, no count change).

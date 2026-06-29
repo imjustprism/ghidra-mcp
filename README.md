@@ -135,7 +135,7 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 | `dominator_tree` | immediate-dominator of each basic block |
 | `taint_forward` | forward data-flow slice (where a value flows to) |
 | `taint_backward` | backward data-flow slice (what feeds a value) |
-| `function_hash` | structural hash (mnemonic + operand-shape) for matching/dedup |
+| `function_hash` | mode=structural (mnemonic+shape) or semantic (behavioral) hash |
 | `diff_functions` | structural similarity score of two functions (cross-program) |
 | `diff_programs` | whole-program function matching by shape hash (bindiff-lite) |
 | `propagate_matches` | copy names onto matched functions in another open program |
