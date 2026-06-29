@@ -94,9 +94,9 @@ public final class AnalysisHandlers {
         routes.getQuery("/program_metadata", q -> programMetadata(Page.from(q), q));
         routes.getQuery("/demangle_symbol", q -> Demangler.demangleSymbol(q.get("mangled")));
         routes.getQuery("/pcode_function", q -> Pcode.pcodeFunction(ctx, q.get("address")));
-        routes.getQuery("/callgraph_dot", q -> CallGraph.dot(ctx, q.get("address"),
-                Http.parseIntOrDefault(q.get("depth"), 2)));
-        routes.getQuery("/callgraph", q -> CallGraph.mermaid(ctx, q.get("address"),
+        routes.getQuery("/callgraph", q -> "dot".equalsIgnoreCase(q.get("format"))
+                ? CallGraph.dot(ctx, q.get("address"), Http.parseIntOrDefault(q.get("depth"), 2))
+                : CallGraph.mermaid(ctx, q.get("address"),
                 Http.parseIntOrDefault(q.get("depth"), 2), q.get("direction"),
                 Http.parseIntOrDefault(q.get("max_nodes"), 0)));
         routes.getQuery("/function_cfg", q -> Cfg.mermaid(ctx, q.get("address")));

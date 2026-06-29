@@ -749,12 +749,6 @@ impl ToParams for CreateEnum {
     }
 }
 
-impl ToParams for CallgraphDot {
-    fn into_params(self) -> Params {
-        vec![("address", self.address), ("depth", self.depth.to_string())]
-    }
-}
-
 impl ToParams for CallgraphMermaid {
     fn into_params(self) -> Params {
         let mut p = vec![("address", self.address)];
@@ -766,6 +760,9 @@ impl ToParams for CallgraphMermaid {
         }
         if let Some(m) = self.max_nodes {
             p.push(("max_nodes", m.to_string()));
+        }
+        if let Some(f) = self.format {
+            p.push(("format", f));
         }
         p
     }
@@ -1408,13 +1405,6 @@ const fn default_enum_size() -> u32 {
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
-pub struct CallgraphDot {
-    pub address: String,
-    #[serde(default = "default_callgraph_depth")]
-    pub depth: u32,
-}
-
-#[derive(Deserialize, Serialize, schemars::JsonSchema)]
 pub struct CallgraphMermaid {
     pub address: String,
     #[serde(
@@ -1431,6 +1421,9 @@ pub struct CallgraphMermaid {
         skip_serializing_if = "Option::is_none"
     )]
     pub max_nodes: Option<u32>,
+    /// "mermaid" (default) or "dot" (Graphviz).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub format: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
@@ -1443,9 +1436,6 @@ pub struct StructDiagramArgs {
         skip_serializing_if = "Option::is_none"
     )]
     pub max: Option<u32>,
-}
-const fn default_callgraph_depth() -> u32 {
-    2
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema, Default)]
@@ -3222,18 +3212,7 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Emit a Graphviz DOT source for a call graph rooted at the function at address, BFS to the given depth",
-        annotations(read_only_hint = true)
-    )]
-    async fn callgraph_dot(
-        &self,
-        Parameters(p): Parameters<CallgraphDot>,
-    ) -> Result<CallToolResult, ErrorData> {
-        self.get("callgraph_dot", p).await
-    }
-
-    #[tool(
-        description = "Render a call graph as a Mermaid flowchart (renders inline in chat). direction: callees (default), callers, or both. depth and max_nodes bound the size",
+        description = "Render a call graph rooted at the function at address, BFS to depth. format=mermaid (default, renders inline in chat) or dot (Graphviz DOT source). direction: callees (default), callers, or both. depth and max_nodes bound the size",
         annotations(read_only_hint = true)
     )]
     async fn callgraph(

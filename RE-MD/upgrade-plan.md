@@ -60,7 +60,7 @@ For each: new name, absorbed tools, selector param, gain. Net reduction noted.
 - [ ] **`xrefs`** ← `get_xrefs_to` + `get_xrefs_from` + `get_function_xrefs`. Selector:
       `direction=to|from|both`, target=name|address. Gain: directionally symmetric, `resolve_indirect`.
       **−2**.
-- [ ] **`callgraph`** ← `callgraph` + `callgraph_dot`. Selector: `fmt=mermaid|dot` (fold into existing
+- [x] **`callgraph`** ← `callgraph` + `callgraph_dot`. Selector: `fmt=mermaid|dot` (fold into existing
       `fmt`). **−1**.
 - [ ] **`xref_graph`** ← `xref_graph` + `xref_graph_html`. Selector: `fmt=mermaid|html`. **−1**.
 - [ ] **`search`** ← `search_bytes` + `find_string` + `find_signature`. Selector:

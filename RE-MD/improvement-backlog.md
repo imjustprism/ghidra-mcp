@@ -305,3 +305,8 @@ live process.
 ### Pass 12 (2026-06-29) — Phase-A upgrade
 - ✅ diff_functions mode=semantic (behavioral I/O similarity via shared Emulator.behavior() helper).
   Verified live: self=100/100, cross=0/100. Refactored semanticFingerprint to share behavior().
+
+### Pass 13 (2026-06-29) — Phase-B MERGE
+- ✅ MERGE callgraph_dot → callgraph (format=mermaid|dot). Removed CallgraphDot struct/ToParams/tool +
+  /callgraph_dot route + orphaned default_callgraph_depth; README -1 (199→198), Xrefs/CFG 23→22.
+  clippy + README-sync green. First Phase-B merge landed; CallGraph.dot logic preserved.
