@@ -303,9 +303,15 @@ impl ToParams for RefineFunction {
     }
 }
 
-impl ToParams for ValueScan {
+impl ToParams for Scan {
     fn into_params(self) -> Params {
-        let mut p = vec![("value", self.value)];
+        let mut p = vec![("op", self.op)];
+        if !self.scan_id.is_empty() {
+            p.push(("scan_id", self.scan_id));
+        }
+        if let Some(v) = self.value {
+            p.push(("value", v));
+        }
         if let Some(t) = self.value_type {
             p.push(("type", t));
         }
@@ -321,36 +327,13 @@ impl ToParams for ValueScan {
         if self.exclude_modules.unwrap_or(false) {
             p.push(("exclude_modules", "1".to_string()));
         }
-        p
-    }
-}
-
-impl ToParams for ScanNext {
-    fn into_params(self) -> Params {
-        let mut p = vec![("scan_id", self.scan_id)];
         if let Some(c) = self.comparator {
             p.push(("comparator", c));
         }
-        if let Some(v) = self.value {
-            p.push(("value", v));
-        }
-        p
-    }
-}
-
-impl ToParams for ScanResults {
-    fn into_params(self) -> Params {
-        let mut p = vec![("scan_id", self.scan_id)];
         if let Some(l) = self.limit {
             p.push(("limit", l.to_string()));
         }
         p
-    }
-}
-
-impl ToParams for ScanClose {
-    fn into_params(self) -> Params {
-        vec![("scan_id", self.scan_id)]
     }
 }
 
@@ -1675,10 +1658,15 @@ pub struct RefineFunction {
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
-pub struct ValueScan {
+pub struct Scan {
+    /// Which scan lifecycle step to run.
+    pub op: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub scan_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
     #[serde(rename = "type", default, skip_serializing_if = "Option::is_none")]
     pub value_type: Option<String>,
-    pub value: String,
     #[serde(
         default,
         deserialize_with = "de_opt_bool",
@@ -1699,31 +1687,14 @@ pub struct ValueScan {
         skip_serializing_if = "Option::is_none"
     )]
     pub exclude_modules: Option<bool>,
-}
-
-#[derive(Deserialize, Serialize, schemars::JsonSchema)]
-pub struct ScanNext {
-    pub scan_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub comparator: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub value: Option<String>,
-}
-
-#[derive(Deserialize, Serialize, schemars::JsonSchema)]
-pub struct ScanResults {
-    pub scan_id: String,
     #[serde(
         default,
         deserialize_with = "de_opt_u32",
         skip_serializing_if = "Option::is_none"
     )]
     pub limit: Option<u32>,
-}
-
-#[derive(Deserialize, Serialize, schemars::JsonSchema)]
-pub struct ScanClose {
-    pub scan_id: String,
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
@@ -3795,59 +3766,22 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "CheatEngine-style first scan of live process memory for a value. type: i8|i16|i32|i64|f32|f64|string|bytes (default i32). Scans heap/data regions and skips loaded modules by default (all=true scans everything, slower; exclude_modules=true forces module skipping). tolerance (f32/f64 only) matches values within +/- tolerance of the target — essential for floats. max_mb raises the scan budget (default 1024, cap 8192). Async: returns a scan_id immediately; poll scan_results for status=running/done, then refine with next_scan",
-        annotations(read_only_hint = true)
+        description = "CheatEngine-style live-memory value scan with a session lifecycle. op=first: start a scan for value — type i8|i16|i32|i64|f32|f64|string|bytes (default i32); skips loaded modules unless all=true (slower) and exclude_modules forces skipping; tolerance (f32/f64) matches within +/- of target; max_mb raises the budget (default 1024, cap 8192); returns a scan_id immediately (async — poll op=results for status). op=next: refine scan_id by re-reading memory, comparator exact|changed|unchanged|increased|decreased (exact needs value). op=results: list remaining candidates with dynamic+static addresses and current values (limit caps rows). op=close: free the session"
     )]
-    async fn value_scan(
+    async fn scan(
         &self,
-        Parameters(p): Parameters<ValueScan>,
+        Parameters(p): Parameters<Scan>,
     ) -> Result<CallToolResult, ErrorData> {
-        if p.value.is_empty() {
-            return Err(ErrorData::invalid_params("value is required", None));
+        match p.op.as_str() {
+            "first" if p.value.as_deref().unwrap_or("").is_empty() => {
+                Err(ErrorData::invalid_params("value is required for op=first", None))
+            }
+            "next" | "results" | "close" if p.scan_id.is_empty() => {
+                Err(ErrorData::invalid_params("scan_id is required", None))
+            }
+            "first" | "next" | "results" | "close" => self.post("scan", p).await,
+            _ => Err(ErrorData::invalid_params("op must be first, next, results, or close", None)),
         }
-        self.get("value_scan", p).await
-    }
-
-    #[tool(
-        description = "Refine a previous scan by re-reading live memory. comparator: exact|changed|unchanged|increased|decreased (exact/value needs value). Narrows the candidate set",
-        annotations(read_only_hint = true)
-    )]
-    async fn next_scan(
-        &self,
-        Parameters(p): Parameters<ScanNext>,
-    ) -> Result<CallToolResult, ErrorData> {
-        if p.scan_id.is_empty() {
-            return Err(ErrorData::invalid_params("scan_id is required", None));
-        }
-        self.post("next_scan", p).await
-    }
-
-    #[tool(
-        description = "Close a finished scan session and free its candidate list. Call when done refining",
-        annotations(destructive_hint = false)
-    )]
-    async fn scan_close(
-        &self,
-        Parameters(p): Parameters<ScanClose>,
-    ) -> Result<CallToolResult, ErrorData> {
-        if p.scan_id.is_empty() {
-            return Err(ErrorData::invalid_params("scan_id is required", None));
-        }
-        self.post("scan_close", p).await
-    }
-
-    #[tool(
-        description = "List remaining candidates of a scan with their dynamic + static addresses and current values",
-        annotations(read_only_hint = true)
-    )]
-    async fn scan_results(
-        &self,
-        Parameters(p): Parameters<ScanResults>,
-    ) -> Result<CallToolResult, ErrorData> {
-        if p.scan_id.is_empty() {
-            return Err(ErrorData::invalid_params("scan_id is required", None));
-        }
-        self.get("scan_results", p).await
     }
 
     #[tool(

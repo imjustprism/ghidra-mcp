@@ -326,3 +326,8 @@ live process.
   Unified Coverage struct (op/path/path_a/path_b + flattened Page); getPage route dispatches op.
   README -2 (195→193), Malware triage 23→21. clippy + README-sync green (fixed doc-markdown +
   unused-parens lints on the way).
+
+### Pass 17 (2026-06-29) — Phase-B MERGE (biggest, -3)
+- ✅ MERGE value_scan+next_scan+scan_results+scan_close → scan (op=first|next|results|close). Unified
+  Scan struct (union of all fields); POST route dispatches op; DebuggerUnavailableHandlers updated
+  (4 paths → /scan). README -3 (193→190), Live RE 19→16. clippy + README-sync green.

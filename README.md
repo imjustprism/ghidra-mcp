@@ -60,7 +60,7 @@ MCP server for Ghidra. Rust bridge + Ghidra Java plugin. Wires any MCP client (C
 
 ## Tools
 
-193 tools total.
+190 tools total.
 
 Every paginated read tool accepts an optional `fmt` argument — `tsv` (default), `csv`, `json`, or `verbose` — alongside `offset`/`limit`, plus an optional `program` (open program name or sha256) to target a specific open program instead of the active one (the server honors `program` on every endpoint).
 
@@ -334,7 +334,7 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 </details>
 
 <details>
-<summary><b>Live RE / CheatEngine-style</b> (19)</summary>
+<summary><b>Live RE / CheatEngine-style</b> (16)</summary>
 
 | tool | purpose |
 | --- | --- |
@@ -351,10 +351,7 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 | `live_write_memory` | write live process memory |
 | `live_write_register` | write live register |
 | `freeze` | hold/release a live value CheatEngine-style (op=on/off/list) |
-| `value_scan` | first scan of live memory |
-| `next_scan` | refine candidates |
-| `scan_results` | list candidates + static addrs |
-| `scan_close` | free a scan session |
+| `scan` | CheatEngine-style live-memory scan session (op=first/next/results/close) |
 | `read_pointer_path` | resolve a multi-level pointer chain (base + hex offsets) |
 | `live_read_struct` | read typed live-memory fields from a small schema |
 | `pointer_scan` | reverse-scan the image for pointers into a target (feeds read_pointer_path) |

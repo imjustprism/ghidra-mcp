@@ -21,14 +21,14 @@ public final class DebuggerUnavailableHandlers {
                 "/debugger_read_memory", "/debugger_list_breakpoints",
                 "/debugger_translate_static_to_dynamic",
                 "/debugger_translate_dynamic_to_static",
-                "/debugger_list_offers", "/value_scan", "/scan_results"}) {
+                "/debugger_list_offers"}) {
             routes.getQuery(path, q -> UNAVAILABLE);
         }
         for (var path : new String[]{
                 "/debugger_set_breakpoint", "/debugger_remove_breakpoint",
                 "/debugger_continue", "/debugger_step_into", "/debugger_step_over",
                 "/debugger_break", "/live_write_memory", "/live_write_register",
-                "/debugger_launch", "/freeze", "/next_scan"}) {
+                "/debugger_launch", "/freeze", "/scan"}) {
             routes.postForm(path, p -> UNAVAILABLE);
         }
     }

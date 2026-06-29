@@ -186,10 +186,12 @@ public final class DebuggerHandlers {
             case "list" -> listFrozen(p);
             default -> freeze(p.get("address"), p.get("hex"));
         });
-        routes.getQuery("/value_scan", this::valueScan);
-        routes.postForm("/next_scan", this::nextScan);
-        routes.getQuery("/scan_results", this::scanResults);
-        routes.postForm("/scan_close", p -> scanClose(p.get("scan_id")));
+        routes.postForm("/scan", p -> switch (p.getOrDefault("op", "first")) {
+            case "next" -> nextScan(p);
+            case "results" -> scanResults(p);
+            case "close" -> scanClose(p.get("scan_id"));
+            default -> valueScan(p);
+        });
     }
 
     public void close() {
