@@ -169,25 +169,22 @@ impl ToParams for SearchFunctions {
     }
 }
 
-impl ToParams for RenameFunction {
+impl ToParams for Rename {
     fn into_params(self) -> Params {
-        vec![("oldName", self.old_name), ("newName", self.new_name)]
-    }
-}
-
-impl ToParams for RenameData {
-    fn into_params(self) -> Params {
-        vec![("address", self.address), ("newName", self.new_name)]
-    }
-}
-
-impl ToParams for RenameVariable {
-    fn into_params(self) -> Params {
-        vec![
-            ("functionName", self.function_name),
-            ("oldName", self.old_name),
-            ("newName", self.new_name),
-        ]
+        let mut p = vec![("new_name", self.new_name)];
+        if let Some(k) = self.kind {
+            p.push(("kind", k));
+        }
+        if let Some(o) = self.old_name {
+            p.push(("old_name", o));
+        }
+        if let Some(a) = self.address {
+            p.push(("address", a));
+        }
+        if let Some(f) = self.function_name {
+            p.push(("function_name", f));
+        }
+        p
     }
 }
 
@@ -340,15 +337,6 @@ impl ToParams for Scan {
 impl ToParams for BatchItems {
     fn into_params(self) -> Params {
         vec![("items", self.items)]
-    }
-}
-
-impl ToParams for RenameFunctionByAddress {
-    fn into_params(self) -> Params {
-        vec![
-            ("function_address", self.function_address),
-            ("new_name", self.new_name),
-        ]
     }
 }
 
@@ -985,34 +973,23 @@ pub struct DecompileByName {
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
-pub struct RenameFunction {
-    pub old_name: String,
+pub struct Rename {
+    /// What to rename: "function" (default), "data", or "variable".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
     pub new_name: String,
-}
-
-#[derive(Deserialize, Serialize, schemars::JsonSchema)]
-pub struct RenameData {
-    pub address: String,
-    pub new_name: String,
-}
-
-#[derive(Deserialize, Serialize, schemars::JsonSchema)]
-pub struct RenameVariable {
-    pub function_name: String,
-    pub old_name: String,
-    pub new_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub old_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub function_name: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
 pub struct AddressComment {
     pub address: String,
     pub comment: String,
-}
-
-#[derive(Deserialize, Serialize, schemars::JsonSchema)]
-pub struct RenameFunctionByAddress {
-    pub function_address: String,
-    pub new_name: String,
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
@@ -2317,25 +2294,29 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Rename a function by its current name to a new user-defined name",
+        description = "Rename a symbol. kind=function (default): rename the function identified by old_name OR address to new_name. kind=data: rename the data label at address. kind=variable: rename old_name to new_name within the function named by function_name",
         annotations(destructive_hint = false)
     )]
-    async fn rename_function(
+    async fn rename(
         &self,
-        Parameters(p): Parameters<RenameFunction>,
+        Parameters(p): Parameters<Rename>,
     ) -> Result<CallToolResult, ErrorData> {
-        self.post("renameFunction", p).await
-    }
-
-    #[tool(
-        description = "Rename a data label at the specified address",
-        annotations(destructive_hint = false)
-    )]
-    async fn rename_data(
-        &self,
-        Parameters(p): Parameters<RenameData>,
-    ) -> Result<CallToolResult, ErrorData> {
-        self.post("renameData", p).await
+        if p.new_name.is_empty() {
+            return Err(ErrorData::invalid_params("new_name is required", None));
+        }
+        match p.kind.as_deref().unwrap_or("function") {
+            "function" if p.old_name.is_none() && p.address.is_none() => {
+                Err(ErrorData::invalid_params("kind=function needs old_name or address", None))
+            }
+            "data" if p.address.is_none() => {
+                Err(ErrorData::invalid_params("kind=data needs address", None))
+            }
+            "variable" if p.function_name.is_none() || p.old_name.is_none() => {
+                Err(ErrorData::invalid_params("kind=variable needs function_name and old_name", None))
+            }
+            "function" | "data" | "variable" => self.post("rename", p).await,
+            _ => Err(ErrorData::invalid_params("kind must be function, data, or variable", None)),
+        }
     }
 
     #[tool(
@@ -2405,17 +2386,6 @@ impl GhidraServer {
             return Err(ErrorData::invalid_params("query string is required", None));
         }
         self.get("searchFunctions", p).await
-    }
-
-    #[tool(
-        description = "Rename a local variable within a function",
-        annotations(destructive_hint = false)
-    )]
-    async fn rename_variable(
-        &self,
-        Parameters(p): Parameters<RenameVariable>,
-    ) -> Result<CallToolResult, ErrorData> {
-        self.post("renameVariable", p).await
     }
 
     #[tool(
@@ -2498,17 +2468,6 @@ impl GhidraServer {
         Parameters(p): Parameters<AddressComment>,
     ) -> Result<CallToolResult, ErrorData> {
         self.post("set_disassembly_comment", p).await
-    }
-
-    #[tool(
-        description = "Rename a function by its address",
-        annotations(destructive_hint = false)
-    )]
-    async fn rename_function_by_address(
-        &self,
-        Parameters(p): Parameters<RenameFunctionByAddress>,
-    ) -> Result<CallToolResult, ErrorData> {
-        self.post("rename_function_by_address", p).await
     }
 
     #[tool(
@@ -5279,16 +5238,19 @@ mod tests {
     }
 
     #[test]
-    fn rename_function_uses_camelcase_wire_keys() {
-        let p = RenameFunction {
-            old_name: "sub_401000".to_owned(),
+    fn rename_function_emits_kind_and_new_name() {
+        let p = Rename {
+            kind: None,
             new_name: "decode".to_owned(),
+            old_name: Some("sub_401000".to_owned()),
+            address: None,
+            function_name: None,
         };
         assert_eq!(
             p.into_params(),
             vec![
-                ("oldName", "sub_401000".to_owned()),
-                ("newName", "decode".to_owned()),
+                ("new_name", "decode".to_owned()),
+                ("old_name", "sub_401000".to_owned()),
             ]
         );
     }

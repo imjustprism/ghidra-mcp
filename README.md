@@ -60,7 +60,7 @@ MCP server for Ghidra. Rust bridge + Ghidra Java plugin. Wires any MCP client (C
 
 ## Tools
 
-188 tools total.
+185 tools total.
 
 Every paginated read tool accepts an optional `fmt` argument — `tsv` (default), `csv`, `json`, or `verbose` — alongside `offset`/`limit`, plus an optional `program` (open program name or sha256) to target a specific open program instead of the active one (the server honors `program` on every endpoint).
 
@@ -167,14 +167,11 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 </details>
 
 <details>
-<summary><b>Rename / types</b> (20)</summary>
+<summary><b>Rename / types</b> (17)</summary>
 
 | tool | purpose |
 | --- | --- |
-| `rename_function` | by name |
-| `rename_function_by_address` | by address |
-| `rename_data` | data symbol |
-| `rename_variable` | local var |
+| `rename` | rename a symbol (kind=function by name/address, data, or variable) |
 | `set_decompiler_comment` | PRE comment |
 | `set_disassembly_comment` | EOL comment |
 | `set_function_prototype` | full prototype |

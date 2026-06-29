@@ -54,7 +54,7 @@ For each: new name, absorbed tools, selector param, gain. Net reduction noted.
 - [ ] **`decompile`** ← `decompile_function` + `decompile_function_by_address` + `decompile_minimal`.
       Selector: accepts `name|address`; flags `clean`, `deobf`. Gain: one entry point, deobf built in.
       **−2**.
-- [ ] **`rename`** ← `rename_function` + `rename_function_by_address` + `rename_data` + `rename_variable`.
+- [x] **`rename`** ← rename_function + rename_function_by_address + rename_data + rename_variable.
       Selector: `kind=function|data|variable` (+ accepts name|address for function). Gain: one rename
       verb. **−3**.
 - [ ] **`xrefs`** ← `get_xrefs_to` + `get_xrefs_from` + `get_function_xrefs`. Selector:

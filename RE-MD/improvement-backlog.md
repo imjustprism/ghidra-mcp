@@ -342,3 +342,9 @@ live process.
 - ✅ MERGE xref_graph_html → xref_graph fmt=mermaid|html. fmt dispatched at the getQuery route
   (XrefGraph.html body returns as text for MCP). README -1 (189→188), Xrefs/CFG 22→21.
   clippy + README-sync green. The simple/safe merge batch is DONE (7 merges, 199→188).
+
+### Pass 20 (2026-06-29) — Phase-B MERGE (-3)
+- ✅ MERGE rename_function + rename_function_by_address + rename_data + rename_variable → rename
+  (kind=function|data|variable; function accepts old_name OR address). Unified Rename struct; one
+  POST route dispatches kind to the preserved handler methods. README -3 (188→185), Rename/types 20→17.
+  clippy + README-sync green. First of the bigger merges done.

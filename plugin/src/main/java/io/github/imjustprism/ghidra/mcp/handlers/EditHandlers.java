@@ -53,20 +53,24 @@ public final class EditHandlers {
     }
 
     public void register(RouteTable routes) {
-        routes.postForm("/renameFunction", p -> require(
-                renameFunction(p.get("oldName"), p.get("newName")),
-                "Renamed successfully", "Rename failed (check oldName exists and newName is valid)"));
-        routes.postForm("/renameData", p -> renameDataAt(p.get("address"), p.get("newName")));
-        routes.postForm("/renameVariable", p -> renameVariable(p.get("functionName"), p.get("oldName"), p.get("newName")));
+        routes.postForm("/rename", p -> switch (p.getOrDefault("kind", "function")) {
+            case "data" -> renameDataAt(p.get("address"), p.get("new_name"));
+            case "variable" -> renameVariable(p.get("function_name"), p.get("old_name"), p.get("new_name"));
+            default -> {
+                var addr = p.get("address");
+                yield addr != null && !addr.isBlank()
+                        ? require(renameFunctionAt(addr, p.get("new_name")),
+                        "Function renamed successfully", "Failed to rename function")
+                        : require(renameFunction(p.get("old_name"), p.get("new_name")),
+                        "Renamed successfully", "Rename failed (check old_name exists and new_name is valid)");
+            }
+        });
         routes.postForm("/set_decompiler_comment", p -> require(
                 setComment(p.get("address"), p.get("comment"), CodeUnit.PRE_COMMENT, "Set decompiler comment"),
                 "Comment set successfully", "Failed to set comment"));
         routes.postForm("/set_disassembly_comment", p -> require(
                 setComment(p.get("address"), p.get("comment"), CodeUnit.EOL_COMMENT, "Set disassembly comment"),
                 "Comment set successfully", "Failed to set comment"));
-        routes.postForm("/rename_function_by_address", p -> require(
-                renameFunctionAt(p.get("function_address"), p.get("new_name")),
-                "Function renamed successfully", "Failed to rename function"));
         routes.postForm("/set_function_prototype", p -> {
             var r = setFunctionPrototype(p.get("function_address"), p.get("prototype"));
             return switch (r) {
