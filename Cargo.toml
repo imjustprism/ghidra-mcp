@@ -13,7 +13,7 @@ categories = ["development-tools", "command-line-utilities"]
 authors = ["imjustprism"]
 
 [dependencies]
-rmcp = { version = "1.7", features = ["server", "transport-io", "macros"] }
+rmcp = { version = "2.2", features = ["server", "transport-io", "macros"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "signal"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "http2"] }
 serde = { version = "1", features = ["derive"] }
