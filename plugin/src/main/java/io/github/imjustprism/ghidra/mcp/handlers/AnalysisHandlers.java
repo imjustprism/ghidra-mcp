@@ -42,7 +42,11 @@ import io.github.imjustprism.ghidra.mcp.analysis.Signatures;
 import io.github.imjustprism.ghidra.mcp.analysis.StackStrings;
 import io.github.imjustprism.ghidra.mcp.analysis.StructDiagram;
 import io.github.imjustprism.ghidra.mcp.analysis.Syscalls;
+import io.github.imjustprism.ghidra.mcp.analysis.NebulaContainers;
 import io.github.imjustprism.ghidra.mcp.analysis.TlsCallbacks;
+import io.github.imjustprism.ghidra.mcp.analysis.TlsSingletonMap;
+import io.github.imjustprism.ghidra.mcp.util.Live;
+import io.github.imjustprism.ghidra.mcp.util.ProcessMemory;
 import io.github.imjustprism.ghidra.mcp.analysis.Taint;
 import io.github.imjustprism.ghidra.mcp.analysis.UnpackAssist;
 import io.github.imjustprism.ghidra.mcp.analysis.Virtualization;
@@ -81,6 +85,16 @@ public final class AnalysisHandlers {
         routes.getQuery("/obfuscation_profile", q -> Obfuscation.profile(ctx, q));
         routes.getQuery("/detect_security_mitigations", q -> SecurityMitigations.detect(ctx, q));
         routes.getQuery("/list_tls_callbacks", q -> TlsCallbacks.list(ctx, q));
+        routes.getQuery("/tls_singleton_map", q -> {
+            Integer pid = null;
+            try {
+                if (Live.attached()) pid = Live.pid();
+            } catch (RuntimeException ignored) {
+            }
+            return TlsSingletonMap.map(ctx, q, new ProcessMemory(), pid);
+        });
+        routes.getQuery("/nebula_container_layout", q -> NebulaContainers.layout(ctx, q.get("address"),
+                q.get("variable"), q));
         routes.getQuery("/assemble_code", q -> Assemble.assemble(ctx, q.get("address"), q.get("assembly")));
         routes.getQuery("/extract_api_call_sequences", q -> ApiCallSequence.extract(ctx, q.get("address"), q));
         routes.getPage("/extract_iocs", (p, q) -> ExtractIocs.find(ctx, p, q));
@@ -146,9 +160,17 @@ public final class AnalysisHandlers {
         });
         routes.getPage("/taint_forward", (p, q) -> Taint.slice(ctx, q.get("address"), true, p, q));
         routes.getPage("/taint_backward", (p, q) -> Taint.slice(ctx, q.get("address"), false, p, q));
-        routes.getQuery("/diff_functions", q -> "semantic".equalsIgnoreCase(q.get("mode"))
-                ? Emulator.semanticDiff(ctx, q.get("address_a"), q.get("address_b"), q)
-                : Diff.compare(ctx, q.get("address_a"), q.get("address_b"), q.get("program_b"), q));
+        routes.getQuery("/diff_functions", q -> {
+            var mode = q.getOrDefault("mode", "structural");
+            if ("semantic".equalsIgnoreCase(mode)) {
+                return Emulator.semanticDiff(ctx, q.get("address_a"), q.get("address_b"), q);
+            }
+            if ("source".equalsIgnoreCase(mode)) {
+                return Diff.compareSource(ctx, q.get("address_a"), q.get("address_b"), q.get("program_b"),
+                        Http.parseBool(q.get("clean"), true));
+            }
+            return Diff.compare(ctx, q.get("address_a"), q.get("address_b"), q.get("program_b"), q);
+        });
         routes.getPage("/diff_programs", (p, q) -> Diff.diffPrograms(ctx, q.get("program_b"), p, q));
         routes.postForm("/propagate_matches", p -> Diff.propagateMatches(ctx,
                 p.get("program_b"), Http.parseBool(p.get("apply"), false)));
@@ -175,7 +197,11 @@ public final class AnalysisHandlers {
         routes.getQuery("/resolve_relative", q -> Signatures.resolveRelative(ctx, q.get("address")));
         routes.getQuery("/find_function_by_string", q -> Signatures.findFunctionByString(ctx,
                 q.get("value"), Http.parseIntOrDefault(q.get("max"), 20), q.getOrDefault("format", "ida"),
-                Http.parseBool(q.get("regex"), false)));
+                Http.parseBool(q.get("regex"), false), Http.parseBool(q.get("callers"), false)));
+        routes.getQuery("/export_offsets", q -> Signatures.exportOffsets(ctx, q.get("filter"),
+                Http.parseBool(q.get("regex"), false),
+                !"0".equals(q.get("named_only")) && !"false".equalsIgnoreCase(q.getOrDefault("named_only", "1")),
+                q.getOrDefault("format", "tsv"), Page.from(q), q));
     }
 
     public String programMetadata(Page p, Map<String, String> q) {

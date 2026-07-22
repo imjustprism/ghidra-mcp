@@ -6,6 +6,7 @@ import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.Program;
 import ghidra.util.task.ConsoleTaskMonitor;
 import io.github.imjustprism.ghidra.mcp.util.Addresses;
+import io.github.imjustprism.ghidra.mcp.util.DecompileCache;
 import io.github.imjustprism.ghidra.mcp.util.PluginContext;
 import io.github.imjustprism.ghidra.mcp.util.Responses;
 
@@ -64,6 +65,37 @@ public final class Diff {
         t.row("calls_only_a", String.join(",", onlyA));
         t.row("calls_only_b", String.join(",", onlyB));
         return t.build();
+    }
+
+    public static String compareSource(PluginContext ctx, String addrA, String addrB, String programBName,
+            boolean clean) {
+        if (addrA == null || addrA.isBlank()) throw new IllegalArgumentException("address_a is required");
+        if (addrB == null || addrB.isBlank()) throw new IllegalArgumentException("address_b is required");
+        var program = ctx.currentProgram();
+        if (program == null) throw new IllegalArgumentException("No program loaded");
+        var programB = program;
+        if (programBName != null && !programBName.isBlank()) {
+            programB = findOpenProgram(ctx, programBName.trim());
+            if (programB == null) throw new IllegalArgumentException("program_b is not open: " + programBName);
+        }
+        var funcA = functionAt(program, addrA, "address_a");
+        var funcB = functionAt(programB, addrB, "address_b");
+        var ca = DecompileCache.decompile(program, funcA);
+        var cb = DecompileCache.decompile(programB, funcB);
+        if (clean) {
+            ca = DecompileMinimal.minimize(ca);
+            cb = DecompileMinimal.minimize(cb);
+        }
+        var sb = new StringBuilder(ca.length() + cb.length() + 256);
+        sb.append("=== a ").append(funcA.getName()).append('@').append(Responses.addr(funcA.getEntryPoint()))
+                .append(" (").append(program.getName()).append(") ===\n");
+        sb.append(ca);
+        if (!ca.endsWith("\n")) sb.append('\n');
+        sb.append("=== b ").append(funcB.getName()).append('@').append(Responses.addr(funcB.getEntryPoint()))
+                .append(" (").append(programB.getName()).append(") ===\n");
+        sb.append(cb);
+        if (!cb.endsWith("\n")) sb.append('\n');
+        return sb.toString();
     }
 
     public static String diffPrograms(PluginContext ctx, String programBName,

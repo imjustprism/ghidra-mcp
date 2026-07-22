@@ -31,9 +31,10 @@ import ghidra.util.task.TaskMonitor;
 import io.github.imjustprism.ghidra.mcp.http.Http;
 import io.github.imjustprism.ghidra.mcp.http.RouteTable;
 import io.github.imjustprism.ghidra.mcp.util.Bufs;
-import io.github.imjustprism.ghidra.mcp.util.PluginContext;
 import io.github.imjustprism.ghidra.mcp.util.Live;
+import io.github.imjustprism.ghidra.mcp.util.LiveBases;
 import io.github.imjustprism.ghidra.mcp.util.Lua;
+import io.github.imjustprism.ghidra.mcp.util.PluginContext;
 import io.github.imjustprism.ghidra.mcp.util.PointerPath;
 import io.github.imjustprism.ghidra.mcp.util.ProcessMemory;
 import io.github.imjustprism.ghidra.mcp.util.ProcessResolver;
@@ -265,6 +266,13 @@ public final class DebuggerHandlers {
         var v = s.trim();
         boolean hex = v.startsWith("0x") || v.startsWith("0X");
         return Long.parseUnsignedLong(hex ? v.substring(2) : v, 16);
+    }
+
+    private long resolveLiveAddress(String s) {
+        if (LiveBases.isPseudo(s)) {
+            return LiveBases.resolve(rpm, requireAnchorPid(), s);
+        }
+        return parseOffset(s);
     }
 
     private Address staticAddr(String s) {
@@ -698,7 +706,7 @@ public final class DebuggerHandlers {
 
     private String anchorReadMemory(String address, int length) {
         int pid = requireAnchorPid();
-        long off = parseOffset(address);
+        long off = resolveLiveAddress(address);
         var b = rpm.read(pid, off, length);
         if (b == null) {
             throw new IllegalStateException("Failed to read " + length + " bytes at 0x"
@@ -709,7 +717,7 @@ public final class DebuggerHandlers {
 
     private String anchorWriteMemory(String address, String hex) {
         int pid = requireAnchorPid();
-        long off = parseOffset(address);
+        long off = resolveLiveAddress(address);
         var bytes = Bufs.parseHex(hex);
         if (!rpm.write(pid, off, bytes)) {
             throw new IllegalStateException("WriteProcessMemory failed at 0x" + Long.toHexString(off)
@@ -729,7 +737,7 @@ public final class DebuggerHandlers {
         boolean bigEndian = anchorBigEndian();
         long[] offsets = PointerPath.parseOffsets(offsetsStr);
         if (offsets.length == 0) offsets = new long[]{0};
-        long cur = parseOffset(base);
+        long cur = resolveLiveAddress(base);
         var sb = new StringBuilder();
         sb.append("# base=0x").append(Long.toHexString(cur)).append(", ptr_size=").append(ptrSize)
                 .append(" (connector-less)\nstep\tat\tnext\n");
@@ -999,7 +1007,8 @@ public final class DebuggerHandlers {
         int ptr = program != null ? program.getDefaultPointerSize() : lc.space().getPointerSize();
         var fields = parseStructSchema(schema, ptr);
         long snap = lc.trace() != null ? liveSnap(lc.trace()) : 0;
-        var base = lc.space().getAddress(parseOffset(address));
+        long baseOff = LiveBases.isPseudo(address) ? resolveLiveAddress(address) : parseOffset(address);
+        var base = lc.space().getAddress(baseOff);
         var t = Responses.table(q, new String[]{"field", "type", "offset", "address", "value"}, fields.size());
         for (var f : fields) {
             Address at;

@@ -123,10 +123,13 @@ public final class RecoveryHandlers {
         if (varName == null || varName.isBlank()) throw new IllegalArgumentException("variable is required");
         var program = ctx.currentProgram();
         if (program == null) throw new IllegalArgumentException("No program loaded");
-        var a = program.getAddressFactory().getAddress(funcAddr.trim());
+        var a = Addresses.resolve(program, funcAddr);
         if (a == null) throw new IllegalArgumentException("invalid function_address: " + funcAddr);
         var func = Addresses.functionAtOrContaining(program, a);
-        if (func == null) throw new IllegalArgumentException("no function at " + funcAddr);
+        if (func == null) {
+            throw new IllegalArgumentException("no function at " + funcAddr
+                    + " (resolved " + Responses.addr(a) + ")");
+        }
 
         var name = varName.trim();
         ghidra.program.model.listing.Variable target = null;

@@ -86,7 +86,8 @@ public final class Signatures {
         });
     }
 
-    public static String findFunctionByString(PluginContext ctx, String value, int max, String format, boolean regex) {
+    public static String findFunctionByString(PluginContext ctx, String value, int max, String format, boolean regex,
+            boolean withCallers) {
         if (value == null || value.isBlank()) throw new IllegalArgumentException("Value is required");
         var pattern = regex ? compile(value) : null;
         var needle = regex ? null : value.toLowerCase();
@@ -97,11 +98,14 @@ public final class Signatures {
             var refMgr = program.getReferenceManager();
             int cap = max > 0 ? max : 20;
             var seen = new HashSet<Address>();
-            var t = Responses.table(Responses.Fmt.TSV,
-                    new String[]{"func", "func_addr", "xref", "str_addr", "matches", "signature"}, cap);
+            var cols = withCallers
+                    ? new String[]{"func", "func_addr", "xref", "str_addr", "matches", "signature", "callers", "caller_n"}
+                    : new String[]{"func", "func_addr", "xref", "str_addr", "matches", "signature"};
+            var t = Responses.table(Responses.Fmt.TSV, cols, cap);
             int found = 0;
             int strHits = 0;
             Address firstStr = null;
+            var monitor = new ghidra.util.task.ConsoleTaskMonitor();
             var it = listing.getDefinedData(true);
             while (it.hasNext() && found < cap) {
                 var data = it.next();
@@ -116,10 +120,21 @@ public final class Signatures {
                     var insn = listing.getInstructionContaining(fn.getEntryPoint());
                     var built = insn == null ? null
                             : build(mem, insn, fn.getBody().getMaxAddress(), DEFAULT_MIN_BYTES, DEFAULT_MAX_BYTES);
-                    t.row(fn.getName(), Responses.addr(fn.getEntryPoint()),
-                            Responses.addr(ref.getFromAddress()), Responses.addr(data.getAddress()),
-                            built == null ? 0 : built.matches,
-                            built == null ? "n/a" : built.sig.render(format));
+                    if (withCallers) {
+                        var callerFns = fn.getCallingFunctions(monitor);
+                        var names = new ArrayList<String>(callerFns.size());
+                        for (var c : callerFns) names.add(c.getName());
+                        t.row(fn.getName(), Responses.addr(fn.getEntryPoint()),
+                                Responses.addr(ref.getFromAddress()), Responses.addr(data.getAddress()),
+                                built == null ? 0 : built.matches,
+                                built == null ? "n/a" : built.sig.render(format),
+                                String.join(",", names), names.size());
+                    } else {
+                        t.row(fn.getName(), Responses.addr(fn.getEntryPoint()),
+                                Responses.addr(ref.getFromAddress()), Responses.addr(data.getAddress()),
+                                built == null ? 0 : built.matches,
+                                built == null ? "n/a" : built.sig.render(format));
+                    }
                     if (++found >= cap) break;
                 }
             }
@@ -129,6 +144,63 @@ public final class Signatures {
                     : strHits + " string(s) match \"" + value + "\" (e.g. " + Responses.addr(firstStr)
                             + ") but none are referenced from within a function";
         });
+    }
+
+    public static String exportOffsets(PluginContext ctx, String filter, boolean regex, boolean namedOnly,
+            String format, Page page, Map<String, String> q) {
+        return ctx.withProgram(program -> {
+            Pattern pattern = null;
+            String needle = null;
+            if (filter != null && !filter.isBlank()) {
+                if (regex) pattern = compile(filter);
+                else needle = filter.toLowerCase();
+            }
+            long base = program.getImageBase().getOffset();
+            boolean cpp = "cpp".equalsIgnoreCase(format) || "c".equalsIgnoreCase(format)
+                    || "hpp".equalsIgnoreCase(format);
+            var t = Responses.table(page, q, new String[]{"name", "rva", "va"});
+            var w = new Responses.Window(page);
+            var cppLines = new ArrayList<String>();
+            for (var f : program.getFunctionManager().getFunctions(true)) {
+                var name = f.getName();
+                if (namedOnly && (Responses.isAutoName(name) || f.isThunk() || name.startsWith("thunk_"))) continue;
+                if (pattern != null && !pattern.matcher(name).find()) continue;
+                if (needle != null && !name.toLowerCase().contains(needle)) continue;
+                long va = f.getEntryPoint().getOffset();
+                long rva = va - base;
+                var rvaHex = "0x" + Long.toHexString(rva);
+                var vaHex = Responses.addr(f.getEntryPoint());
+                if (cpp) {
+                    if (!w.take()) continue;
+                    cppLines.add("constexpr std::uint32_t " + sanitizeIdent(name) + " = " + rvaHex + ";");
+                } else {
+                    if (!w.take()) continue;
+                    t.row(name, rvaHex, vaHex);
+                }
+            }
+            if (cpp) {
+                var sb = new StringBuilder(cppLines.size() * 48 + 64);
+                sb.append("# export_offsets image_base=").append(Responses.addr(program.getImageBase()))
+                        .append(" named_only=").append(namedOnly).append(" total=").append(w.total()).append('\n');
+                for (var line : cppLines) sb.append(line).append('\n');
+                return sb.toString();
+            }
+            return t.total(w.total()).build();
+        });
+    }
+
+    private static String sanitizeIdent(String name) {
+        var sb = new StringBuilder(name.length());
+        for (int i = 0; i < name.length(); i++) {
+            char c = name.charAt(i);
+            if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') {
+                sb.append(c);
+            } else {
+                sb.append('_');
+            }
+        }
+        if (sb.isEmpty() || Character.isDigit(sb.charAt(0))) sb.insert(0, '_');
+        return sb.toString();
     }
 
     private static Pattern compile(String regex) {

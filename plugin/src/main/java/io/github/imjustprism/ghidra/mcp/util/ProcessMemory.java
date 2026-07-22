@@ -199,6 +199,99 @@ public final class ProcessMemory {
         return out;
     }
 
+    private interface NtDll extends StdCallLibrary {
+        NtDll INSTANCE = Native.load("ntdll", NtDll.class, W32APIOptions.DEFAULT_OPTIONS);
+
+        int NtQueryInformationThread(WinNT.HANDLE thread, int infoClass, Pointer info, int len,
+                IntByReference retLen);
+    }
+
+    private static final int THREAD_QUERY_INFORMATION = 0x0040;
+    private static final int ThreadBasicInformation = 0;
+    private static final int TEB_TLS_PTR_X64 = 0x58;
+    private static final int TEB_TLS_PTR_X86 = 0x2c;
+
+    public record TlsHit(int tid, long teb, long tlsBase) {}
+
+    public long tebBase(int pid, int tid) {
+        if (!LOADED) return 0;
+        var h = Kernel32.INSTANCE.OpenThread(THREAD_QUERY_INFORMATION, false, tid);
+        if (h == null || h.getPointer() == Pointer.NULL) return 0;
+        try {
+            var info = new Memory(0x30);
+            var ret = new IntByReference(0);
+            int st = NtDll.INSTANCE.NtQueryInformationThread(h, ThreadBasicInformation, info, 0x30, ret);
+            if (st != 0) return 0;
+            return info.getLong(8);
+        } finally {
+            Kernel32.INSTANCE.CloseHandle(h);
+        }
+    }
+
+    public int tlsIndex(int pid, long moduleBase) {
+        if (!LOADED || moduleBase == 0) return 0;
+        byte[] hdr = read(pid, moduleBase, 0x400);
+        if (hdr == null || hdr.length < 0x40) return 0;
+        int lfanew = i32(hdr, 0x3C);
+        if (lfanew <= 0 || lfanew + 0x98 > hdr.length) return 0;
+        int opt = lfanew + 24;
+        int magic = u16(hdr, opt);
+        int ddOff = opt + (magic == 0x20b ? 0x70 : 0x60);
+        int tlsDirOff = ddOff + 9 * 8;
+        if (tlsDirOff + 8 > hdr.length) return 0;
+        long tlsRva = i32(hdr, tlsDirOff) & 0xffffffffL;
+        if (tlsRva == 0) return 0;
+        boolean pe32plus = magic == 0x20b;
+        byte[] tls = read(pid, moduleBase + tlsRva, pe32plus ? 0x28 : 0x18);
+        if (tls == null) return 0;
+        long indexVa = pe32plus ? u64(tls, 0x10) : (i32(tls, 0x08) & 0xffffffffL);
+        if (indexVa == 0) return 0;
+        byte[] idx = read(pid, indexVa, 4);
+        return idx == null ? 0 : i32(idx, 0);
+    }
+
+    public long tlsBase(int pid, int tid, int tlsIndex) {
+        long teb = tebBase(pid, tid);
+        if (teb == 0) return 0;
+        boolean wow = isWow64(pid);
+        int tebTlsOff = wow ? TEB_TLS_PTR_X86 : TEB_TLS_PTR_X64;
+        int ptr = wow ? 4 : 8;
+        byte[] arrPtr = read(pid, teb + tebTlsOff, ptr);
+        if (arrPtr == null) return 0;
+        long tlsArray = le(arrPtr, ptr);
+        if (tlsArray == 0) return 0;
+        byte[] slot = read(pid, tlsArray + (long) tlsIndex * ptr, ptr);
+        if (slot == null) return 0;
+        return le(slot, ptr);
+    }
+
+    public TlsHit findGameTls(int pid, int tlsIndex, long probeSlot) {
+        if (!LOADED) return null;
+        for (int tid : threadIds(pid)) {
+            long teb = tebBase(pid, tid);
+            if (teb == 0) continue;
+            long base = tlsBase(pid, tid, tlsIndex);
+            if (base == 0) continue;
+            byte[] p = read(pid, base + probeSlot, isWow64(pid) ? 4 : 8);
+            if (p == null) continue;
+            long v = le(p, p.length);
+            if (v != 0) return new TlsHit(tid, teb, base);
+        }
+        return null;
+    }
+
+    private static long u64(byte[] b, int off) {
+        long lo = i32(b, off) & 0xffffffffL;
+        long hi = i32(b, off + 4) & 0xffffffffL;
+        return lo | (hi << 32);
+    }
+
+    private static long le(byte[] b, int n) {
+        long v = 0;
+        for (int i = 0; i < n && i < b.length; i++) v |= ((long) b[i] & 0xff) << (8 * i);
+        return v;
+    }
+
     public Map<String, Long> exports(int pid, long base) {
         var out = new java.util.HashMap<String, Long>();
         if (!LOADED) return out;

@@ -90,6 +90,15 @@ function Resolve-Tool([string[]]$candidates, [string]$name) {
     return $null
 }
 
+function Invoke-TaskKill([string[]]$Args) {
+    try {
+        $prev = $ErrorActionPreference
+        $ErrorActionPreference = 'SilentlyContinue'
+        & taskkill.exe @Args 2>$null | Out-Null
+        $ErrorActionPreference = $prev
+    } catch { }
+}
+
 function Stop-NamedProcesses([string[]]$names) {
     $killed = 0
     foreach ($n in $names) {
@@ -99,24 +108,137 @@ function Stop-NamedProcesses([string[]]$names) {
                 $killed++
             } catch { }
         }
-        # belt-and-suspenders
-        & taskkill.exe /F /IM "$n.exe" /T 2>$null | Out-Null
+        Invoke-TaskKill @('/F', '/IM', "$n.exe", '/T')
     }
     return $killed
 }
 
-function Stop-GhidraJava {
-    $killed = 0
-    try {
-        $procs = Get-CimInstance Win32_Process -Filter "Name = 'javaw.exe' OR Name = 'java.exe'" -ErrorAction SilentlyContinue |
-            Where-Object { $_.CommandLine -match 'ghidra|Ghidra' }
-        foreach ($p in $procs) {
-            try {
-                Stop-Process -Id $p.ProcessId -Force -ErrorAction Stop
-                $killed++
-            } catch { }
-            & taskkill.exe /F /PID $p.ProcessId /T 2>$null | Out-Null
+function Test-GhidraUiCmdline([string]$cmd, [string]$homePath) {
+    if ([string]::IsNullOrWhiteSpace($cmd)) { return $false }
+    # never confuse this repo / MCP bridge with the Ghidra UI install
+    if ($cmd -imatch 'ghidra-mcp') { return $false }
+    if ($cmd -imatch 'ghidraRun\.bat|Ghidra\\application\.properties|support\\launch|support/launch') {
+        return $true
+    }
+    if ($cmd -imatch 'ghidra\.(Ghidra|GhidraRun|framework)|utility\.jar.*ghidra|\\Ghidra\\Features\\') {
+        return $true
+    }
+    if ($cmd -imatch 'ghidra_\d+\.\d+') { return $true }
+    if (-not [string]::IsNullOrWhiteSpace($homePath)) {
+        $norm = ($homePath -replace '/', '\').TrimEnd('\')
+        if ($norm.Length -ge 8 -and $cmd.IndexOf($norm, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
+            return $true
         }
+    }
+    return $false
+}
+
+function Get-SelfProtectedPids([hashtable]$byId) {
+    $protect = [System.Collections.Generic.HashSet[int]]::new()
+    $cur = [int]$PID
+    for ($i = 0; $i -lt 24 -and $cur -gt 0; $i++) {
+        [void]$protect.Add($cur)
+        if (-not $byId.ContainsKey($cur)) { break }
+        $cur = [int]$byId[$cur].ParentProcessId
+    }
+    return $protect
+}
+
+function Stop-ProcessTree(
+    [int]$ProcId,
+    [System.Collections.Generic.HashSet[int]]$seen,
+    [System.Collections.Generic.HashSet[int]]$protect
+) {
+    if ($ProcId -le 0 -or $protect.Contains($ProcId) -or -not $seen.Add($ProcId)) { return 0 }
+    $n = 0
+    Get-CimInstance Win32_Process -Filter "ParentProcessId = $ProcId" -ErrorAction SilentlyContinue |
+        ForEach-Object {
+            $n += Stop-ProcessTree -ProcId ([int]$_.ProcessId) -seen $seen -protect $protect
+        }
+    Invoke-TaskKill @('/F', '/T', '/PID', "$ProcId")
+    try {
+        $p = Get-Process -Id $ProcId -ErrorAction SilentlyContinue
+        if ($p) {
+            Stop-Process -Id $ProcId -Force -ErrorAction SilentlyContinue
+        }
+        $n++
+    } catch {
+        $n++
+    }
+    return $n
+}
+
+function Stop-GhidraTree([string]$homePath) {
+    $killed = 0
+    $seen = [System.Collections.Generic.HashSet[int]]::new()
+    try {
+        $all = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
+        $byId = @{}
+        foreach ($p in $all) { $byId[[int]$p.ProcessId] = $p }
+        $protect = Get-SelfProtectedPids $byId
+
+        $seeds = [System.Collections.Generic.List[int]]::new()
+        foreach ($p in $all) {
+            $id = [int]$p.ProcessId
+            if ($protect.Contains($id)) { continue }
+            $cmd = $p.CommandLine
+            $name = $p.Name
+            $isSeed = Test-GhidraUiCmdline $cmd $homePath
+            if (-not $isSeed -and $name -match '^(java|javaw)\.exe$' -and $homePath) {
+                try {
+                    $path = (Get-Process -Id $id -ErrorAction SilentlyContinue).Path
+                    if ($path -and $path.StartsWith($homePath, [StringComparison]::OrdinalIgnoreCase)) {
+                        $isSeed = $true
+                    }
+                } catch { }
+            }
+            if ($isSeed) { $seeds.Add($id) }
+        }
+
+        # walk parents only while still ghidra-related (do not climb into explorers/agents)
+        $roots = [System.Collections.Generic.HashSet[int]]::new()
+        foreach ($sid in $seeds) {
+            $cur = $sid
+            $root = $sid
+            for ($i = 0; $i -lt 8; $i++) {
+                if (-not $byId.ContainsKey($cur)) { break }
+                $parentId = [int]$byId[$cur].ParentProcessId
+                if ($parentId -le 0 -or -not $byId.ContainsKey($parentId)) { break }
+                if ($protect.Contains($parentId)) { break }
+                $parent = $byId[$parentId]
+                $pname = $parent.Name
+                $pcmd = $parent.CommandLine
+                $parentIsLauncher = $pname -match '^(cmd|conhost)\.exe$' -and (Test-GhidraUiCmdline $pcmd $homePath)
+                if ($parentIsLauncher -or (Test-GhidraUiCmdline $pcmd $homePath)) {
+                    $root = $parentId
+                    $cur = $parentId
+                    continue
+                }
+                # bare cmd with ghidra child already seeded — take one cmd parent if cmdline empty/truncated
+                if ($pname -eq 'cmd.exe' -and (Test-GhidraUiCmdline $byId[$cur].CommandLine $homePath)) {
+                    $root = $parentId
+                }
+                break
+            }
+            if (-not $protect.Contains($root)) { [void]$roots.Add($root) }
+        }
+
+        foreach ($rid in $roots) {
+            $killed += Stop-ProcessTree -ProcId $rid -seen $seen -protect $protect
+        }
+
+        Start-Sleep -Milliseconds 200
+        Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+            Where-Object {
+                $id = [int]$_.ProcessId
+                -not $protect.Contains($id) -and (Test-GhidraUiCmdline $_.CommandLine $homePath)
+            } |
+            ForEach-Object {
+                if ($seen.Add([int]$_.ProcessId)) {
+                    Invoke-TaskKill @('/F', '/T', '/PID', "$($_.ProcessId)")
+                    $killed++
+                }
+            }
     } catch { }
     return $killed
 }
@@ -157,11 +279,18 @@ function Yeet-Locks {
         Where-Object { $_.Name -match 'ghidra-mcp' -or ($_.CommandLine -and $_.CommandLine -match 'ghidra-mcp\.exe') } |
         ForEach-Object {
             try { Stop-Process -Id $_.ProcessId -Force -ErrorAction Stop; $report.mcp++ } catch { }
-            & taskkill.exe /F /PID $_.ProcessId /T 2>$null | Out-Null
+            Invoke-TaskKill @('/F', '/T', '/PID', "$($_.ProcessId)")
         }
 
     if (-not $NoClose) {
-        $report.ghidra = Stop-GhidraJava
+        $report.ghidra = Stop-GhidraTree -homePath $GhidraHome
+        # settle so extension jar handles drop before install
+        if ($report.ghidra -gt 0) {
+            Start-Sleep -Milliseconds 600
+            $again = Stop-GhidraTree -homePath $GhidraHome
+            $report.ghidra += $again
+            if ($again -gt 0) { Start-Sleep -Milliseconds 400 }
+        }
     }
 
     if ($KillGame) {
@@ -409,9 +538,9 @@ try {
             if (-not $zip) { throw "plugin zip missing under plugin/target" }
 
             if (-not (Unlock-Path $extTarget 10000)) {
-                Stop-GhidraJava | Out-Null
-                Start-Sleep -Milliseconds 300
-                if (-not (Unlock-Path $extTarget 8000)) {
+                Stop-GhidraTree -homePath $GhidraHome | Out-Null
+                Start-Sleep -Milliseconds 500
+                if (-not (Unlock-Path $extTarget 12000)) {
                     throw "extension still locked: $extTarget"
                 }
             }

@@ -60,12 +60,12 @@ MCP server for Ghidra. Rust bridge + Ghidra Java plugin. Wires any MCP client (C
 
 ## Tools
 
-173 tools total.
+176 tools total.
 
 Every paginated read tool accepts an optional `fmt` argument — `tsv` (default), `csv`, `json`, or `verbose` — alongside `offset`/`limit`, plus an optional `program` (open program name or sha256) to target a specific open program instead of the active one (the server honors `program` on every endpoint).
 
 <details>
-<summary><b>Listing / metadata</b> (20)</summary>
+<summary><b>Listing / metadata</b> (23)</summary>
 
 | tool | purpose |
 | --- | --- |
@@ -79,6 +79,8 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 | `obfuscation_profile` | one-call program obfuscation verdict (protector + VM boundary + entropy) |
 | `detect_security_mitigations` | decode PE hardening (ASLR/DEP/CFG/SafeSEH/GS) |
 | `list_tls_callbacks` | PE TLS callbacks (pre-entry anti-debug/init hooks) |
+| `tls_singleton_map` | Nebula3 TLS slot map (+ live ptrs after live_attach) |
+| `nebula_container_layout` | Util::FixedArray/Array/Dictionary size/elems/stride from decompile |
 | `extract_iocs` | URLs/IPs/emails/registry/paths/GUIDs/wallets from strings |
 | `find_rop_gadgets` | ROP gadgets (ret-terminated, unaligned, filterable) |
 | `assemble_code` | assemble asm text to bytes (inverse of disassemble) |
@@ -87,6 +89,7 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 | `vm_descriptor_table` | parse a virtualizer dispatch table into a function-bytecode map |
 | `list_imports` | imported symbols (with IAT slot VA) |
 | `list_exports` | exported symbols |
+| `export_offsets` | shade-style name+RVA skeleton (tsv/cpp; named_only skips FUN_*) |
 | `list_namespaces` | namespaces |
 | `list_data_items` | defined data |
 | `list_entry_points` | entry points |
@@ -136,7 +139,7 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 | `taint_forward` | forward data-flow slice (where a value flows to) |
 | `taint_backward` | backward data-flow slice (what feeds a value) |
 | `function_hash` | mode=structural (mnemonic+shape) or semantic (behavioral) hash |
-| `diff_functions` | structural similarity score of two functions (cross-program) |
+| `diff_functions` | structural/semantic score or mode=source dual decompile C |
 | `diff_programs` | whole-program function matching by shape hash (bindiff-lite) |
 | `propagate_matches` | copy names onto matched functions in another open program |
 
@@ -203,7 +206,7 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 | `import_dwarf` | run the DWARF analyzer to recover types/sigs from debug info |
 | `import_pdb` | run the PDB analyzer to load Microsoft PDB debug symbols |
 | `apply_fid_signatures` | run Function ID to name matched library/runtime functions |
-| `propose_struct_from_accesses` | infer a struct layout from how a pointer variable is used |
+| `propose_struct_from_accesses` | infer struct from pointer accesses (VA / bare RVA / rva:) |
 | `list_open_programs` | all open programs (name, active, sha256) |
 | `select_program` | switch the active program by name/sha256 |
 | `struct_field` | edit a struct field at an offset (op=set replace/insert, op=delete) |
@@ -244,7 +247,7 @@ Every paginated read tool accepts an optional `fmt` argument — `tsv` (default)
 | --- | --- |
 | `make_signature` | unique wildcarded AOB sig for an address |
 | `resolve_relative` | resolve call/jmp/RIP-relative operand targets |
-| `find_function_by_string` | string xref to function entry + signature |
+| `find_function_by_string` | string xref to function entry + signature; callers=true one-level callers |
 
 </details>
 

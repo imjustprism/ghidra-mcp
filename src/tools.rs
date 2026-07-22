@@ -852,6 +852,9 @@ impl ToParams for FindFunctionByString {
         if self.regex.unwrap_or(false) {
             p.push(("regex", "1".to_string()));
         }
+        if self.callers.unwrap_or(false) {
+            p.push(("callers", "1".to_string()));
+        }
         p
     }
 }
@@ -1499,6 +1502,15 @@ pub struct FindFunctionByString {
         skip_serializing_if = "Option::is_none"
     )]
     pub regex: Option<bool>,
+    #[schemars(
+        description = "When true, also emit one-level callers of each hit (callers=comma names, caller_n=count) — string → fn → callers in one call."
+    )]
+    #[serde(
+        default,
+        deserialize_with = "de_opt_bool",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub callers: Option<bool>,
 }
 const fn default_ffbs_max() -> u32 {
     20
@@ -1730,10 +1742,17 @@ pub struct DiffFunctions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub program_b: Option<String>,
     #[schemars(
-        description = "\"structural\" (default) or \"semantic\" (emulation I/O behavior; same-program only)."
+        description = "\"structural\" (default) score table, \"semantic\" emulation I/O match, or \"source\" side-by-side decompiled C for both functions (clean=true by default)."
     )]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<String>,
+    #[schemars(description = "For mode=source only: strip decompiler noise (default true).")]
+    #[serde(
+        default,
+        deserialize_with = "de_opt_bool",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub clean: Option<bool>,
 }
 
 impl ToParams for DiffFunctions {
@@ -1744,6 +1763,72 @@ impl ToParams for DiffFunctions {
         }
         if let Some(m) = self.mode {
             p.push(("mode", m));
+        }
+        if let Some(c) = self.clean {
+            p.push(("clean", if c { "1" } else { "0" }.to_string()));
+        }
+        p
+    }
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct NebulaContainerLayout {
+    pub address: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub variable: Option<String>,
+}
+
+impl ToParams for NebulaContainerLayout {
+    fn into_params(self) -> Params {
+        let mut p = vec![("address", self.address)];
+        if let Some(v) = self.variable {
+            p.push(("variable", v));
+        }
+        p
+    }
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct ExportOffsets {
+    #[schemars(description = "Optional name filter (substring by default; regex=true for regex).")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filter: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "de_opt_bool",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub regex: Option<bool>,
+    #[schemars(
+        description = "Skip auto FUN_*/thunk names (default true) — export only user/named symbols."
+    )]
+    #[serde(
+        default,
+        deserialize_with = "de_opt_bool",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub named_only: Option<bool>,
+    #[schemars(description = "\"tsv\" (default: name/rva/va) or \"cpp\" constexpr skeleton.")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub format: Option<String>,
+    #[serde(flatten)]
+    pub page: Page,
+}
+
+impl ToParams for ExportOffsets {
+    fn into_params(self) -> Params {
+        let mut p = self.page.into_params();
+        if let Some(f) = self.filter {
+            p.push(("filter", f));
+        }
+        if self.regex.unwrap_or(false) {
+            p.push(("regex", "1".to_string()));
+        }
+        if let Some(n) = self.named_only {
+            p.push(("named_only", if n { "1" } else { "0" }.to_string()));
+        }
+        if let Some(fmt) = self.format {
+            p.push(("format", fmt));
         }
         p
     }
@@ -2586,7 +2671,7 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Compare two functions and score similarity 0-100. address_a/address_b accept a full VA, an interior address (resolves to the enclosing function), a bare RVA (auto-rebased when not a mapped VA), or rva:0x… — same rules as decompile/xrefs. mode=structural (default): instruction-mnemonic multisets (Jaccard) + called-function sets + size ratio; address_b may live in program_b (another open program) for cross-binary variant matching. mode=semantic: emulates both over fixed input vectors and scores how often they produce identical observable behavior (return + bytes written + halt) — matches functions across instruction substitution / obfuscation that structural diff misses (same-program only)",
+        description = "Compare two functions. address_a/address_b accept full VA, interior address, bare RVA, or rva:0x… (same as decompile/xrefs). mode=structural (default): mnemonic Jaccard + call sets + size → score 0-100; address_b may be in program_b for cross-binary. mode=semantic: emulate both on fixed input vectors and score identical I/O behavior (same-program only). mode=source: side-by-side decompiled C for both (clean defaults true) — the dual-pane dump structural score alone does not give",
         annotations(read_only_hint = true)
     )]
     async fn diff_functions(
@@ -2997,6 +3082,28 @@ impl GhidraServer {
     }
 
     #[tool(
+        description = "Nebula3/dro TLS singleton slot map (NOT PE TLS callbacks). Static table: TLS+0x58 ClientGameWorld, +0x90 ClientActorManager, +0x300 TransformDevice, +0x6b0 EntityManager, etc. After live_attach, also resolves the game-thread TLS base and fills live pointer columns. Use with read_memory base=tls:0x90 after attach",
+        annotations(read_only_hint = true)
+    )]
+    async fn tls_singleton_map(&self) -> Result<CallToolResult, ErrorData> {
+        self.get_bare("tls_singleton_map").await
+    }
+
+    #[tool(
+        description = "Recover Nebula3 Util::FixedArray / Array / Dictionary layout from a function's decompile: field name (this->foo.Size()), size_off, elems_off (typically +8), stride (from indexer). address = function VA/RVA/rva:; optional variable = base param (default param_1). Far more useful than generic propose_struct for container fields",
+        annotations(read_only_hint = true)
+    )]
+    async fn nebula_container_layout(
+        &self,
+        Parameters(p): Parameters<NebulaContainerLayout>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if p.address.trim().is_empty() {
+            return Err(ErrorData::invalid_params("address is required", None));
+        }
+        self.get("nebula_container_layout", p).await
+    }
+
+    #[tool(
         description = "Assemble x86/ARM/etc. assembly text to machine-code bytes at a given address (address matters for relative/RIP-relative encoding), via Ghidra's Assembler. Multiple instructions separated by newlines or ';' are assembled sequentially and the combined hex returned. Does NOT write — feed the bytes to patch_bytes to apply. The inverse of disassemble_function",
         annotations(read_only_hint = true)
     )]
@@ -3375,7 +3482,7 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Read raw live process memory at an absolute dynamic address — exact bytes, NO dereference. Works on the connector-less live_attach session (OpenProcess/ReadProcessMemory, no dbgeng) as well as a dbgeng trace. Use this (not read_pointer_path) to inspect bytes at a known address, e.g. walking heap/struct/map nodes. address is the absolute dynamic address; length is byte count",
+        description = "Read raw live process memory — exact bytes, NO dereference. Works after live_attach or dbgeng. address is absolute dynamic VA, or pseudo-base tls:0x90 / teb:0x58 (requires live_attach; game-thread TLS resolved via TEB). length is byte count",
         annotations(read_only_hint = true)
     )]
     async fn debugger_read_memory(
@@ -3386,7 +3493,7 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Resolve a multi-level pointer chain in the live target (CheatEngine-style); works connector-less (live_attach) or via a dbgeng trace. Rule: address accumulator starts at base; for EACH offset it dereferences the accumulator then adds the offset: final = [...[[base]+off0]+off1...]+offN. The final address itself is NOT dereferenced. offsets is comma-separated hex (with/without 0x; negatives ok), e.g. \"0x18,0x40,-0x8\". The output then ALSO dumps the bytes AT final (value_len bytes, or a default pointer-width word if omitted) as a convenience — that dump is one extra read of *final, not part of the chain. For a raw no-deref read at a known address use debugger_read_memory instead",
+        description = "Resolve a multi-level pointer chain in the live target (CheatEngine-style); live_attach or dbgeng. base may be absolute VA or tls:0x90 / teb:0x58 (live_attach). Rule: for EACH offset deref then add: final = [...[[base]+off0]+off1...]+offN. Final is NOT further deref'd; value_len dumps *final as convenience. offsets comma-hex e.g. 0x18,0x40,-0x8",
         annotations(read_only_hint = true)
     )]
     async fn read_pointer_path(
@@ -4186,7 +4293,7 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Infer a struct layout from how a pointer variable is used. Decompiles the function, follows every load/store through the named pointer variable (a parameter or local), AND captures base+const sub-pointers (&ptr->field) passed by address into helper/constructor calls — the common C++ pattern the raw recovery misses — adding them as ref_arg fields. Creates a new struct data type whose fields match the accessed offsets, sizes, and types. Returns the proposed layout (offset/length/type/field). Great for recovering an unknown structure from the code that touches it",
+        description = "Infer a struct layout from how a pointer variable is used. function_address accepts full VA, interior address, bare RVA, or rva:0x… (same resolve path as decompile). Decompiles the function, follows every load/store through the named pointer variable (parameter or local), AND captures base+const sub-pointers (&ptr->field) passed into helpers — adding them as ref_arg fields. Creates a new struct type from accessed offsets/sizes/types. Returns offset/length/type/field table",
         annotations(destructive_hint = true)
     )]
     async fn propose_struct_from_accesses(
@@ -4250,7 +4357,7 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Locate functions by a string they reference: finds the string, follows cross-references to the containing function, and emits each function's name, entry address, the xref site, and a unique signature for the entry. The fastest path from a known string to a function + a reusable signature. Only DEFINED program strings are searched — for undefined/embedded text use search kind=text. regex=true treats value as a case-insensitive regex so a family like `Daily|Reshuffle|Timed` resolves in one call. max caps the hits (default 20). format=ida|code",
+        description = "Locate functions by a string they reference: finds the string, follows xrefs to the containing function, emits name/entry/xref/signature. Only DEFINED program strings — use search kind=text for embedded text. regex=true for case-insensitive families like Daily|Reshuffle|Timed. max default 20. callers=true adds one-level callers (callers + caller_n columns) — string → function → callers in one call. format=ida|code",
         annotations(read_only_hint = true)
     )]
     async fn find_function_by_string(
@@ -4261,6 +4368,17 @@ impl GhidraServer {
             return Err(ErrorData::invalid_params("value is required", None));
         }
         self.get("find_function_by_string", p).await
+    }
+
+    #[tool(
+        description = "Export a shade-style offsets skeleton: named functions as name + RVA (+ VA). named_only=true (default) skips FUN_* auto names. filter=substring or regex=true. format=tsv (default) or cpp (constexpr std::uint32_t Name = 0xrva;). Paginate with offset/limit. Use after labeling to dump a client offsets list",
+        annotations(read_only_hint = true)
+    )]
+    async fn export_offsets(
+        &self,
+        Parameters(p): Parameters<ExportOffsets>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.get("export_offsets", p).await
     }
 
     #[tool(
@@ -4902,6 +5020,7 @@ mod tests {
             address_b: "0x401500".to_owned(),
             program_b: Some("variant_b.exe".to_owned()),
             mode: None,
+            clean: None,
         };
         assert_eq!(
             p.into_params(),
@@ -4920,6 +5039,7 @@ mod tests {
             address_b: "0x402000".to_owned(),
             program_b: None,
             mode: None,
+            clean: None,
         };
         assert_eq!(
             p.into_params(),
@@ -5312,7 +5432,10 @@ mod tests {
         assert_eq!(p.max, default_ffbs_max());
         assert_eq!(p.max, 20);
         assert_eq!(p.format, "ida");
-        assert!(p.into_params().iter().all(|(k, _)| *k != "regex"));
+        assert!(p
+            .into_params()
+            .iter()
+            .all(|(k, _)| *k != "regex" && *k != "callers"));
     }
 
     #[test]
@@ -5322,6 +5445,7 @@ mod tests {
             max: 20,
             format: "ida".to_owned(),
             regex: Some(true),
+            callers: None,
         };
         assert_eq!(
             p.into_params(),
@@ -5332,6 +5456,21 @@ mod tests {
                 ("regex", "1".to_owned()),
             ]
         );
+    }
+
+    #[test]
+    fn find_function_by_string_emits_callers_flag() {
+        let p = FindFunctionByString {
+            value: "IsExecutionDone".to_owned(),
+            max: 20,
+            format: "ida".to_owned(),
+            regex: None,
+            callers: Some(true),
+        };
+        assert!(p
+            .into_params()
+            .iter()
+            .any(|(k, v)| *k == "callers" && v == "1"));
     }
 
     #[test]
