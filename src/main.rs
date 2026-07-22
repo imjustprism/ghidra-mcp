@@ -13,7 +13,7 @@ struct Args {
     #[arg(long, env = "GHIDRA_SERVER", default_value = "http://127.0.0.1:8080/")]
     ghidra_server: Url,
 
-    #[arg(long, env = "GHIDRA_TIMEOUT_SECS", default_value_t = 60)]
+    #[arg(long, env = "GHIDRA_TIMEOUT_SECS", default_value_t = 180)]
     timeout_secs: u64,
 
     #[arg(long, env = "GHIDRA_TOKEN", hide_env_values = true)]
@@ -21,22 +21,30 @@ struct Args {
 
     #[arg(
         long,
-        env = "GHIDRA_MCP_ALLOW_MULTIPLE",
+        env = "GHIDRA_MCP_REPLACE_SIBLINGS",
         default_value_t = false,
-        help = "Allow multiple bridges for the same binary (default: replace older instances)."
+        help = "Kill other live ghidra-mcp processes on start. Default only reaps orphans (dead parent)."
     )]
-    allow_multiple: bool,
+    replace_siblings: bool,
 
     #[arg(
         long,
         env = "GHIDRA_MCP_DETACH",
         default_value_t = false,
-        help = "Do not exit when the parent MCP client dies (default: exit — no orphan bridges)."
+        help = "Do not exit when the parent MCP host dies."
     )]
     detach: bool,
+
+    #[arg(
+        long,
+        env = "GHIDRA_MCP_ALLOW_MULTIPLE",
+        default_value_t = true,
+        hide = true
+    )]
+    allow_multiple: bool,
 }
 
-#[tokio::main(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::main(flavor = "multi_thread", worker_threads = 4)]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -48,13 +56,14 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let args = Args::parse();
-
-    instance::prepare(args.allow_multiple, args.detach);
+    let replace = args.replace_siblings || !args.allow_multiple;
+    instance::prepare(replace, args.detach);
 
     tracing::info!(
         url = %args.ghidra_server,
-        allow_multiple = args.allow_multiple,
+        replace_siblings = replace,
         detach = args.detach,
+        timeout_secs = args.timeout_secs,
         "starting ghidra-mcp"
     );
 

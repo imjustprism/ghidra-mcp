@@ -42,8 +42,10 @@ MCP server for Ghidra. Rust bridge + Ghidra Java plugin. Wires any MCP client (C
 | flag | env | default |
 | --- | --- | --- |
 | `--ghidra-server` | `GHIDRA_SERVER` | `http://127.0.0.1:8080/` |
-| `--timeout-secs` | `GHIDRA_TIMEOUT_SECS` | `60` |
+| `--timeout-secs` | `GHIDRA_TIMEOUT_SECS` | `180` |
 | `--ghidra-token` | `GHIDRA_TOKEN` | unset |
+| `--replace-siblings` | `GHIDRA_MCP_REPLACE_SIBLINGS` | off (only orphan reaping) |
+| `--detach` | `GHIDRA_MCP_DETACH` | off (exit if MCP host dies, after 3 misses) |
 
 `RUST_LOG=ghidra_mcp=debug` for verbose logs.
 

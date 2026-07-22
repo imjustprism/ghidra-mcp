@@ -1,13 +1,18 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use sysinfo::{ProcessesToUpdate, System};
+use sysinfo::{Pid, ProcessesToUpdate, System};
 
-pub fn prepare(allow_multiple: bool, detach: bool) {
-    if !allow_multiple {
-        let n = replace_siblings();
+pub fn prepare(replace_siblings: bool, detach: bool) {
+    let orphans = reap_orphans();
+    if orphans > 0 {
+        tracing::info!(reaped = orphans, "reaped orphan ghidra-mcp process(es)");
+        std::thread::sleep(Duration::from_millis(80));
+    }
+    if replace_siblings {
+        let n = kill_same_binary(/* orphans_only */ false);
         if n > 0 {
-            tracing::info!(replaced = n, "replaced prior ghidra-mcp instance(s)");
+            tracing::info!(replaced = n, "replaced live sibling ghidra-mcp instance(s)");
             std::thread::sleep(Duration::from_millis(120));
         }
     }
@@ -51,9 +56,20 @@ fn same_binary(a: &Path, b: &Path) -> bool {
     }
 }
 
-fn replace_siblings() -> usize {
+fn parent_alive(sys: &System, parent: Pid) -> bool {
+    if parent.as_u32() == 0 {
+        return false;
+    }
+    sys.process(parent).is_some()
+}
+
+fn reap_orphans() -> usize {
+    kill_same_binary(true)
+}
+
+fn kill_same_binary(orphans_only: bool) -> usize {
     let Some(me_exe) = current_exe() else {
-        tracing::warn!("could not resolve current_exe; skipping sibling replace");
+        tracing::warn!("could not resolve current_exe; skipping sibling scan");
         return 0;
     };
     let Ok(my_pid) = sysinfo::get_current_pid() else {
@@ -75,7 +91,17 @@ fn replace_siblings() -> usize {
         if !same_binary(&exe, &me_exe) {
             continue;
         }
-        tracing::info!(pid = %pid.as_u32(), "stopping duplicate ghidra-mcp");
+        if orphans_only {
+            match proc.parent() {
+                Some(pp) if parent_alive(&sys, pp) => continue,
+                _ => {}
+            }
+        }
+        tracing::info!(
+            pid = %pid.as_u32(),
+            orphan = orphans_only,
+            "stopping ghidra-mcp sibling"
+        );
         if proc.kill() {
             killed += 1;
         } else {
@@ -105,11 +131,23 @@ fn watch_parent() {
     tracing::debug!(parent = %parent.as_u32(), "watching parent process");
     tokio::spawn(async move {
         let mut sys = System::new();
-        let interval = Duration::from_secs(2);
+        let interval = Duration::from_secs(3);
+        let mut misses: u8 = 0;
+        const NEED: u8 = 3;
         loop {
             tokio::time::sleep(interval).await;
             sys.refresh_processes(ProcessesToUpdate::Some(&[parent]), true);
-            if sys.process(parent).is_none() {
+            if parent_alive(&sys, parent) {
+                misses = 0;
+                continue;
+            }
+            misses = misses.saturating_add(1);
+            tracing::debug!(
+                parent = %parent.as_u32(),
+                misses,
+                "parent not visible"
+            );
+            if misses >= NEED {
                 tracing::info!(
                     parent = %parent.as_u32(),
                     "parent gone — exiting (no orphan bridge)"
