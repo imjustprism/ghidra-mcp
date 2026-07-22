@@ -174,8 +174,18 @@ public final class FunctionHandlers {
         return sb.toString();
     }
 
-    public String xrefsTo(String addr, Page p, Map<String, String> q) {
-        return ctx.withAddress(addr, (program, a) -> {
+    private static Address targetAddress(Program program, String target) {
+        if (target == null || target.isBlank()) throw new IllegalArgumentException("target is required");
+        var f = Programs.findFunctionByName(program, target.trim());
+        if (f != null) return f.getEntryPoint();
+        var a = Addresses.resolve(program, target);
+        if (a == null) throw new IllegalArgumentException("invalid target (function name or address): " + target);
+        return a;
+    }
+
+    public String xrefsTo(String target, Page p, Map<String, String> q) {
+        return ctx.withProgram(program -> {
+            var a = targetAddress(program, target);
             var fm = program.getFunctionManager();
             var t = Responses.table(p, q, new String[]{"from", "fn", "type"});
             var w = new Responses.Window(p);
@@ -192,40 +202,46 @@ public final class FunctionHandlers {
         });
     }
 
-    public String xrefsFrom(String addr, Page p, Map<String, String> q) {
-        return ctx.withAddress(addr, (program, a) -> {
+    public String xrefsFrom(String target, Page p, Map<String, String> q) {
+        return ctx.withProgram(program -> {
+            var a = targetAddress(program, target);
             var t = Responses.table(p, q, new String[]{"to", "target", "type"});
             var w = new Responses.Window(p);
             for (var ref : program.getReferenceManager().getReferencesFrom(a)) {
                 if (!w.take()) continue;
                 var to = ref.getToAddress();
                 var func = program.getFunctionManager().getFunctionAt(to);
-                String target;
-                if (func != null) target = func.getName();
+                String label;
+                if (func != null) label = func.getName();
                 else {
                     var data = program.getListing().getDataAt(to);
-                    target = data == null ? "" :
+                    label = data == null ? "" :
                             (data.getLabel() != null ? data.getLabel() : data.getPathName());
                 }
-                t.row(Responses.addr(to), target, ref.getReferenceType().getName());
+                t.row(Responses.addr(to), label, ref.getReferenceType().getName());
             }
             return t.total(w.total()).build();
         });
     }
 
-    public String functionXrefs(String name, Page p, Map<String, String> q) {
-        if (name == null || name.isBlank()) throw new IllegalArgumentException("Function name is required");
+    public String functionXrefs(String target, Page p, Map<String, String> q) {
+        if (target == null || target.isBlank()) throw new IllegalArgumentException("target is required");
         return ctx.withProgram(program -> {
             var fm = program.getFunctionManager();
             var rm = program.getReferenceManager();
             var t = Responses.table(p, q, new String[]{"from", "fn", "type"});
             var w = new Responses.Window(p);
             var seen = new java.util.HashSet<Address>();
+            boolean matched = false;
             for (var func : fm.getFunctions(true)) {
-                if (func.getName().equals(name)) collectRefs(program, rm.getReferencesTo(func.getEntryPoint()), seen, t, w);
+                if (func.getName().equals(target)) {
+                    matched = true;
+                    collectRefs(program, rm.getReferencesTo(func.getEntryPoint()), seen, t, w);
+                }
             }
             for (var s : program.getSymbolTable().getExternalSymbols()) {
-                if (!s.getName().equals(name)) continue;
+                if (!s.getName().equals(target)) continue;
+                matched = true;
                 for (var ref : rm.getReferencesTo(s.getAddress())) {
                     var from = ref.getFromAddress();
                     if (ref.getReferenceType().isData() && from.isMemoryAddress()) {
@@ -234,6 +250,15 @@ public final class FunctionHandlers {
                         addRow(program, ref, seen, t, w);
                     }
                 }
+            }
+            if (!matched) {
+                var a = Addresses.resolve(program, target);
+                var func = a == null ? null : Addresses.functionAtOrContaining(program, a);
+                var entry = func != null ? func.getEntryPoint() : a;
+                if (entry == null) {
+                    throw new IllegalArgumentException("no function or symbol named, and not an address: " + target);
+                }
+                collectRefs(program, rm.getReferencesTo(entry), seen, t, w);
             }
             return t.total(w.total()).build();
         });

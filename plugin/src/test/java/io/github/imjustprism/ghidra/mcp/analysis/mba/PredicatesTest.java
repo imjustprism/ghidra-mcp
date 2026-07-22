@@ -17,7 +17,7 @@ class PredicatesTest {
 
     @Test
     void productOfConsecutiveIsAlwaysEven() {
-        // x*(x+1) & 1 == 0  -> always true
+
         var lhs = new MbaExpr.And(new MbaExpr.Mul(X, new MbaExpr.Add(X, c(1))), c(1));
         var p = new Predicate.Cmp(Predicate.Kind.EQ, lhs, c(0));
         assertEquals(Predicates.Verdict.ALWAYS_TRUE, Predicates.classify(p, 1));
@@ -26,7 +26,7 @@ class PredicatesTest {
 
     @Test
     void orWithOneIsNeverZero() {
-        // (x | 1) == 0  -> always false
+
         var p = new Predicate.Cmp(Predicate.Kind.EQ, new MbaExpr.Or(X, c(1)), c(0));
         assertEquals(Predicates.Verdict.ALWAYS_FALSE, Predicates.classify(p, 1));
         assertTrue(Predicates.isOpaque(p, 1));
@@ -47,8 +47,7 @@ class PredicatesTest {
 
     @Test
     void characterComparisonAgainstConstantIsNotOpaque() {
-        // v0 == 91 ('[') is a genuine branch; the constant must enter the probe set
-        // or it reads as ALWAYS_FALSE. Regression for the URL-parser false positives.
+
         assertEquals(Predicates.Verdict.VARIABLE,
                 Predicates.classify(new Predicate.Cmp(Predicate.Kind.EQ, X, c(91)), 1));
         assertEquals(Predicates.Verdict.VARIABLE,
@@ -59,7 +58,7 @@ class PredicatesTest {
 
     @Test
     void booleanCombinatorsEvaluate() {
-        // (x == x) || (x <s y)  -> always true; !(x == x) -> always false
+
         var tru = new Predicate.Cmp(Predicate.Kind.EQ, X, X);
         var lt = new Predicate.Cmp(Predicate.Kind.SLT, X, Y);
         assertEquals(Predicates.Verdict.ALWAYS_TRUE, Predicates.classify(new Predicate.Or(tru, lt), 2));

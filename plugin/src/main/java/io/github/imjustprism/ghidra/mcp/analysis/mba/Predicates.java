@@ -14,14 +14,12 @@ public final class Predicates {
     public static Verdict classify(Predicate p, int nvars) {
         var probes = probeSet(p);
         var vars = new long[nvars];
-        var state = new boolean[]{false, false, false}; // seen, sawTrue, sawFalse
+        var state = new boolean[]{false, false, false};
         scan(p, probes, vars, 0, state);
         if (state[1] && state[2]) return Verdict.VARIABLE;
         return state[1] ? Verdict.ALWAYS_TRUE : Verdict.ALWAYS_FALSE;
     }
 
-    // Probe values must include the constants the predicate compares against (and their neighbors),
-    // or a genuine `var == K` is never satisfied during probing and reads as opaque.
     private static long[] probeSet(Predicate p) {
         var values = new LinkedHashSet<Long>();
         for (long v : LinearMba.probeValues()) values.add(v);

@@ -16,6 +16,8 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 
 public final class Signatures {
 
@@ -84,15 +86,16 @@ public final class Signatures {
         });
     }
 
-    public static String findFunctionByString(PluginContext ctx, String value, int max, String format) {
+    public static String findFunctionByString(PluginContext ctx, String value, int max, String format, boolean regex) {
         if (value == null || value.isBlank()) throw new IllegalArgumentException("Value is required");
+        var pattern = regex ? compile(value) : null;
+        var needle = regex ? null : value.toLowerCase();
         return ctx.withProgram(program -> {
             var listing = program.getListing();
             var mem = program.getMemory();
             var fm = program.getFunctionManager();
             var refMgr = program.getReferenceManager();
-            var needle = value.toLowerCase();
-            int cap = max > 0 ? max : 5;
+            int cap = max > 0 ? max : 20;
             var seen = new HashSet<Address>();
             var t = Responses.table(Responses.Fmt.TSV,
                     new String[]{"func", "func_addr", "xref", "str_addr", "matches", "signature"}, cap);
@@ -104,7 +107,7 @@ public final class Signatures {
                 var data = it.next();
                 if (data == null || !DataTypes.isStringLike(data)) continue;
                 var sv = data.getValue() != null ? data.getValue().toString() : "";
-                if (!sv.toLowerCase().contains(needle)) continue;
+                if (pattern != null ? !pattern.matcher(sv).find() : !sv.toLowerCase().contains(needle)) continue;
                 strHits++;
                 if (firstStr == null) firstStr = data.getAddress();
                 for (var ref : refMgr.getReferencesTo(data.getAddress())) {
@@ -126,6 +129,14 @@ public final class Signatures {
                     : strHits + " string(s) match \"" + value + "\" (e.g. " + Responses.addr(firstStr)
                             + ") but none are referenced from within a function";
         });
+    }
+
+    private static Pattern compile(String regex) {
+        try {
+            return Pattern.compile(regex, Pattern.CASE_INSENSITIVE);
+        } catch (PatternSyntaxException e) {
+            throw new IllegalArgumentException("bad regex: " + e.getMessage());
+        }
     }
 
     private static Address bodyLimit(ghidra.program.model.listing.Program program, Address start) {

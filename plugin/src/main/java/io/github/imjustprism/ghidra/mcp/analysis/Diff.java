@@ -192,10 +192,12 @@ public final class Diff {
     }
 
     private static Function functionAt(Program program, String addrStr, String label) {
-        var a = program.getAddressFactory().getAddress(addrStr.trim());
+
+        var a = Addresses.resolve(program, addrStr);
         if (a == null) throw new IllegalArgumentException("invalid " + label + ": " + addrStr);
         var f = Addresses.functionAtOrContaining(program, a);
-        if (f == null) throw new IllegalArgumentException("no function at " + label + " " + addrStr);
+        if (f == null) throw new IllegalArgumentException("no function at " + label + " " + addrStr
+                + " (resolved " + Responses.addr(a) + ")");
         return f;
     }
 

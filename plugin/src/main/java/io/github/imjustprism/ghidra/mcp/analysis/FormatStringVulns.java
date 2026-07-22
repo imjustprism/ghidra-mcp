@@ -12,7 +12,6 @@ import java.util.Map;
 
 public final class FormatStringVulns {
 
-    // function name -> zero-based index of the format-string argument
     private static final Map<String, Integer> FMT_ARG = Map.ofEntries(
             Map.entry("printf", 0), Map.entry("wprintf", 0), Map.entry("vprintf", 0), Map.entry("vwprintf", 0),
             Map.entry("fprintf", 1), Map.entry("fwprintf", 1), Map.entry("vfprintf", 1), Map.entry("sprintf", 1),
@@ -20,7 +19,6 @@ public final class FormatStringVulns {
             Map.entry("snprintf", 2), Map.entry("_snprintf", 2), Map.entry("sprintf_s", 2), Map.entry("swprintf_s", 2),
             Map.entry("vsnprintf", 2), Map.entry("scanf", 0), Map.entry("sscanf", 1), Map.entry("fscanf", 1));
 
-    // x64 integer arg registers by index
     private static final String[] ARG_REGS = {"RCX", "RDX", "R8", "R9"};
     private static final int BACK_SCAN = 20;
 
@@ -73,7 +71,6 @@ public final class FormatStringVulns {
         return n;
     }
 
-    // true if the format-arg register is loaded with a LEA of a defined string just before the call
     private static boolean constantFormat(Program program, Instruction call, String regName) {
         var target = program.getRegister(regName);
         if (target == null) return false;

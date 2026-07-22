@@ -25,16 +25,24 @@ thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = "2"
+sysinfo = { version = "0.35", default-features = false, features = ["system"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["net", "io-util", "rt-multi-thread", "macros"] }
 
 [profile.release]
-lto = true
-codegen-units = 1
+lto = "thin"
+codegen-units = 16
 strip = true
 panic = "abort"
 opt-level = 3
+incremental = true
+
+[profile.dist]
+inherits = "release"
+lto = true
+codegen-units = 1
+incremental = false
 
 [lints.rust]
 unsafe_code = "forbid"

@@ -62,7 +62,7 @@ class LinearMbaTest {
 
     @Test
     void detectsInvariantValueOpaquePredicate() {
-        // x ^ x is always 0; (x|y) - (x^y) - (x&y) is always 0
+
         assertEquals(Long.valueOf(0), LinearMba.invariantValue(new MbaExpr.Xor(X, X), 1));
         var zero = new MbaExpr.Sub(new MbaExpr.Sub(new MbaExpr.Or(X, Y), new MbaExpr.Xor(X, Y)),
                 new MbaExpr.And(X, Y));

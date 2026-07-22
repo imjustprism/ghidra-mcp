@@ -2,190 +2,221 @@ title: Ghidra MCP Development Rules
 
 rules:
   critical:
-    - push back when user idea is wrong, user NOT always right
-    - NEVER assume APIs/module shapes/Ghidra signatures you dont know, verify via docs or inspection
-    - smallest possible change, no refactoring unless asked
-    - ALWAYS explore existing src/ BEFORE writing anything, reuse helpers, NEVER reimplement
-    - if a helper/pattern exists elsewhere, import/extract it, NEVER copy-paste or recreate
-    - run `cargo clippy -- -D warnings` + `cargo fmt --check` + `cargo test` after every Rust change
-    - run `mvn -q compile` after every Java change, `mvn -q package` before shipping the zip
-    - NEVER commit/push without explicit user instruction
-    - NEVER commit design specs/plans/notes to the repo
-    - NEVER edit .env, never log secrets, cookies, tokens
+    - MAX OUT CODE QUALITY - every line is intentional. Type-safe, organized, structured, and centralized by default. Scattered logic, duplicated constants, and one-off special cases are failures.
+    - LESS CODE = INTELLIGENCE - same functionality in the fewest lines wins. Delete noise. Prefer the short clear form. Verbosity is not quality.
+    - NEVER OVERTHINK, NEVER OVERENGINEER - no speculative abstractions, no "just in case" templates, no plugin systems for one use, no wrapper that adds nothing, no interface for a single implementation, no factory for one type. If it can be simpler, make it simpler - no clever, no cute, just clear.
+    - NEXT-GEN MODERN CODE ONLY - Rust edition 2024 + JDK 21 idioms, strong types, RAII/Drop, value semantics, compile-time where it pays. Extremely optimized hot paths, future-proof APIs, scalable structure without premature architecture.
+    - NOTHING HARDCODED - magic numbers, string keys, indices, paths, sizes, and flags live as named constants in ONE central place. NEVER inline literals that mean something. Change once, use everywhere.
+    - ZERO COMMENTS - names, types, and structure carry 100% of the meaning. No //, no /* */, no ///, no //!, no #if 0, no Javadoc, no TODO/FIXME/NOTE, no narration. If it needs a comment, rename or restructure until it does not. Schema/CLI help is a string attribute (schemars description=, clap help=), NEVER a doc-comment. Rules live in .rules / docs, NEVER in source.
+    - TYPE-SAFETY IS NON-NEGOTIABLE - make illegal states unrepresentable. Strong enums, newtypes, scoped flags, Option/Result/Optional over sentinel null/-1, never a bool soup that should be an enum.
+    - ORGANIZED / STRUCTURED / CENTRALIZED - one responsibility per unit, one home for each concern, shared helpers and constants live once. NEVER copy-paste; NEVER scatter the same fact across files.
+    - push back when the user idea is wrong - the user is NOT always right.
+    - NEVER assume APIs/module shapes/Ghidra signatures you do not know - verify via docs, staged jars, or inspection.
+    - smallest possible change, no refactoring unless asked.
+    - ALWAYS explore the existing tree BEFORE writing - reuse what exists, NEVER reimplement what already lives here.
+    - if a helper / type / util exists (Addresses, Responses, Json, Programs, PluginContext, Bufs, …), use it, NEVER copy-paste or recreate it.
+    - after Rust changes: cargo fmt --check && cargo clippy -- -D warnings && cargo test.
+    - after Java changes: mvn -q -f plugin/pom.xml compile (package before shipping the zip).
+    - NEVER run a Release/packaging/dist build or produce a shippable artifact unless asked. Day-to-day: thin-LTO release or deploy.ps1. Ship max-opt: --profile dist / deploy -Dist only when asked.
+    - NEVER commit/push without explicit user instruction.
+    - NEVER commit design specs/plans/notes to the repo.
+    - NEVER edit .env, never log secrets, cookies, tokens.
+
   code:
-    - DELETE dead code, never comment it out
-    - ZERO comments — no //, no ///, no //!, no /* */, no Javadoc — names must carry intent
-    - exception for comments only non-obvious invariants, cross-language constraints, WHY not WHAT
-    - less code = smarter code, same functionality fewer lines always wins
-    - if it can be simpler, make it simpler, no clever, no cute, just clear
-    - NEVER overengineer, NEVER speculative abstractions, NEVER anticipate imaginary requirements
-    - NEVER wrapper functions that add nothing, NEVER helpers for one-time operations
-    - NEVER backwards-compat shims, feature flags, or dead-code fallbacks — just change the code
-    - NEVER add error handling/validation for scenarios that cannot happen (trust internal callers)
-    - validate ONLY at system boundaries (HTTP input, CLI args, env vars)
-    - inline single-use vars, hoist statics out of loops
-    - no magic numbers, unused imports, dead functions, unused types
-    - DRY — if a pattern repeats 2+ times, extract it
-    - deduplicate ruthlessly, prefer importing over reimplementing
-    - KISS, flat over nested, early returns, guard clauses at top, max 3 nesting levels
-    - every code path returns a value, no empty catch/match arms
-    - never trust snapshots across .await / across HTTP boundary, re-query state
+    - ZERO COMMENTS IN CODE - no //, no /* */, no ///, no //!, no Javadoc, no #if 0 comment-outs, no doc-comment walls, no narration, no TODO/FIXME/NOTE banners. Names, types, and structure carry 100% of the meaning. If something needs a comment, rename or restructure until it does not. The ONLY text allowed next to code is what the language requires (string literals, attribute string args, #include/import paths). Rules and rationale live in .rules / docs, NEVER in the source.
+    - MCP/CLI parameter docs are attributes: #[schemars(description = "...")], #[arg(help = "...")], #[tool(description = "...")]. NEVER /// field docs.
+    - less code = smarter code, same behavior in fewer lines always wins - every extra line must earn its keep.
+    - if it can be simpler, make it simpler - no clever, no cute, just clear.
+    - NEVER overengineer, NEVER speculative abstractions, NEVER a template/generic "just in case", NEVER a plugin system for one use.
+    - NEVER a wrapper fn/class that adds nothing, NEVER an interface for a single implementation, NEVER a factory for one type.
+    - NEVER backwards-compat shims, dead-code fallbacks, or commented-out blocks - just change the code. DELETE dead code, never comment it out.
+    - NEVER add error handling/validation for scenarios that cannot happen (trust internal callers).
+    - validate ONLY at system boundaries (HTTP input, CLI args, env vars, MCP tool params).
+    - inline single-use vars, hoist statics out of loops.
+    - no magic numbers, unused imports, dead functions, unused types.
+    - DRY - if a pattern repeats 2+ times, extract it.
+    - KISS, flat over nested, early returns, guard clauses at top, max 3 nesting levels.
+    - every code path returns a value, no empty catch/match arms.
+    - never trust snapshots across .await / across HTTP boundary, re-query state.
+
   rust:
     critical:
-      - edition 2024, latest stable toolchain
-      - NEVER .unwrap() / .expect() in library code, all fallible ops return Result
-      - NEVER anyhow in library crates, typed errors via thiserror
-      - NEVER println!/eprintln!, use tracing (info!/warn!/error!/debug!/trace!)
-      - NEVER sleep loops, use tokio::time::interval
-      - `cargo clippy -- -D warnings` must pass with zero warnings
-      - `cargo fmt` enforced, never reformat unrelated code
+      - edition 2024, latest stable toolchain.
+      - NEVER .unwrap() / .expect() in non-test code; fallible ops return Result.
+      - typed errors via thiserror at library boundaries; anyhow only at main.
+      - NEVER println!/eprintln!, use tracing (info!/warn!/error!/debug!/trace!).
+      - NEVER sleep busy-loops; use tokio::time.
+      - cargo clippy -- -D warnings must pass with zero warnings.
+      - cargo fmt enforced; never reformat unrelated code.
+      - unsafe_code is forbidden at the crate level.
     style:
-      - let-else for early unwrap, never `if let Some(x) = ... { long-block } else { bail }`
-      - `#[must_use]` on builders, constructors, pure functions returning values worth checking
-      - `#[non_exhaustive]` on all public enums/structs (forward compat without SemVer break)
-      - `#[default]` on enums with an obvious default variant
-      - precise captures `use<>` syntax on async returns when needed
-      - prefer `&str` over `String` in function params, `Cow<'_, str>` when ownership is conditional
-      - `impl Trait` in arg position for one-shot callbacks, generics only when reused
-      - never `.clone()` where `&`/`Arc`/move suffices, clippy::redundant_clone catches most
-      - derive `Clone, Debug, PartialEq, Eq, Hash` only when actually needed, not reflexively
-      - newtype IDs via `define_id!` macro or tuple struct, never raw String/u64 for identifiers
-      - `#[serde(skip_serializing_if = "Option::is_none")]` on optional request fields
-      - `#[serde(flatten)] extra: serde_json::Map<String, Value>` on response structs for forward compat
-      - `Other(String)` variant on enums parsing upstream values to survive unknown additions
+      - let-else for early unwrap; never if-let long-block else bail pyramids.
+      - #[must_use] on builders, constructors, pure functions whose result must be checked.
+      - prefer &str over String in params; Cow when ownership is conditional.
+      - never .clone() where &/Arc/move suffices.
+      - derive Clone/Debug/PartialEq/Eq/Hash only when needed.
+      - newtype IDs over raw String/u64 for identifiers when the type matters.
+      - #[serde(skip_serializing_if = "Option::is_none")] on optional request fields.
+      - Other(String) (or equivalent) on enums parsing upstream values to survive unknown additions.
     perf:
-      - zero-copy streaming, `Pin<Box<dyn Stream>>`, `Bytes` over `Vec<u8>`
-      - shared `reqwest::Client` with pool, never new client per request
-      - `SmallVec<[T; N]>` for hot paths with known-small size
-      - `Arc<str>` over `Arc<String>`, `Box<str>` over `String` when immutable
-      - `hashbrown::HashMap` or `ahash` for non-crypto maps (std HashMap is SipHash, slow)
-      - `OnceCell`/`LazyLock` for init-once globals, never Mutex-guarded init
-      - release profile: lto=true, codegen-units=1, strip=true, panic=abort, opt-level=3
-      - profile before optimizing, never guess, use `cargo flamegraph` or `samply`
-      - avoid `format!` in hot paths, use `write!` into reused buffer
-      - iterator chains compile to tight loops, prefer them over explicit for when readable
+      - shared reqwest::Client with pool; never new client per request.
+      - zero-copy where practical; Bytes over Vec when streaming.
+      - OnceCell/LazyLock for init-once globals.
+      - day-to-day release profile: lto="thin", codegen-units=16, strip, panic=abort, opt-level=3, incremental=true.
+      - ship profile dist: fat LTO, codegen-units=1 - only when asked.
+      - profile before optimizing; never guess.
+      - avoid format! in hot paths.
     async:
-      - `#[tokio::main(flavor = "multi_thread")]` for servers, `current_thread` for CLIs
-      - never block in async fn, offload to `spawn_blocking`
-      - `select!` with `biased;` when ordering matters, else default for fairness
-      - cancellation via `tokio_util::sync::CancellationToken`, never ad-hoc AtomicBool
-      - bounded channels (`mpsc::channel(N)`) over unbounded, backpressure matters
-      - never hold `Mutex` across `.await`, use `tokio::sync::Mutex` or restructure
+      - #[tokio::main(flavor = "multi_thread")] for the bridge.
+      - never block in async fn; offload to spawn_blocking.
+      - never hold std Mutex across .await; use tokio::sync or restructure.
+      - bounded channels over unbounded when introducing new queues.
     errors:
-      - typed errors per crate with `thiserror::Error`
-      - `#[from]` for transparent conversion, `#[source]` for wrapping
-      - library errors never panic, application `main` may `.context()` and print
-      - propagate with `?`, never .unwrap() the Err branch
-    patterns:
-      - builder pattern for requests with 3+ optional fields, `#[must_use]` on each setter
-      - enum-based state machines over boolean flags
-      - typestate pattern where compile-time state matters
+      - typed BridgeError (and friends) with thiserror.
+      - #[from] for transparent conversion, #[source] for wrapping.
+      - library errors never panic; main may context and exit.
+      - propagate with ?; never unwrap the Err branch.
+    instance:
+      - one live bridge per executable path by default (replace siblings on start).
+      - exit when parent MCP client dies (no orphan processes).
+      - --allow-multiple / --detach are the only opt-outs.
+
   java:
     critical:
-      - target JDK 21, no older syntax, compile with --release 21
-      - Msg.info/warn/error (Ghidra logger) or SLF4J, NEVER System.out/err, NEVER printStackTrace
-      - NEVER checked exceptions in public API, wrap into RuntimeException at boundary
-      - every HTTP handler wraps in try/catch and returns a meaningful status
-      - no mutable static state, use final fields + constructor injection
+      - target JDK 21, compile with --release 21.
+      - Msg.info/warn/error (Ghidra logger), NEVER System.out/err, NEVER printStackTrace.
+      - NEVER checked exceptions in public API; wrap into RuntimeException at boundary.
+      - every HTTP handler wraps in try/catch and returns a meaningful status.
+      - no mutable static state for request data; final fields + constructor injection.
     style:
-      - records for request/response DTOs, never getter/setter POJOs
-      - sealed interfaces for closed hierarchies (result types, command variants)
-      - pattern matching in switch expressions for sum types
-      - `var` for locals where RHS is obvious, never `var` on API boundaries
-      - text blocks (`"""`) for multi-line strings
-      - Stream API for transforms, collectors over manual loops
-      - Optional for return types that may be empty, NEVER for fields or params
-      - Map.of / List.of / Set.of for small immutables, never new HashMap with .put chain
+      - records for DTOs, never getter/setter POJOs.
+      - sealed interfaces for closed hierarchies when a sum type is real.
+      - pattern matching in switch expressions for sum types.
+      - var for locals where RHS is obvious, never var on API boundaries.
+      - text blocks (""") for multi-line strings.
+      - Optional for return types that may be empty, NEVER for fields or params.
+      - Map.of / List.of / Set.of for small immutables.
     perf:
-      - fixed thread-pool executor sized `Math.max(4, availableProcessors())` for HTTP
-      - daemon threads only (`setDaemon(true)`) — never block JVM shutdown
-      - StringBuilder for concat in loops, never `+` in hot paths
-      - avoid autoboxing in tight loops, primitive collections if ever needed (Eclipse Collections / HPPC)
-      - `String.join` over manual delimiter handling
-      - pre-size `ArrayList`/`HashMap` when bounds known
+      - daemon threads only for background work.
+      - StringBuilder for concat in loops.
+      - pre-size ArrayList/HashMap when bounds known.
     ghidra:
-      - all Ghidra API access on appropriate thread, wrap mutations in `Program.startTransaction`/`endTransaction`
-      - commit transactions in finally, `program.endTransaction(tid, success)`
-      - obtain `DecompInterface` once per request, dispose after
-      - respect `TaskMonitor.isCancelled()` in long scans
-      - never cache `Program` across requests, fetch fresh via `ProgramManager`
+      - all Ghidra API access on the appropriate thread; mutations via Program.startTransaction/endTransaction (Programs.runOnSwingTx / PluginContext.runOnSwingTx).
+      - commit transactions in finally: program.endTransaction(tid, success).
+      - obtain DecompInterface once per request, dispose after (or use DecompileCache).
+      - respect TaskMonitor.isCancelled() in long scans.
+      - never cache Program across requests; fetch fresh via ProgramManager / PluginContext.
+      - addresses: always Addresses.resolve / resolveFunction (VA, bare RVA auto-rebase, rva: prefix) - never raw getAddressFactory().getAddress for user input.
     errors:
-      - plain-text responses with HTTP status matching error class (400 input, 404 missing, 500 server)
-      - include enough detail to debug but NEVER stack traces in response body
-      - Msg.error with full exception for server-side logs
+      - plain-text responses with HTTP status matching error class (400 input, 404 missing, 500 server).
+      - enough detail to debug, NEVER stack traces in response body.
+      - Msg.error with full exception for server-side logs.
+
   performance:
-    - blazing fast, lightweight, zero-cost abstractions, minimal allocations
-    - profile before optimizing, measure don't guess
-    - connection pooling shared across requests
-    - batch reads, batch writes, never interleave blocking calls
-    - cache computed values with known lifetime, evict eagerly
-    - no unbounded growth in long-lived processes, clear listeners/timers/handles
+    - blazing fast, lightweight, minimal allocations.
+    - profile before optimizing; measure, do not guess.
+    - connection pooling shared across requests.
+    - batch reads/writes; never interleave blocking calls without cause.
+    - cache computed values with known lifetime; evict eagerly.
+    - no unbounded growth in long-lived processes; clear listeners/timers/handles.
+
   security:
-    - HTTP plugin binds to loopback by default, require explicit opt-in for wider bind
-    - no auth: never expose to untrusted networks
-    - validate addresses/names at handler entry, reject empty / malformed early
-    - URL-decode once, never twice (double-decode = smuggling risk)
-    - no string interpolation into shell commands, always parameterize
-    - no secrets in code/config/logs, env vars only
-    - no dynamic code execution from user input
+    - HTTP plugin binds to loopback by default; require explicit opt-in for wider bind.
+    - no auth token: never expose to untrusted networks.
+    - validate addresses/names at handler entry; reject empty/malformed early.
+    - URL-decode once, never twice.
+    - no string interpolation into shell commands; always parameterize.
+    - no secrets in code/config/logs; env vars only.
+    - no dynamic code execution from untrusted user input outside the intentional script tools.
+
   architecture:
-    - two components: Rust `ghidra-mcp` binary (MCP stdio), Java plugin (Ghidra-embedded HTTP)
-    - Rust crate is independently usable as an MCP bridge for any GhidraMCP-compatible HTTP server
-    - shared contract: plain-text HTTP, newline-delimited records, form-encoded POST bodies
-    - Rust errors: `BridgeError` enum, mapped to `rmcp::ErrorData` at handler boundary
-    - Java errors: HTTP status + plain-text body, logged via Msg
-    - tools in Rust: `#[tool]` + typed `Parameters<T>` structs, never raw `Value`
-    - endpoints in Java: single router table, never inline duplicate offset/limit parsing
+    - two components: Rust ghidra-mcp binary (MCP stdio) + Java plugin (Ghidra-embedded HTTP).
+    - Rust crate is independently usable as an MCP bridge for any GhidraMCP-compatible HTTP server.
+    - shared contract: plain-text HTTP, newline-delimited records, form-encoded POST bodies.
+    - Rust errors: BridgeError enum, mapped to rmcp::ErrorData at handler boundary.
+    - Java errors: HTTP status + plain-text body, logged via Msg.
+    - tools in Rust: #[tool] + typed Parameters<T> structs, never raw Value.
+    - endpoints in Java: single router table (RouteTable); never inline duplicate offset/limit parsing.
+    - shared util homes: Addresses, Responses, Json, Programs, PluginContext, Bufs, Live, Caches - extend them, do not fork.
+
   forbidden:
-    - empty catch blocks
-    - `println!`/`eprintln!` (use tracing) / `System.out.println` (use Msg)
-    - `.unwrap()`/`.expect()` in non-test code
-    - checked exceptions bubbling through public Java API
-    - commented-out code, TODO without a tracking issue
-    - single-use wrappers (1-3 lines called once, inline it)
-    - feature flags, backwards-compat shims, abstractions for one-time ops
-    - redundant type annotations the compiler already infers
-    - `var` in Rust where the type matters, `var` in Java on public API
+    - empty catch blocks / empty match arms that swallow failures.
+    - println!/eprintln! (use tracing) / System.out.println (use Msg).
+    - .unwrap()/.expect() in non-test code.
+    - checked exceptions bubbling through public Java API.
+    - ANY comment in project source: //, /* */, ///, //!, Javadoc, or commented-out code. Zero means zero.
+    - single-use wrappers (1-3 lines called once - inline it).
+    - feature flags, backwards-compat shims, abstractions for one-time ops.
+    - raw getAddressFactory().getAddress for user-supplied addresses (use Addresses.resolve).
+    - shipping a dist/fat-LTO/packaged build without being asked.
+    - magic numbers inline instead of named constants in one place.
+    - untyped / weakly typed APIs where a strong type fits.
+
   antiPatterns:
     rust:
       - "match x { Some(y) => y, None => return }" > "let Some(y) = x else { return };"
       - "if x.is_some() { x.unwrap() }" > "if let Some(v) = x"
-      - "String::from(s)" > "s.to_owned()" (when s is &str)
-      - "s.to_string()" > "s.into()" (when target is String and s is &str)
-      - "v.iter().map(...).collect::<Vec<_>>()" > "v.iter().map(...).collect()" (let inference work)
+      - "String::from(s)" > "s.to_owned()" when s is &str
+      - "format!(\"{}\", x)" > "x.to_string()" for single arg
       - "Vec::new(); for x in ... { v.push(x) }" > ".collect()" / iterator chain
-      - "Arc<Mutex<HashMap<K, V>>>" > "DashMap<K, V>" (concurrent maps)
-      - "format!(\"{}\", x)" > "x.to_string()" (single arg)
+      - "program.getAddressFactory().getAddress(user)" > "Addresses.resolve(program, user)"
+      - "/// field docs for schema" > "#[schemars(description = \"...\")]"
+      - "// explain then call" > "function named for the intent"
     java:
-      - "value != null && !value.isEmpty()" > "value != null && !value.isBlank()"
-      - "new HashMap<>() { {{ put(...) }} }" > "Map.of(...)"
-      - "list.stream().filter(...).findFirst().get()" > "list.stream().filter(...).findFirst().orElse(null)"
-      - "Integer.parseInt(s)" > guarded `parseIntOrDefault` when input is untrusted
-      - "for (int i = 0; i < list.size(); i++)" > "for (var x : list)" (when index unused)
+      - "value != null && !value.isEmpty()" > "value != null && !value.isBlank()" when blank matters
+      - "new HashMap<>() {{ put(...) }}" > "Map.of(...)"
+      - "list.stream().filter(...).findFirst().get()" > "....findFirst().orElse(null)" or orElseThrow
+      - "for (int i = 0; i < list.size(); i++)" > "for (var x : list)" when index unused
+      - "/** Javadoc */" > "rename the method so the name is enough"
+      - "getAddressFactory().getAddress(s)" > "Addresses.resolve(program, s)"
+
   deps:
-    - minimize deps, prefer std over external
-    - every added dep must justify ≥20 LOC saved
-    - prefer rustls over native-tls (no OpenSSL), reqwest features minimal (rustls-tls + http2)
-    - JDK http server (com.sun.net.httpserver) is free, don't pull Jetty/Undertow
-    - audit transitive deps, `cargo audit` before release
+    - minimize deps; prefer std over external.
+    - every added dep must justify meaningful LOC/capability saved.
+    - prefer rustls over native-tls; reqwest features minimal (rustls-tls + http2).
+    - JDK http server (com.sun.net.httpserver) is free; do not pull Jetty/Undertow.
+    - audit transitive deps; cargo deny / audit before release when shipping.
+
   git:
-    - NEVER commit or push without explicit user permission, always ask first
-    - format: `type: short imperative message`
-    - types: fix, feat, chore, refactor, perf, test, docs, build, ci
-    - subject ≤50 chars preferred, hard cap 72, no trailing period
-    - imperative mood: "add", "fix", "remove" — never "added", "adds", "adding"
-    - no body by default — skip when subject is self-explanatory
-    - body ONLY for: breaking changes, security fixes, data migrations, non-obvious WHY
-    - body wraps at 72 chars, bullets use `-` not `*`, WHY over WHAT
-    - NEVER "this commit does X", NEVER I/we/now/currently
-    - NEVER Co-Authored-By, NEVER Claude/AI attribution
-    - NEVER emoji in commits or code
-    - NEVER --amend a published commit, create a new commit
-    - NEVER --force push to shared branches
-    - group related files into one commit, don't split atomic changes
+    - commit and push only when asked; if on a default branch, branch first.
+    - title ONLY - one line, no body, no footers, no trailers. if it needs a body, split the commit.
+    - format `type: summary` - the whole line lowercase, imperative mood, to the point.
+    - types: add, fix, improve, refactor, perf, docs, test, chore, ci, revert - nothing else.
+    - NEVER a parenthesis scope like `fix(hooks):`, NEVER a `feat:` prefix - say `add:`.
+    - imperative: "add", "fix", "remove" - never "added", "adds", "adding".
+    - <= 50 chars preferred, hard cap 72, no trailing period.
+    - plain ascii only - no em/en dashes, no semicolons, no ellipsis, no curly quotes, no emoji.
+    - write like a human: `fix: free handle on shutdown` - NEVER "fixed an issue where", "this commit", "various improvements".
+    - one commit = one concern; the tree builds clean at every commit.
+    - NEVER Claude/AI attribution, NEVER generated-by tags.
+    - NEVER --amend published commits, NEVER --force push, NEVER rewrite a published branch.
+    - never commit build output or vendored build artifacts - a new artifact gets its ignore rule in the same commit.
+    - branches: `type/short-topic` kebab-case - `fix/rva-diff-functions`, `add/singleton-bridge`.
+    - examples: `add: sibling replace on bridge start`, `fix: rva resolve in diff_functions`, `improve: parallel deploy compile`, `perf: thin lto release profile`, `chore: strip source comments`, `docs: merge shade rules`.
+
   testing:
-    - unit tests alongside implementation in Rust (`#[cfg(test)] mod tests`)
-    - integration tests for HTTP contract in `tests/` dir
-    - test names describe behavior: `decompile_returns_error_when_function_missing`
-    - never test private implementation details, only public behavior
-    - fast tests only in default `cargo test`, slow/integration behind `--features integration`
+    - unit tests alongside implementation in Rust (#[cfg(test)] mod tests).
+    - Java tests under plugin/src/test; run with mvn -f plugin/pom.xml test.
+    - test names describe behavior: decompile_returns_error_when_function_missing.
+    - never test private implementation details, only public behavior.
+    - fast tests only in default cargo test / mvn test.
+
+  re:
+    - reverse engineering with this stack is normal project work - prefer Ghidra MCP tools when available over guessing.
+    - research writeups land under RE-MD/ or docs/; durable offsets and call chains go there, not in source comments.
+    - addressing: tools take full VA, interior address (enclosing function), or RVA. Small unmapped values auto-rebase to image_base+value; force with rva:0x…. See program_info for image_base.
+    - Nebula3 / Alicia targets: Core::Ptr, StringAtom, Util::Dictionary/Array - prefer existing analysis tools over one-off guesses.
+
+  ghidra-mcp:
+    - living rec file: RE-MD/ghidra-mcp-review.md - bugs/issues with Ghidra MCP, and QoL / new tool features that would help RE.
+    - when MCP fails, misleads, truncates, needs a workaround, or a missing capability slows RE - APPEND a short table row: Status | What | Why | Ideal.
+    - Status column first: use implemented, not implemented, partial - update when something ships or is closed by a durable workaround.
+    - NEVER write session diaries, "what we did", feature play-by-play, live dumps, or game offsets into that file - those belong in RE-MD/findings/ if at all.
+    - read the rec file when stuck on tooling; do not re-discover known MCP bugs.
+    - deploy with deploy.ps1; yeet comments with tools/yeet-comments.py after bulk edits if comments creep back in.
+
+  build:
+    - deploy.ps1: yeet locks, parallel mvn+cargo, incremental package (no clean unless -Clean), thin-LTO release by default, -Dist for fat LTO.
+    - NEVER elevate/UAC for routine deploys; kill own processes and rename-lock dance for ghidra-mcp.exe.
+    - Java: mvn -q -f plugin/pom.xml package -DskipTests (no clean).
+    - Rust: cargo build --release (or --profile dist when asked).

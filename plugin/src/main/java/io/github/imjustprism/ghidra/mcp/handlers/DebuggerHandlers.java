@@ -947,8 +947,7 @@ public final class DebuggerHandlers {
         long[] offsets = PointerPath.parseOffsets(offsetsStr);
         if (offsets.length == 0) offsets = new long[]{0};
         var cur = dynAddr(base);
-        // Use the analyzed program's pointer size, not the trace's: a WOW64 (32-bit) target is
-        // presented by 64-bit dbgeng in an 8-byte address space, but its pointers are 4 bytes.
+
         var program = ctx.currentProgram();
         int ptrSize = program != null ? program.getDefaultPointerSize() : cur.getAddressSpace().getPointerSize();
         var sb = new StringBuilder();

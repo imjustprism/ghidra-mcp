@@ -77,7 +77,7 @@ public final class IdiomSimplifier {
             for (int d = 3; d <= 255; d++) {
                 if (d == 1 || (d & (d - 1)) == 0) continue;
                 BigInteger bd = BigInteger.valueOf(d);
-                // compiler's unsigned-divide magic: ceil(2^shift / d)
+
                 BigInteger expected = twoN.add(bd).subtract(BigInteger.ONE).divide(bd);
                 if (expected.equals(m)) return d;
             }
@@ -101,7 +101,7 @@ public final class IdiomSimplifier {
         var objs = prev.getOpObjects(2);
         if (objs == null || objs.length != 1 || !(objs[0] instanceof Scalar s)) return;
         long k = s.getSignedValue();
-        // x % k = x - k*(x/k), emitted as either (IMUL +k; SUB) or (IMUL -k; ADD)
+
         boolean modulo = (lm.equals("SUB") && k > 0) || (lm.equals("ADD") && k < 0);
         if (!modulo) return;
         long d = Math.abs(k);

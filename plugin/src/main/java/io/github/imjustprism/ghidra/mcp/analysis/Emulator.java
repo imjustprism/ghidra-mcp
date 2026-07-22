@@ -69,8 +69,7 @@ public final class Emulator {
 
             var seen = new LinkedHashSet<String>();
             var rows = new ArrayList<DecodedString>();
-            // FLOSS-style: scan everything the function actually wrote (any buffer — stack, heap, global),
-            // restricted to the real (default) address space, not p-code temporaries.
+
             var written = emu.getTrackedMemoryWriteSet();
             long scanned = 0;
             if (written != null) {
@@ -146,9 +145,17 @@ public final class Emulator {
         var program = ctx.currentProgram();
         if (program == null) throw new IllegalArgumentException("No program loaded");
         var defaultSpace = program.getAddressFactory().getDefaultAddressSpace();
-        var funcA = Addresses.functionAtOrContaining(program, program.getAddressFactory().getAddress(addrA.trim()));
-        var funcB = Addresses.functionAtOrContaining(program, program.getAddressFactory().getAddress(addrB.trim()));
-        if (funcA == null || funcB == null) throw new IllegalArgumentException("no function at address_a or address_b");
+
+        var aAddr = Addresses.resolve(program, addrA);
+        var bAddr = Addresses.resolve(program, addrB);
+        if (aAddr == null) throw new IllegalArgumentException("invalid address_a: " + addrA);
+        if (bAddr == null) throw new IllegalArgumentException("invalid address_b: " + addrB);
+        var funcA = Addresses.functionAtOrContaining(program, aAddr);
+        var funcB = Addresses.functionAtOrContaining(program, bAddr);
+        if (funcA == null || funcB == null) {
+            throw new IllegalArgumentException("no function at address_a or address_b"
+                    + " (resolved a=" + Responses.addr(aAddr) + " b=" + Responses.addr(bAddr) + ")");
+        }
         boolean bigEndian = program.getLanguage().isBigEndian();
         int ptr = defaultSpace.getPointerSize();
         int match = 0;
@@ -350,8 +357,7 @@ public final class Emulator {
                     break;
                 }
             }
-            // Link-register ABIs (ARM/AArch64/PPC/MIPS) return through LR with no stack return slot;
-            // stack-return ABIs (x86) keep the return address at [SP] so SP is shifted down by one slot.
+
             long entrySp;
             if (lrReg != null) {
                 entrySp = STACK_BASE;

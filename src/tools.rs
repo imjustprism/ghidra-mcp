@@ -844,11 +844,15 @@ impl ToParams for FindRopGadgets {
 
 impl ToParams for FindFunctionByString {
     fn into_params(self) -> Params {
-        vec![
+        let mut p = vec![
             ("value", self.value),
             ("max", self.max.to_string()),
             ("format", self.format),
-        ]
+        ];
+        if self.regex.unwrap_or(false) {
+            p.push(("regex", "1".to_string()));
+        }
+        p
     }
 }
 
@@ -858,10 +862,12 @@ pub struct Page {
     pub offset: u32,
     #[serde(default = "default_limit")]
     pub limit: u32,
-    /// Output format: tsv (default), csv, json, or verbose.
+    #[schemars(description = "Output format: tsv (default), csv, json, or verbose.")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fmt: Option<String>,
-    /// Target a specific open program by name or sha256 instead of the active one.
+    #[schemars(
+        description = "Target a specific open program by name or sha256 instead of the active one."
+    )]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub program: Option<String>,
 }
@@ -911,7 +917,7 @@ pub struct AddressPage {
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
 pub struct Xrefs {
-    /// "both" (default), "to", or "from".
+    #[schemars(description = "\"both\" (default), \"to\", or \"from\".")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub direction: Option<String>,
     pub target: String,
@@ -928,15 +934,45 @@ pub struct SearchFunctions {
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
 pub struct Decompile {
-    /// Function name OR address (interior address resolves to the enclosing function).
+    #[schemars(
+        description = "Function name OR address. An interior address resolves to the enclosing function; a value that is not a mapped VA is auto-treated as an RVA (`image_base`+value), or force it with `rva:0x2d202c`."
+    )]
     pub target: String,
-    /// Strip cosmetic noise (redundant casts, decompiler WARNING blocks, blank lines).
+    #[schemars(
+        description = "Strip cosmetic noise (redundant casts, decompiler WARNING blocks, blank lines)."
+    )]
     #[serde(
         default,
         deserialize_with = "de_opt_bool",
         skip_serializing_if = "Option::is_none"
     )]
     pub clean: Option<bool>,
+    #[schemars(
+        description = "Line window: skip this many lines of the output (paged/grep output is 1-based line-numbered)."
+    )]
+    #[serde(
+        default,
+        deserialize_with = "de_opt_u32",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub offset: Option<u32>,
+    #[schemars(description = "Line window: return at most this many lines.")]
+    #[serde(
+        default,
+        deserialize_with = "de_opt_u32",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub limit: Option<u32>,
+    #[schemars(
+        description = "Return only lines matching this regex (line-numbered), instead of the whole body."
+    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grep: Option<String>,
+    #[schemars(
+        description = "Target a specific open program by name or sha256 instead of the active one."
+    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub program: Option<String>,
 }
 
 impl ToParams for Decompile {
@@ -945,13 +981,25 @@ impl ToParams for Decompile {
         if self.clean.unwrap_or(false) {
             p.push(("clean", "1".to_string()));
         }
+        if let Some(o) = self.offset {
+            p.push(("offset", o.to_string()));
+        }
+        if let Some(l) = self.limit {
+            p.push(("limit", l.to_string()));
+        }
+        if let Some(g) = self.grep {
+            p.push(("grep", g));
+        }
+        if let Some(prog) = self.program {
+            p.push(("program", prog));
+        }
         p
     }
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
 pub struct Rename {
-    /// What to rename: "function" (default), "data", or "variable".
+    #[schemars(description = "What to rename: \"function\" (default), \"data\", or \"variable\".")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kind: Option<String>,
     pub new_name: String,
@@ -1002,9 +1050,11 @@ pub struct PatchBytes {
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
 pub struct Search {
-    /// "bytes" (hex pattern, ?? wildcards), "string" (substring of defined strings), or "signature" (AOB dialect).
+    #[schemars(
+        description = "\"bytes\" (hex pattern, ?? wildcards), \"string\" (substring of DEFINED program strings only), \"text\" (literal substring scanned across raw memory as ASCII and UTF-16LE — finds undefined/embedded strings that \"string\" misses), or \"signature\" (AOB dialect)."
+    )]
     pub kind: String,
-    /// The hex/AOB pattern (bytes/signature) or the substring (string).
+    #[schemars(description = "The hex/AOB pattern (bytes/signature) or the substring (string).")]
     pub query: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub start: Option<String>,
@@ -1182,7 +1232,9 @@ pub struct RecoverDecodedStrings {
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
 pub struct EmuSession {
-    /// Which session operation to run (see the tool description for the verbs).
+    #[schemars(
+        description = "Which session operation to run (see the tool description for the verbs)."
+    )]
     pub op: String,
     pub emu_id: String,
     #[serde(
@@ -1269,10 +1321,12 @@ pub struct ListStrings {
         skip_serializing_if = "Option::is_none"
     )]
     pub xrefs: Option<bool>,
-    /// Output format: tsv (default), csv, json, or verbose.
+    #[schemars(description = "Output format: tsv (default), csv, json, or verbose.")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fmt: Option<String>,
-    /// Target a specific open program by name or sha256 instead of the active one.
+    #[schemars(
+        description = "Target a specific open program by name or sha256 instead of the active one."
+    )]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub program: Option<String>,
 }
@@ -1332,7 +1386,7 @@ pub struct CallgraphMermaid {
         skip_serializing_if = "Option::is_none"
     )]
     pub max_nodes: Option<u32>,
-    /// "mermaid" (default) or "dot" (Graphviz).
+    #[schemars(description = "\"mermaid\" (default) or \"dot\" (Graphviz).")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub format: Option<String>,
 }
@@ -1408,7 +1462,9 @@ pub struct MakeSignature {
     pub max_len: u32,
     #[serde(default = "default_format")]
     pub format: String,
-    /// "bytes" (default, wildcarded AOB) or "semantic" (emulation behavioral fingerprint).
+    #[schemars(
+        description = "\"bytes\" (default, wildcarded AOB) or \"semantic\" (emulation behavioral fingerprint)."
+    )]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<String>,
 }
@@ -1434,9 +1490,18 @@ pub struct FindFunctionByString {
     pub max: u32,
     #[serde(default = "default_format")]
     pub format: String,
+    #[schemars(
+        description = "Treat value as a case-insensitive regex (match string families like `Daily|Reshuffle|Timed` in one call)."
+    )]
+    #[serde(
+        default,
+        deserialize_with = "de_opt_bool",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub regex: Option<bool>,
 }
 const fn default_ffbs_max() -> u32 {
-    5
+    20
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
@@ -1578,7 +1643,7 @@ pub struct RefineFunction {
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
 pub struct Scan {
-    /// Which scan lifecycle step to run.
+    #[schemars(description = "Which scan lifecycle step to run.")]
     pub op: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub scan_id: String,
@@ -1664,7 +1729,9 @@ pub struct DiffFunctions {
     pub address_b: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub program_b: Option<String>,
-    /// "structural" (default) or "semantic" (emulation I/O behavior; same-program only).
+    #[schemars(
+        description = "\"structural\" (default) or \"semantic\" (emulation I/O behavior; same-program only)."
+    )]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<String>,
 }
@@ -1684,7 +1751,9 @@ impl ToParams for DiffFunctions {
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
 pub struct Coverage {
-    /// Which coverage operation to run (defaults to a function-level report).
+    #[schemars(
+        description = "Which coverage operation to run (defaults to a function-level report)."
+    )]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub op: Option<String>,
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -1871,7 +1940,9 @@ impl ToParams for FunctionAddress {
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
 pub struct StructField {
-    /// "set" (default) overwrites/inserts a field; "delete" replaces it with undefined space.
+    #[schemars(
+        description = "\"set\" (default) overwrites/inserts a field; \"delete\" replaces it with undefined space."
+    )]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub op: Option<String>,
     pub struct_name: String,
@@ -1908,7 +1979,9 @@ impl ToParams for StructField {
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
 pub struct Freeze {
-    /// "on" freezes address to hex, "off" unfreezes address, "list" shows frozen addresses.
+    #[schemars(
+        description = "\"on\" freezes address to hex, \"off\" unfreezes address, \"list\" shows frozen addresses."
+    )]
     pub op: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub address: String,
@@ -1972,7 +2045,9 @@ pub struct XrefGraphArgs {
         skip_serializing_if = "Option::is_none"
     )]
     pub max: Option<u32>,
-    /// "mermaid" (default, inline graph) or "html" (self-contained interactive page).
+    #[schemars(
+        description = "\"mermaid\" (default, inline graph) or \"html\" (self-contained interactive page)."
+    )]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fmt: Option<String>,
 }
@@ -2158,13 +2233,14 @@ impl GhidraServer {
             .map(ok_text)
             .map_err(map_err)
     }
-
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
 pub struct FunctionHashArgs {
     pub address: String,
-    /// "structural" (default) or "semantic" (emulation behavioral hash).
+    #[schemars(
+        description = "\"structural\" (default) or \"semantic\" (emulation behavioral hash)."
+    )]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<String>,
 }
@@ -2172,7 +2248,7 @@ pub struct FunctionHashArgs {
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
 pub struct FunctionSummaryArgs {
     pub address: String,
-    /// Append an ordered API-call-sequence section (behavioral trace).
+    #[schemars(description = "Append an ordered API-call-sequence section (behavioral trace).")]
     #[serde(
         default,
         deserialize_with = "de_opt_bool",
@@ -2208,7 +2284,9 @@ impl ToParams for FunctionHashArgs {
 pub struct ListFunctions {
     #[serde(flatten)]
     pub page: Page,
-    /// Include the entry-point address column (true, default) or list names only (false).
+    #[schemars(
+        description = "Include the entry-point address column (true, default) or list names only (false)."
+    )]
     #[serde(
         default,
         deserialize_with = "de_opt_bool",
@@ -2261,7 +2339,7 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Decompile a function to C. target is a function name OR an address (an interior address resolves to its enclosing function). clean=true strips cosmetic noise (redundant (int)/(uint)/(longlong) casts on iVar/uVar/param_/local_, decompiler WARNING comment blocks, blank lines)",
+        description = "Decompile a function to C. target is a function name OR an address; an interior address resolves to its enclosing function, and a small value that is not a mapped VA is auto-treated as an RVA (image_base+value; force with rva:0x2d202c). clean=true strips cosmetic noise (redundant (int)/(uint)/(longlong) casts on iVar/uVar/param_/local_, decompiler WARNING comment blocks, blank lines). offset/limit page the output by line and grep=<regex> returns only matching lines — both emit 1-based line numbers so a large function can be read in pieces instead of dumped whole",
         annotations(read_only_hint = true)
     )]
     async fn decompile(
@@ -2278,25 +2356,25 @@ impl GhidraServer {
         description = "Rename a symbol. kind=function (default): rename the function identified by old_name OR address to new_name. kind=data: rename the data label at address. kind=variable: rename old_name to new_name within the function named by function_name",
         annotations(destructive_hint = false)
     )]
-    async fn rename(
-        &self,
-        Parameters(p): Parameters<Rename>,
-    ) -> Result<CallToolResult, ErrorData> {
+    async fn rename(&self, Parameters(p): Parameters<Rename>) -> Result<CallToolResult, ErrorData> {
         if p.new_name.is_empty() {
             return Err(ErrorData::invalid_params("new_name is required", None));
         }
         match p.kind.as_deref().unwrap_or("function") {
-            "function" if p.old_name.is_none() && p.address.is_none() => {
-                Err(ErrorData::invalid_params("kind=function needs old_name or address", None))
-            }
+            "function" if p.old_name.is_none() && p.address.is_none() => Err(
+                ErrorData::invalid_params("kind=function needs old_name or address", None),
+            ),
             "data" if p.address.is_none() => {
                 Err(ErrorData::invalid_params("kind=data needs address", None))
             }
-            "variable" if p.function_name.is_none() || p.old_name.is_none() => {
-                Err(ErrorData::invalid_params("kind=variable needs function_name and old_name", None))
-            }
+            "variable" if p.function_name.is_none() || p.old_name.is_none() => Err(
+                ErrorData::invalid_params("kind=variable needs function_name and old_name", None),
+            ),
             "function" | "data" | "variable" => self.post("rename", p).await,
-            _ => Err(ErrorData::invalid_params("kind must be function, data, or variable", None)),
+            _ => Err(ErrorData::invalid_params(
+                "kind must be function, data, or variable",
+                None,
+            )),
         }
     }
 
@@ -2407,9 +2485,8 @@ impl GhidraServer {
         self.get("list_functions", p).await
     }
 
-
     #[tool(
-        description = "Get assembly code (address: instruction; comment) for a function",
+        description = "Get assembly code (address: instruction; comment) for the function at or containing address (an RVA that is not a mapped VA auto-rebases to image_base+value; force with rva:0x2d202c)",
         annotations(read_only_hint = true)
     )]
     async fn disassemble_function(
@@ -2464,19 +2541,19 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "References for a target. direction=both (default): all references TO the function named by `target`, resolving imports through the IAT (call qword [__imp_X]) so Windows imports return their real call sites, not 0. direction=to: references to the address `target`. direction=from: references from the address `target`",
+        description = "References for a target that is a FUNCTION NAME or an ADDRESS (an interior address or an RVA both resolve; force an RVA with rva:0x2d202c). direction=both (default): all references TO the named function, resolving imports through the IAT (call qword [__imp_X]) so Windows imports return their real call sites, not 0. direction=to: references to the target (a named function resolves to its entry). direction=from: references from the target",
         annotations(read_only_hint = true)
     )]
-    async fn xrefs(
-        &self,
-        Parameters(p): Parameters<Xrefs>,
-    ) -> Result<CallToolResult, ErrorData> {
+    async fn xrefs(&self, Parameters(p): Parameters<Xrefs>) -> Result<CallToolResult, ErrorData> {
         if p.target.is_empty() {
             return Err(ErrorData::invalid_params("target is required", None));
         }
         match p.direction.as_deref().unwrap_or("both") {
             "to" | "from" | "both" => self.get("xrefs", p).await,
-            _ => Err(ErrorData::invalid_params("direction must be to, from, or both", None)),
+            _ => Err(ErrorData::invalid_params(
+                "direction must be to, from, or both",
+                None,
+            )),
         }
     }
 
@@ -2509,7 +2586,7 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Compare two functions and score similarity 0-100. mode=structural (default): instruction-mnemonic multisets (Jaccard) + called-function sets + size ratio; address_b may live in program_b (another open program) for cross-binary variant matching. mode=semantic: emulates both over fixed input vectors and scores how often they produce identical observable behavior (return + bytes written + halt) — matches functions across instruction substitution / obfuscation that structural diff misses (same-program only)",
+        description = "Compare two functions and score similarity 0-100. address_a/address_b accept a full VA, an interior address (resolves to the enclosing function), a bare RVA (auto-rebased when not a mapped VA), or rva:0x… — same rules as decompile/xrefs. mode=structural (default): instruction-mnemonic multisets (Jaccard) + called-function sets + size ratio; address_b may live in program_b (another open program) for cross-binary variant matching. mode=semantic: emulates both over fixed input vectors and scores how often they produce identical observable behavior (return + bytes written + halt) — matches functions across instruction substitution / obfuscation that structural diff misses (same-program only)",
         annotations(read_only_hint = true)
     )]
     async fn diff_functions(
@@ -2598,19 +2675,19 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Search the program. kind=bytes: scan memory for a hex pattern (query), '??' wildcards; for large images paginate with the cursor — pass the '# next_cursor:' address as start to resume in O(1). kind=string: defined string literals whose content contains query (case-insensitive). kind=signature: scan for an AOB in any dialect (IDA/x64dbg/CE token '48 8B ?? E8' or code+mask '\\x48\\x8B\\x00'/'xx?'). Paginated",
+        description = "Search the program. kind=bytes: scan memory for a hex pattern (query), '??' wildcards; for large images paginate with the cursor — pass the '# next_cursor:' address as start to resume in O(1). kind=string: DEFINED string literals whose content contains query (case-insensitive). kind=text: scan raw memory for query as a literal substring in both ASCII and UTF-16LE, emitting addr+enc — finds content ids/locale keys/asset names that were never defined as program strings. kind=signature: scan for an AOB in any dialect (IDA/x64dbg/CE token '48 8B ?? E8' or code+mask '\\x48\\x8B\\x00'/'xx?'). Paginated",
         annotations(read_only_hint = true)
     )]
-    async fn search(
-        &self,
-        Parameters(p): Parameters<Search>,
-    ) -> Result<CallToolResult, ErrorData> {
+    async fn search(&self, Parameters(p): Parameters<Search>) -> Result<CallToolResult, ErrorData> {
         if p.query.is_empty() {
             return Err(ErrorData::invalid_params("query is required", None));
         }
         match p.kind.as_str() {
-            "bytes" | "string" | "signature" => self.get("search", p).await,
-            _ => Err(ErrorData::invalid_params("kind must be bytes, string, or signature", None)),
+            "bytes" | "string" | "text" | "signature" => self.get("search", p).await,
+            _ => Err(ErrorData::invalid_params(
+                "kind must be bytes, string, text, or signature",
+                None,
+            )),
         }
     }
 
@@ -2821,18 +2898,21 @@ impl GhidraServer {
             return Err(ErrorData::invalid_params("emu_id is required", None));
         }
         match p.op.as_str() {
-            "run_to" if p.stop.is_none() => {
-                Err(ErrorData::invalid_params("stop is required for op=run_to", None))
-            }
-            "setreg" if p.register.is_none() || p.value.is_none() => {
-                Err(ErrorData::invalid_params("register and value are required for op=setreg", None))
-            }
-            "read" | "write" if p.address.is_none() => {
-                Err(ErrorData::invalid_params("address is required for op=read/write", None))
-            }
-            "write" if p.hex.is_none() => {
-                Err(ErrorData::invalid_params("hex is required for op=write", None))
-            }
+            "run_to" if p.stop.is_none() => Err(ErrorData::invalid_params(
+                "stop is required for op=run_to",
+                None,
+            )),
+            "setreg" if p.register.is_none() || p.value.is_none() => Err(
+                ErrorData::invalid_params("register and value are required for op=setreg", None),
+            ),
+            "read" | "write" if p.address.is_none() => Err(ErrorData::invalid_params(
+                "address is required for op=read/write",
+                None,
+            )),
+            "write" if p.hex.is_none() => Err(ErrorData::invalid_params(
+                "hex is required for op=write",
+                None,
+            )),
             "step" | "run_to" | "regs" | "setreg" | "read" | "write" | "close" => {
                 self.post("emu_session", p).await
             }
@@ -2925,7 +3005,10 @@ impl GhidraServer {
         Parameters(p): Parameters<AssembleCode>,
     ) -> Result<CallToolResult, ErrorData> {
         if p.address.trim().is_empty() || p.assembly.trim().is_empty() {
-            return Err(ErrorData::invalid_params("address and assembly are required", None));
+            return Err(ErrorData::invalid_params(
+                "address and assembly are required",
+                None,
+            ));
         }
         self.get("assemble_code", p).await
     }
@@ -3202,7 +3285,7 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "List defined strings with addresses. filter is case-insensitive substring by default; regex=true treats filter as a regex; xrefs=true emits one row per reference with from/function/ref_type columns",
+        description = "List DEFINED program strings with addresses (content ids, locale keys, and other undefined/embedded text will not appear here — use search kind=text for those). filter is case-insensitive substring by default; regex=true treats filter as a regex; xrefs=true emits one row per reference with from/function/ref_type columns",
         annotations(read_only_hint = true)
     )]
     async fn list_strings(
@@ -3631,38 +3714,40 @@ impl GhidraServer {
     #[tool(
         description = "Freeze/unfreeze live memory values, CheatEngine-style. op=on: hold address at hex bytes, re-written ~4x/sec; op=off: stop freezing address; op=list: show currently frozen addresses and the values held"
     )]
-    async fn freeze(
-        &self,
-        Parameters(p): Parameters<Freeze>,
-    ) -> Result<CallToolResult, ErrorData> {
+    async fn freeze(&self, Parameters(p): Parameters<Freeze>) -> Result<CallToolResult, ErrorData> {
         match p.op.as_str() {
-            "on" if p.address.is_empty() || p.hex.is_empty() => {
-                Err(ErrorData::invalid_params("address and hex are required for op=on", None))
-            }
-            "off" if p.address.is_empty() => {
-                Err(ErrorData::invalid_params("address is required for op=off", None))
-            }
+            "on" if p.address.is_empty() || p.hex.is_empty() => Err(ErrorData::invalid_params(
+                "address and hex are required for op=on",
+                None,
+            )),
+            "off" if p.address.is_empty() => Err(ErrorData::invalid_params(
+                "address is required for op=off",
+                None,
+            )),
             "on" | "off" | "list" => self.post("freeze", p).await,
-            _ => Err(ErrorData::invalid_params("op must be on, off, or list", None)),
+            _ => Err(ErrorData::invalid_params(
+                "op must be on, off, or list",
+                None,
+            )),
         }
     }
 
     #[tool(
         description = "CheatEngine-style live-memory value scan with a session lifecycle. op=first: start a scan for value — type i8|i16|i32|i64|f32|f64|string|bytes (default i32); skips loaded modules unless all=true (slower) and exclude_modules forces skipping; tolerance (f32/f64) matches within +/- of target; max_mb raises the budget (default 1024, cap 8192); returns a scan_id immediately (async — poll op=results for status). op=next: refine scan_id by re-reading memory, comparator exact|changed|unchanged|increased|decreased (exact needs value). op=results: list remaining candidates with dynamic+static addresses and current values (limit caps rows). op=close: free the session"
     )]
-    async fn scan(
-        &self,
-        Parameters(p): Parameters<Scan>,
-    ) -> Result<CallToolResult, ErrorData> {
+    async fn scan(&self, Parameters(p): Parameters<Scan>) -> Result<CallToolResult, ErrorData> {
         match p.op.as_str() {
-            "first" if p.value.as_deref().unwrap_or("").is_empty() => {
-                Err(ErrorData::invalid_params("value is required for op=first", None))
-            }
+            "first" if p.value.as_deref().unwrap_or("").is_empty() => Err(
+                ErrorData::invalid_params("value is required for op=first", None),
+            ),
             "next" | "results" | "close" if p.scan_id.is_empty() => {
                 Err(ErrorData::invalid_params("scan_id is required", None))
             }
             "first" | "next" | "results" | "close" => self.post("scan", p).await,
-            _ => Err(ErrorData::invalid_params("op must be first, next, results, or close", None)),
+            _ => Err(ErrorData::invalid_params(
+                "op must be first, next, results, or close",
+                None,
+            )),
         }
     }
 
@@ -3737,7 +3822,6 @@ impl GhidraServer {
         }
         self.get("find_opaque_predicates", p).await
     }
-
 
     #[tool(
         description = "Scan executable memory for magic-constant immediate operands used in CMP/MOV/ADD/SUB/XOR/AND/OR/IMUL/TEST/LEA/SHL/SHR/SAR/ROL/ROR/PUSH. Filters small integers (0..4, 8, 16, ...) and full-ones masks. The meaning column classifies recognized constants — float sign/abs masks, unsigned-division reciprocals (udiv-by-N), crypto inits (SHA/MD5/CRC), hash seeds (FNV, golden ratio), and debug-fill markers. Optional min/max (hex via 0x) narrow the range",
@@ -3993,14 +4077,18 @@ impl GhidraServer {
         Parameters(p): Parameters<Coverage>,
     ) -> Result<CallToolResult, ErrorData> {
         match p.op.as_deref().unwrap_or("report") {
-            "diff" if p.path_a.is_empty() || p.path_b.is_empty() => {
-                Err(ErrorData::invalid_params("path_a and path_b are required for op=diff", None))
-            }
+            "diff" if p.path_a.is_empty() || p.path_b.is_empty() => Err(ErrorData::invalid_params(
+                "path_a and path_b are required for op=diff",
+                None,
+            )),
             "report" | "from_trace" if p.path.is_empty() => {
                 Err(ErrorData::invalid_params("path is required", None))
             }
             "report" | "from_trace" | "diff" => self.get("coverage", p).await,
-            _ => Err(ErrorData::invalid_params("op must be report, from_trace, or diff", None)),
+            _ => Err(ErrorData::invalid_params(
+                "op must be report, from_trace, or diff",
+                None,
+            )),
         }
     }
 
@@ -4162,7 +4250,7 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Locate functions by a string they reference: finds the string, follows cross-references to the containing function, and emits each function's name, entry address, the xref site, and a unique signature for the entry. The fastest path from a known string to a function + a reusable signature. format=ida|code",
+        description = "Locate functions by a string they reference: finds the string, follows cross-references to the containing function, and emits each function's name, entry address, the xref site, and a unique signature for the entry. The fastest path from a known string to a function + a reusable signature. Only DEFINED program strings are searched — for undefined/embedded text use search kind=text. regex=true treats value as a case-insensitive regex so a family like `Daily|Reshuffle|Timed` resolves in one call. max caps the hits (default 20). format=ida|code",
         annotations(read_only_hint = true)
     )]
     async fn find_function_by_string(
@@ -4267,7 +4355,10 @@ impl GhidraServer {
             return Err(ErrorData::invalid_params("struct_name is required", None));
         }
         if p.op.as_deref() != Some("delete") && p.data_type.is_none() {
-            return Err(ErrorData::invalid_params("type is required when op=set", None));
+            return Err(ErrorData::invalid_params(
+                "type is required when op=set",
+                None,
+            ));
         }
         self.post("struct_field", p).await
     }
@@ -4478,7 +4569,16 @@ impl ServerHandler for GhidraServer {
         .with_instructions(
             "Rust-based MCP bridge to the GhidraMCP HTTP plugin. Tools decompile, disassemble, \
              search, and annotate; prompts give guided RE workflows; resources expose live \
-             program and debugger state."
+             program and debugger state.\n\n\
+             Addressing: tools take a full VA, an interior address (resolves to the enclosing \
+             function), or an RVA. A small value that is not a mapped VA is auto-rebased to \
+             image_base+value; force RVA interpretation with an `rva:` prefix (e.g. rva:0x2d202c). \
+             See image_base via program_info.\n\n\
+             Strings: list_strings / search kind=string / find_function_by_string cover only DEFINED \
+             program strings; for undefined or embedded text (content ids, locale keys, asset names) \
+             use search kind=text (ASCII + UTF-16LE raw-memory scan).\n\n\
+             This client is often a Nebula3 engine: expect Core::Ptr smart pointers, StringAtom \
+             interned strings, and Util::Dictionary/Util::Array containers."
                 .to_owned(),
         )
     }
@@ -5210,7 +5310,67 @@ mod tests {
     fn find_function_by_string_defaults() {
         let p: FindFunctionByString = serde_json::from_str(r#"{"value":"licen"}"#).unwrap();
         assert_eq!(p.max, default_ffbs_max());
+        assert_eq!(p.max, 20);
         assert_eq!(p.format, "ida");
+        assert!(p.into_params().iter().all(|(k, _)| *k != "regex"));
+    }
+
+    #[test]
+    fn find_function_by_string_emits_regex_flag() {
+        let p = FindFunctionByString {
+            value: "Daily|Timed".to_owned(),
+            max: 20,
+            format: "ida".to_owned(),
+            regex: Some(true),
+        };
+        assert_eq!(
+            p.into_params(),
+            vec![
+                ("value", "Daily|Timed".to_owned()),
+                ("max", "20".to_owned()),
+                ("format", "ida".to_owned()),
+                ("regex", "1".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn decompile_emits_target_only_by_default() {
+        let p = Decompile {
+            target: "FUN_1400010a0".to_owned(),
+            clean: None,
+            offset: None,
+            limit: None,
+            grep: None,
+            program: None,
+        };
+        assert_eq!(
+            p.into_params(),
+            vec![("target", "FUN_1400010a0".to_owned())]
+        );
+    }
+
+    #[test]
+    fn decompile_emits_clean_paging_grep_and_program() {
+        let p = Decompile {
+            target: "rva:0x2d202c".to_owned(),
+            clean: Some(true),
+            offset: Some(40),
+            limit: Some(20),
+            grep: Some("field_0x58".to_owned()),
+            program: Some("alicia".to_owned()),
+        };
+        assert_eq!(
+            p.into_params(),
+            vec![
+                ("target", "rva:0x2d202c".to_owned()),
+                ("clean", "1".to_owned()),
+                ("offset", "40".to_owned()),
+                ("limit", "20".to_owned()),
+                ("grep", "field_0x58".to_owned()),
+                ("program", "alicia".to_owned()),
+            ]
+        );
     }
 
     #[test]

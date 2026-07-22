@@ -3,11 +3,6 @@ package io.github.imjustprism.ghidra.mcp.util;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 
-/**
- * Static façade over the connector-less live process, callable from ghidra_eval scripts so the AI can
- * read/write/scan the attached process with the full Ghidra API in scope. Bound by DebuggerHandlers on
- * live_attach; reads the current anchor PID dynamically so it survives self-healing re-resolution.
- */
 public final class Live {
 
     public interface Source {

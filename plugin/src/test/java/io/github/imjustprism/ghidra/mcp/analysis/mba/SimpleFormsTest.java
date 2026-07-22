@@ -12,7 +12,7 @@ class SimpleFormsTest {
 
     @Test
     void recognizesXorFromArithmeticForm() {
-        // x + y - 2*(x&y) == x ^ y
+
         var arith = new MbaExpr.Sub(new MbaExpr.Add(X, Y),
                 new MbaExpr.Mul(new MbaExpr.Const(2), new MbaExpr.And(X, Y)));
         var simplest = SimpleForms.simplest(arith, 2);
@@ -22,7 +22,7 @@ class SimpleFormsTest {
 
     @Test
     void recognizesOrFromArithmeticForm() {
-        // (x & y) + (x ^ y) == x | y
+
         var form = new MbaExpr.Add(new MbaExpr.And(X, Y), new MbaExpr.Xor(X, Y));
         var simplest = SimpleForms.simplest(form, 2);
 
@@ -37,7 +37,7 @@ class SimpleFormsTest {
 
     @Test
     void endToEndPipelineReducesObfuscatedXor() {
-        // (x|y) - (~x & y) ... build a known obfuscation of x: keep semantics check generic
+
         var arith = new MbaExpr.Sub(new MbaExpr.Add(X, Y),
                 new MbaExpr.Mul(new MbaExpr.Const(2), new MbaExpr.And(X, Y)));
         var out = MbaNormalize.normalize(SimpleForms.simplest(LinearMba.simplify(

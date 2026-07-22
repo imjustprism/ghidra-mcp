@@ -34,6 +34,7 @@ public final class BytesHandlers {
         routes.getQuery("/hex_dump", q -> hexDump(q.get("address"), Http.parseIntOrDefault(q.get("length"), 128)));
         routes.getQuery("/search", q -> switch (q.getOrDefault("kind", "bytes")) {
             case "string" -> findString(q.get("query"), Page.from(q), q);
+            case "text" -> findText(q.get("query"), Page.from(q), q);
             case "signature" -> io.github.imjustprism.ghidra.mcp.analysis.Signatures
                     .findSignature(ctx, q.get("query"), Page.from(q), q);
             default -> searchBytes(q.get("query"), Page.from(q), q);
@@ -166,6 +167,34 @@ public final class BytesHandlers {
             }
             return t.total(w.total()).build();
         });
+    }
+
+    public String findText(String value, Page p, Map<String, String> q) {
+        if (value == null || value.isEmpty()) throw new IllegalArgumentException("query is required");
+        return ctx.withProgram(program -> {
+            var mem = program.getMemory();
+            var monitor = new ConsoleTaskMonitor();
+            var t = Responses.table(p, q, new String[]{"addr", "enc"});
+            var w = new Responses.Window(p);
+            int cap = p.offset() + p.limit();
+            scanText(mem, monitor, value.getBytes(StandardCharsets.ISO_8859_1), "ascii", t, w, cap);
+            scanText(mem, monitor, value.getBytes(StandardCharsets.UTF_16LE), "utf16le", t, w, cap);
+            return t.total(w.total()).build();
+        });
+    }
+
+    private static void scanText(Memory mem, ConsoleTaskMonitor monitor, byte[] bytes, String enc,
+                                 Responses.Table t, Responses.Window w, int cap) {
+        if (bytes.length == 0) return;
+        var mask = new byte[bytes.length];
+        java.util.Arrays.fill(mask, (byte) 0xFF);
+        var cursor = mem.getMinAddress();
+        while (cursor != null && w.total() < cap) {
+            var hit = mem.findBytes(cursor, bytes, mask, true, monitor);
+            if (hit == null) break;
+            if (w.take()) t.row(Responses.addr(hit), enc);
+            cursor = hit.next();
+        }
     }
 
     public String patchBytes(String addr, String hex) {

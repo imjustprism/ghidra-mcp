@@ -48,7 +48,7 @@ public final class NeutralizeAntiDebug {
                 program.getListing().clearCodeUnits(s.addr, end, false);
                 byte[] buf = new byte[s.length];
                 for (int i = 0; i < s.length; i++) buf[i] = (byte) 0x90;
-                // 31 C0 = XOR EAX,EAX so the neutralized call returns 0 (no debugger)
+
                 if (s.length >= 2) { buf[0] = 0x31; buf[1] = (byte) 0xC0; }
                 program.getMemory().setBytes(s.addr, buf);
                 new DisassembleCommand(s.addr, null, true)

@@ -9,13 +9,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/**
- * Version-agnostic detection of an embedded Lua VM in a live process and arbitrary-Lua execution via a
- * remote shellcode thread. Detects Lua 5.1-5.4 (and LuaJIT) whether the VM is a loaded DLL (C API resolved
- * by export) or statically linked (located by signature). The lua_State finder is pointer-size aware and
- * does not assume any field offset: it keys off CommonHeader.tt == LUA_TTHREAD plus the
- * lua_State -> global_State -> mainthread == lua_State double back-reference, which holds across versions.
- */
 public final class Lua {
 
     public static final int LUA_TTHREAD = 8;
@@ -277,72 +270,72 @@ public final class Lua {
     private static byte[] buildEvalReturn(long mb, long gettop, long loadbuffer, long pcall, long settop) {
         byte[] o = new byte[384];
         int p = 0;
-        o[p++] = 0x55;                                              // push ebp
-        o[p++] = (byte) 0x8B; o[p++] = (byte) 0xEC;               // mov ebp,esp
-        o[p++] = 0x56; o[p++] = 0x57; o[p++] = 0x53;             // push esi,edi,ebx
-        o[p++] = (byte) 0xBE; p = putLe(o, p, (int) mb);          // mov esi, mailbox
-        o[p++] = (byte) 0xFF; o[p++] = 0x75; o[p++] = 0x08;       // push [ebp+8]  ; L
-        o[p++] = (byte) 0xB8; p = putLe(o, p, (int) gettop);      // mov eax, gettop
-        o[p++] = (byte) 0xFF; o[p++] = (byte) 0xD0;               // call eax
+        o[p++] = 0x55;
+        o[p++] = (byte) 0x8B; o[p++] = (byte) 0xEC;
+        o[p++] = 0x56; o[p++] = 0x57; o[p++] = 0x53;
+        o[p++] = (byte) 0xBE; p = putLe(o, p, (int) mb);
+        o[p++] = (byte) 0xFF; o[p++] = 0x75; o[p++] = 0x08;
+        o[p++] = (byte) 0xB8; p = putLe(o, p, (int) gettop);
+        o[p++] = (byte) 0xFF; o[p++] = (byte) 0xD0;
         o[p++] = (byte) 0x83; o[p++] = (byte) 0xC4; o[p++] = 0x04;
-        o[p++] = (byte) 0x8B; o[p++] = (byte) 0xF8;               // mov edi, eax  ; top0
-        o[p++] = 0x68; p = putLe(o, p, (int) (mb + NAME_OFF));    // push name
-        o[p++] = (byte) 0xFF; o[p++] = 0x75; o[p++] = 0x10;       // push [ebp+0x10] ; len
-        o[p++] = (byte) 0xFF; o[p++] = 0x75; o[p++] = 0x0C;       // push [ebp+0xC]  ; code
-        o[p++] = (byte) 0xFF; o[p++] = 0x75; o[p++] = 0x08;       // push [ebp+8]    ; L
+        o[p++] = (byte) 0x8B; o[p++] = (byte) 0xF8;
+        o[p++] = 0x68; p = putLe(o, p, (int) (mb + NAME_OFF));
+        o[p++] = (byte) 0xFF; o[p++] = 0x75; o[p++] = 0x10;
+        o[p++] = (byte) 0xFF; o[p++] = 0x75; o[p++] = 0x0C;
+        o[p++] = (byte) 0xFF; o[p++] = 0x75; o[p++] = 0x08;
         o[p++] = (byte) 0xB8; p = putLe(o, p, (int) loadbuffer);
         o[p++] = (byte) 0xFF; o[p++] = (byte) 0xD0;
         o[p++] = (byte) 0x83; o[p++] = (byte) 0xC4; o[p++] = 0x10;
-        o[p++] = (byte) 0x89; o[p++] = (byte) 0x86; p = putLe(o, p, R_RC);  // mov [esi+R_RC],eax
-        o[p++] = (byte) 0x85; o[p++] = (byte) 0xC0;               // test eax,eax
-        o[p++] = 0x75; int jLoadErr = p++;                        // jnz capture
-        o[p++] = 0x6A; o[p++] = 0x00;                             // push 0  errfunc
-        o[p++] = 0x6A; o[p++] = 0x01;                             // push 1  nresults
-        o[p++] = 0x6A; o[p++] = 0x00;                             // push 0  nargs
-        o[p++] = (byte) 0xFF; o[p++] = 0x75; o[p++] = 0x08;       // push L
+        o[p++] = (byte) 0x89; o[p++] = (byte) 0x86; p = putLe(o, p, R_RC);
+        o[p++] = (byte) 0x85; o[p++] = (byte) 0xC0;
+        o[p++] = 0x75; int jLoadErr = p++;
+        o[p++] = 0x6A; o[p++] = 0x00;
+        o[p++] = 0x6A; o[p++] = 0x01;
+        o[p++] = 0x6A; o[p++] = 0x00;
+        o[p++] = (byte) 0xFF; o[p++] = 0x75; o[p++] = 0x08;
         o[p++] = (byte) 0xB8; p = putLe(o, p, (int) pcall);
         o[p++] = (byte) 0xFF; o[p++] = (byte) 0xD0;
         o[p++] = (byte) 0x83; o[p++] = (byte) 0xC4; o[p++] = 0x10;
-        o[p++] = (byte) 0x89; o[p++] = (byte) 0x86; p = putLe(o, p, R_RC);  // mov [esi+R_RC],eax
+        o[p++] = (byte) 0x89; o[p++] = (byte) 0x86; p = putLe(o, p, R_RC);
         int capture = p;
-        o[p++] = (byte) 0x8B; o[p++] = 0x4D; o[p++] = 0x08;       // mov ecx,[ebp+8]   ; L
-        o[p++] = (byte) 0x8B; o[p++] = 0x49; o[p++] = 0x08;       // mov ecx,[ecx+8]   ; top
-        o[p++] = (byte) 0x83; o[p++] = (byte) 0xE9; o[p++] = 0x10; // sub ecx,16       ; TValue* (sizeof=16)
-        o[p++] = (byte) 0x8B; o[p++] = 0x01;                      // mov eax,[ecx]     ; gc ptr (Value)
-        o[p++] = (byte) 0x8B; o[p++] = 0x51; o[p++] = 0x08;       // mov edx,[ecx+8]   ; tt
-        o[p++] = (byte) 0x89; o[p++] = (byte) 0x96; p = putLe(o, p, R_TT);  // mov [esi+R_TT],edx
-        o[p++] = (byte) 0x89; o[p++] = (byte) 0x86; p = putLe(o, p, R_PTR); // mov [esi+R_PTR],eax
-        o[p++] = (byte) 0x83; o[p++] = (byte) 0xFA; o[p++] = 0x04; // cmp edx,4
-        o[p++] = 0x75; int jNotStr = p++;                        // jne done
-        o[p++] = (byte) 0x8B; o[p++] = 0x50; o[p++] = 0x0C;       // mov edx,[eax+0xC] ; len
-        o[p++] = (byte) 0x81; o[p++] = (byte) 0xFA; p = putLe(o, p, R_COPY_CAP); // cmp edx,cap
-        o[p++] = 0x76; int jLenOk = p++;                         // jbe .lenok
-        o[p++] = (byte) 0xBA; p = putLe(o, p, R_COPY_CAP);       // mov edx,cap
+        o[p++] = (byte) 0x8B; o[p++] = 0x4D; o[p++] = 0x08;
+        o[p++] = (byte) 0x8B; o[p++] = 0x49; o[p++] = 0x08;
+        o[p++] = (byte) 0x83; o[p++] = (byte) 0xE9; o[p++] = 0x10;
+        o[p++] = (byte) 0x8B; o[p++] = 0x01;
+        o[p++] = (byte) 0x8B; o[p++] = 0x51; o[p++] = 0x08;
+        o[p++] = (byte) 0x89; o[p++] = (byte) 0x96; p = putLe(o, p, R_TT);
+        o[p++] = (byte) 0x89; o[p++] = (byte) 0x86; p = putLe(o, p, R_PTR);
+        o[p++] = (byte) 0x83; o[p++] = (byte) 0xFA; o[p++] = 0x04;
+        o[p++] = 0x75; int jNotStr = p++;
+        o[p++] = (byte) 0x8B; o[p++] = 0x50; o[p++] = 0x0C;
+        o[p++] = (byte) 0x81; o[p++] = (byte) 0xFA; p = putLe(o, p, R_COPY_CAP);
+        o[p++] = 0x76; int jLenOk = p++;
+        o[p++] = (byte) 0xBA; p = putLe(o, p, R_COPY_CAP);
         int lenOk = p;
         o[p++] = (byte) 0x89; o[p++] = (byte) 0x96; p = putLe(o, p, R_LEN);
-        o[p++] = (byte) 0x8D; o[p++] = 0x40; o[p++] = 0x10;       // lea eax,[eax+0x10] ; src
-        o[p++] = 0x33; o[p++] = (byte) 0xDB;                     // xor ebx,ebx
+        o[p++] = (byte) 0x8D; o[p++] = 0x40; o[p++] = 0x10;
+        o[p++] = 0x33; o[p++] = (byte) 0xDB;
         int cpy = p;
-        o[p++] = 0x3B; o[p++] = (byte) 0xDA;                     // cmp ebx,edx
-        o[p++] = 0x7D; int jCpyDone = p++;                       // jge .cpydone
-        o[p++] = (byte) 0x8A; o[p++] = 0x0C; o[p++] = 0x18;       // mov cl,[eax+ebx]
-        o[p++] = (byte) 0x88; o[p++] = (byte) 0x8C; o[p++] = 0x1E; p = putLe(o, p, R_COPY); // mov [esi+ebx+R_COPY],cl
-        o[p++] = 0x43;                                           // inc ebx
-        o[p++] = (byte) 0xEB; int jBack = p++;                    // jmp .cpy
+        o[p++] = 0x3B; o[p++] = (byte) 0xDA;
+        o[p++] = 0x7D; int jCpyDone = p++;
+        o[p++] = (byte) 0x8A; o[p++] = 0x0C; o[p++] = 0x18;
+        o[p++] = (byte) 0x88; o[p++] = (byte) 0x8C; o[p++] = 0x1E; p = putLe(o, p, R_COPY);
+        o[p++] = 0x43;
+        o[p++] = (byte) 0xEB; int jBack = p++;
         int cpyDone = p;
         int done = p;
         o[jLenOk] = (byte) (lenOk - (jLenOk + 1));
         o[jCpyDone] = (byte) (cpyDone - (jCpyDone + 1));
         o[jBack] = (byte) (cpy - (jBack + 1));
-        o[p++] = 0x57;                                            // push edi  ; top0
-        o[p++] = (byte) 0xFF; o[p++] = 0x75; o[p++] = 0x08;       // push L
+        o[p++] = 0x57;
+        o[p++] = (byte) 0xFF; o[p++] = 0x75; o[p++] = 0x08;
         o[p++] = (byte) 0xB8; p = putLe(o, p, (int) settop);
         o[p++] = (byte) 0xFF; o[p++] = (byte) 0xD0;
         o[p++] = (byte) 0x83; o[p++] = (byte) 0xC4; o[p++] = 0x08;
-        o[p++] = 0x5B; o[p++] = 0x5F; o[p++] = 0x5E;             // pop ebx,edi,esi
-        o[p++] = (byte) 0x8B; o[p++] = (byte) 0xE5;               // mov esp,ebp
-        o[p++] = 0x5D;                                            // pop ebp
-        o[p++] = (byte) 0xC3;                                     // ret
+        o[p++] = 0x5B; o[p++] = 0x5F; o[p++] = 0x5E;
+        o[p++] = (byte) 0x8B; o[p++] = (byte) 0xE5;
+        o[p++] = 0x5D;
+        o[p++] = (byte) 0xC3;
         o[jLoadErr] = (byte) (capture - (jLoadErr + 1));
         o[jNotStr] = (byte) (done - (jNotStr + 1));
         return Arrays.copyOf(o, p);
@@ -351,36 +344,36 @@ public final class Lua {
     private static byte[] hookStub(long m, byte[] stolen, long stubAddr, long retAddr) {
         byte[] o = new byte[160];
         int p = 0;
-        o[p++] = 0x60;                                              // pushad
-        o[p++] = (byte) 0x9C;                                      // pushfd
-        o[p++] = (byte) 0xBE; p = putLe(o, p, (int) m);           // mov esi, mailbox
-        o[p++] = (byte) 0x83; o[p++] = 0x3E; o[p++] = 0x01;       // cmp [esi], 1
-        o[p++] = 0x75; int jnePass = p++;                         // jne .pass (rel8)
-        o[p++] = (byte) 0xC7; o[p++] = 0x06; o[p++] = 0x02; o[p++] = 0; o[p++] = 0; o[p++] = 0; // mov [esi],2
-        o[p++] = (byte) 0x8B; o[p++] = 0x46; o[p++] = ARGMODE_OFF; // mov eax,[esi+0x14]
-        o[p++] = (byte) 0x85; o[p++] = (byte) 0xC0;               // test eax,eax
-        o[p++] = 0x74; int jzOne = p++;                           // jz .one (rel8)
-        o[p++] = (byte) 0xFF; o[p++] = 0x76; o[p++] = 0x04;       // push [esi+4]  ; len
-        o[p++] = (byte) 0x8D; o[p++] = 0x46; o[p++] = CODE_OFF;   // lea eax,[esi+0x20] ; code
-        o[p++] = 0x50;                                            // push eax
-        o[p++] = (byte) 0xFF; o[p++] = 0x76; o[p++] = STATE_OFF;  // push [esi+0x10] ; state
-        o[p++] = (byte) 0x8B; o[p++] = 0x46; o[p++] = FN_OFF;     // mov eax,[esi+0xC] ; fn
-        o[p++] = (byte) 0xFF; o[p++] = (byte) 0xD0;               // call eax
-        o[p++] = (byte) 0x83; o[p++] = (byte) 0xC4; o[p++] = 0x0C; // add esp,0xC
-        o[p++] = (byte) 0xEB; int jmpStore = p++;                 // jmp .store (rel8)
+        o[p++] = 0x60;
+        o[p++] = (byte) 0x9C;
+        o[p++] = (byte) 0xBE; p = putLe(o, p, (int) m);
+        o[p++] = (byte) 0x83; o[p++] = 0x3E; o[p++] = 0x01;
+        o[p++] = 0x75; int jnePass = p++;
+        o[p++] = (byte) 0xC7; o[p++] = 0x06; o[p++] = 0x02; o[p++] = 0; o[p++] = 0; o[p++] = 0;
+        o[p++] = (byte) 0x8B; o[p++] = 0x46; o[p++] = ARGMODE_OFF;
+        o[p++] = (byte) 0x85; o[p++] = (byte) 0xC0;
+        o[p++] = 0x74; int jzOne = p++;
+        o[p++] = (byte) 0xFF; o[p++] = 0x76; o[p++] = 0x04;
+        o[p++] = (byte) 0x8D; o[p++] = 0x46; o[p++] = CODE_OFF;
+        o[p++] = 0x50;
+        o[p++] = (byte) 0xFF; o[p++] = 0x76; o[p++] = STATE_OFF;
+        o[p++] = (byte) 0x8B; o[p++] = 0x46; o[p++] = FN_OFF;
+        o[p++] = (byte) 0xFF; o[p++] = (byte) 0xD0;
+        o[p++] = (byte) 0x83; o[p++] = (byte) 0xC4; o[p++] = 0x0C;
+        o[p++] = (byte) 0xEB; int jmpStore = p++;
         int oneLabel = p;
-        o[p++] = (byte) 0xFF; o[p++] = 0x76; o[p++] = STATE_OFF;  // .one: push [esi+0x10]
-        o[p++] = (byte) 0x8B; o[p++] = 0x46; o[p++] = FN_OFF;     // mov eax,[esi+0xC]
-        o[p++] = (byte) 0xFF; o[p++] = (byte) 0xD0;               // call eax
-        o[p++] = (byte) 0x83; o[p++] = (byte) 0xC4; o[p++] = 0x04; // add esp,4
+        o[p++] = (byte) 0xFF; o[p++] = 0x76; o[p++] = STATE_OFF;
+        o[p++] = (byte) 0x8B; o[p++] = 0x46; o[p++] = FN_OFF;
+        o[p++] = (byte) 0xFF; o[p++] = (byte) 0xD0;
+        o[p++] = (byte) 0x83; o[p++] = (byte) 0xC4; o[p++] = 0x04;
         int storeLabel = p;
-        o[p++] = (byte) 0x89; o[p++] = 0x46; o[p++] = 0x08;       // .store: mov [esi+8],eax
-        o[p++] = (byte) 0xC7; o[p++] = 0x06; o[p++] = 0x03; o[p++] = 0; o[p++] = 0; o[p++] = 0; // mov [esi],3
+        o[p++] = (byte) 0x89; o[p++] = 0x46; o[p++] = 0x08;
+        o[p++] = (byte) 0xC7; o[p++] = 0x06; o[p++] = 0x03; o[p++] = 0; o[p++] = 0; o[p++] = 0;
         int passLabel = p;
-        o[p++] = (byte) 0x9D;                                     // .pass: popfd
-        o[p++] = 0x61;                                            // popad
-        for (byte b : stolen) o[p++] = b;                        // original prologue
-        o[p++] = (byte) 0xE9; p = putLe(o, p, (int) (retAddr - (stubAddr + p + 4))); // jmp back
+        o[p++] = (byte) 0x9D;
+        o[p++] = 0x61;
+        for (byte b : stolen) o[p++] = b;
+        o[p++] = (byte) 0xE9; p = putLe(o, p, (int) (retAddr - (stubAddr + p + 4)));
         o[jnePass] = (byte) (passLabel - (jnePass + 1));
         o[jzOne] = (byte) (oneLabel - (jzOne + 1));
         o[jmpStore] = (byte) (storeLabel - (jmpStore + 1));
@@ -438,26 +431,26 @@ public final class Lua {
 
     private static byte[] shellcode32(long state, long codeAddr, int len, long execFn) {
         var b = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN);
-        b.put((byte) 0x68).putInt(len);                       // push len
-        b.put((byte) 0x68).putInt((int) codeAddr);            // push codeAddr
-        b.put((byte) 0x68).putInt((int) state);               // push L
-        b.put((byte) 0xB8).putInt((int) execFn);              // mov eax, execFn
-        b.put((byte) 0xFF).put((byte) 0xD0);                  // call eax
-        b.put((byte) 0x83).put((byte) 0xC4).put((byte) 0x0C); // add esp, 0xC
-        b.put((byte) 0xC2).put((byte) 0x04).put((byte) 0x00); // ret 4
+        b.put((byte) 0x68).putInt(len);
+        b.put((byte) 0x68).putInt((int) codeAddr);
+        b.put((byte) 0x68).putInt((int) state);
+        b.put((byte) 0xB8).putInt((int) execFn);
+        b.put((byte) 0xFF).put((byte) 0xD0);
+        b.put((byte) 0x83).put((byte) 0xC4).put((byte) 0x0C);
+        b.put((byte) 0xC2).put((byte) 0x04).put((byte) 0x00);
         return Arrays.copyOf(b.array(), b.position());
     }
 
     private static byte[] shellcode64(long state, long codeAddr, int len, long execFn) {
         var b = ByteBuffer.allocate(64).order(ByteOrder.LITTLE_ENDIAN);
-        b.put((byte) 0x48).put((byte) 0xB9).putLong(state);          // mov rcx, L
-        b.put((byte) 0x48).put((byte) 0xBA).putLong(codeAddr);       // mov rdx, codeAddr
-        b.put((byte) 0x49).put((byte) 0xB8).putLong(len & 0xffffffffL); // mov r8, len
-        b.put((byte) 0x48).put((byte) 0xB8).putLong(execFn);         // mov rax, execFn
-        b.put((byte) 0x48).put((byte) 0x83).put((byte) 0xEC).put((byte) 0x28); // sub rsp, 0x28
-        b.put((byte) 0xFF).put((byte) 0xD0);                         // call rax
-        b.put((byte) 0x48).put((byte) 0x83).put((byte) 0xC4).put((byte) 0x28); // add rsp, 0x28
-        b.put((byte) 0xC3);                                          // ret
+        b.put((byte) 0x48).put((byte) 0xB9).putLong(state);
+        b.put((byte) 0x48).put((byte) 0xBA).putLong(codeAddr);
+        b.put((byte) 0x49).put((byte) 0xB8).putLong(len & 0xffffffffL);
+        b.put((byte) 0x48).put((byte) 0xB8).putLong(execFn);
+        b.put((byte) 0x48).put((byte) 0x83).put((byte) 0xEC).put((byte) 0x28);
+        b.put((byte) 0xFF).put((byte) 0xD0);
+        b.put((byte) 0x48).put((byte) 0x83).put((byte) 0xC4).put((byte) 0x28);
+        b.put((byte) 0xC3);
         return Arrays.copyOf(b.array(), b.position());
     }
 

@@ -89,7 +89,7 @@ public final class Coverage {
                     var b = bbm.getFirstCodeBlockContaining(addr, monitor);
                     if (b != null) coveredBlocks.add(b.getFirstStartAddress());
                 } catch (Exception ignored) {
-                    // monitor is never cancelled here
+
                 }
             });
 

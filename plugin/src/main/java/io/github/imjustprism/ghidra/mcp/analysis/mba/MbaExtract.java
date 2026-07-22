@@ -48,7 +48,7 @@ public final class MbaExtract {
                     var a = build(def.getInput(0), leaves, depth + 1);
                     return a == null ? null : new MbaExpr.Neg(a);
                 }
-                default -> { /* unrepresentable op -> treat the value as an opaque leaf */ }
+                default -> {  }
             }
         }
         return leaf(vn, leaves);

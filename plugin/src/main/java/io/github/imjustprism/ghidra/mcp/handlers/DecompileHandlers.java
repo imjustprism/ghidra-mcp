@@ -9,7 +9,6 @@ import io.github.imjustprism.ghidra.mcp.util.Addresses;
 import io.github.imjustprism.ghidra.mcp.util.Bufs;
 import io.github.imjustprism.ghidra.mcp.util.DecompileCache;
 import io.github.imjustprism.ghidra.mcp.util.PluginContext;
-import io.github.imjustprism.ghidra.mcp.util.Programs;
 import io.github.imjustprism.ghidra.mcp.util.Responses;
 
 public final class DecompileHandlers {
@@ -23,30 +22,67 @@ public final class DecompileHandlers {
     }
 
     public void register(RouteTable routes) {
-        routes.getQuery("/decompile", q -> decompile(q.get("target"), Http.parseBool(q.get("clean"), false)));
+        routes.getQuery("/decompile", q -> decompile(q.get("target"), Http.parseBool(q.get("clean"), false),
+                Http.parseIntOrDefault(q.get("offset"), 0), Http.parseIntOrDefault(q.get("limit"), 0),
+                q.get("grep")));
         routes.getQuery("/disassemble_function", q -> disassembleAt(q.get("address")));
         routes.getQuery("/instruction_at", q -> instructionAt(q.get("address")));
     }
 
-    public String decompile(String target, boolean clean) {
+    public String decompile(String target, boolean clean, int offset, int limit, String grep) {
         return ctx.withProgram(program -> {
             if (target == null || target.isBlank()) {
                 throw new IllegalArgumentException("target (function name or address) is required");
             }
             var t = target.trim();
-            var func = Programs.findFunctionByName(program, t);
-            if (func == null) {
-                try {
-                    var a = program.getAddressFactory().getAddress(t);
-                    if (a != null) func = Addresses.functionAtOrContaining(program, a);
-                } catch (Exception ignored) {
-                    // not an address; fall through to the not-found error
-                }
-            }
-            if (func == null) throw new IllegalArgumentException("no function named or at " + t);
+            var func = Addresses.resolveFunction(program, t);
+            if (func == null) throw new IllegalArgumentException(notFound(program, t));
             var c = DecompileCache.decompile(program, func);
-            return clean ? DecompileMinimal.minimize(c) : c;
+            if (clean) c = DecompileMinimal.minimize(c);
+            return window(c, offset, limit, grep);
         });
+    }
+
+    private static String notFound(ghidra.program.model.listing.Program program, String t) {
+        var base = Responses.addr(program.getImageBase());
+        var a = Addresses.resolve(program, t);
+        if (a == null) {
+            return "no function named or at " + t + " (image_base=" + base + "; if " + t
+                    + " is an RVA, prefix it rva:)";
+        }
+        return "no function named or at " + t + " (resolved " + Responses.addr(a)
+                + ", image_base=" + base + "; that address is not inside a defined function)";
+    }
+
+    private static String window(String c, int offset, int limit, String grep) {
+        boolean paged = offset > 0 || limit > 0;
+        boolean filtered = grep != null && !grep.isBlank();
+        if (!paged && !filtered) return c;
+        java.util.regex.Pattern pat = null;
+        if (filtered) {
+            try {
+                pat = java.util.regex.Pattern.compile(grep);
+            } catch (java.util.regex.PatternSyntaxException e) {
+                throw new IllegalArgumentException("bad grep regex: " + e.getMessage());
+            }
+        }
+        var lines = c.split("\n", -1);
+        int from = Math.max(0, offset);
+        int cap = limit > 0 ? limit : Integer.MAX_VALUE;
+        var sb = new StringBuilder(Math.min(c.length(), 16384));
+        int shown = 0;
+        int matched = 0;
+        for (int i = 0; i < lines.length; i++) {
+            if (pat != null && !pat.matcher(lines[i]).find()) continue;
+            matched++;
+            if (matched <= from || shown >= cap) continue;
+            sb.append(i + 1).append('\t').append(lines[i]).append('\n');
+            shown++;
+        }
+        sb.append("# lines=").append(shown).append('/').append(matched);
+        if (filtered) sb.append(" matching /").append(grep).append('/');
+        sb.append("; total=").append(lines.length).append('\n');
+        return sb.toString();
     }
 
     public String disassembleAt(String addr) {

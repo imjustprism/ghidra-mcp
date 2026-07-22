@@ -69,12 +69,7 @@ public final class PluginContext {
     public String withAddress(String addrStr, BiFunction<Program, Address, String> fn) {
         if (addrStr == null || addrStr.isBlank()) throw new IllegalArgumentException("address is required");
         return withProgram(program -> {
-            Address a;
-            try {
-                a = program.getAddressFactory().getAddress(addrStr);
-            } catch (Exception e) {
-                throw new IllegalArgumentException("invalid address: " + addrStr);
-            }
+            var a = Addresses.resolve(program, addrStr);
             if (a == null) throw new IllegalArgumentException("invalid address: " + addrStr);
             return fn.apply(program, a);
         });

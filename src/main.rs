@@ -1,4 +1,5 @@
 mod client;
+mod instance;
 mod tools;
 
 use clap::Parser;
@@ -17,6 +18,22 @@ struct Args {
 
     #[arg(long, env = "GHIDRA_TOKEN", hide_env_values = true)]
     ghidra_token: Option<String>,
+
+    #[arg(
+        long,
+        env = "GHIDRA_MCP_ALLOW_MULTIPLE",
+        default_value_t = false,
+        help = "Allow multiple bridges for the same binary (default: replace older instances)."
+    )]
+    allow_multiple: bool,
+
+    #[arg(
+        long,
+        env = "GHIDRA_MCP_DETACH",
+        default_value_t = false,
+        help = "Do not exit when the parent MCP client dies (default: exit — no orphan bridges)."
+    )]
+    detach: bool,
 }
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
@@ -31,7 +48,15 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let args = Args::parse();
-    tracing::info!(url = %args.ghidra_server, "starting ghidra-mcp");
+
+    instance::prepare(args.allow_multiple, args.detach);
+
+    tracing::info!(
+        url = %args.ghidra_server,
+        allow_multiple = args.allow_multiple,
+        detach = args.detach,
+        "starting ghidra-mcp"
+    );
 
     let server = GhidraServer::new(
         args.ghidra_server,

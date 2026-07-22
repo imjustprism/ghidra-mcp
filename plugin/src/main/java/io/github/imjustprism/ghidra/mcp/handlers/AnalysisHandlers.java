@@ -174,7 +174,8 @@ public final class AnalysisHandlers {
                 Http.parseIntOrDefault(q.get("max_len"), 0), q.getOrDefault("format", "ida")));
         routes.getQuery("/resolve_relative", q -> Signatures.resolveRelative(ctx, q.get("address")));
         routes.getQuery("/find_function_by_string", q -> Signatures.findFunctionByString(ctx,
-                q.get("value"), Http.parseIntOrDefault(q.get("max"), 5), q.getOrDefault("format", "ida")));
+                q.get("value"), Http.parseIntOrDefault(q.get("max"), 20), q.getOrDefault("format", "ida"),
+                Http.parseBool(q.get("regex"), false)));
     }
 
     public String programMetadata(Page p, Map<String, String> q) {
