@@ -3,7 +3,7 @@
 [![CI](https://github.com/imjustprism/ghidra-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/imjustprism/ghidra-mcp/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.85%2B-orange.svg)](rust-toolchain.toml)
-[![Ghidra](https://img.shields.io/badge/ghidra-12.0.1-red.svg)](https://ghidra-sre.org/)
+[![Ghidra](https://img.shields.io/badge/ghidra-12.1.2-red.svg)](https://ghidra-sre.org/)
 [![JDK](https://img.shields.io/badge/jdk-21-green.svg)](https://adoptium.net/)
 
 MCP server for Ghidra. Rust bridge + Ghidra Java plugin. Wires any MCP client (Claude Desktop, etc.) straight into a live Ghidra session.
@@ -376,7 +376,7 @@ Read-only program/debugger state, exposed as MCP resources (clients can read or 
 | bridge error `error sending request` | Ghidra not running, plugin not enabled, or wrong port |
 | plugin absent from Configure dialog | check under **Developer** category, not default |
 | port 8080 busy | change in Tool Options, match `--ghidra-server` |
-| zip won't install | JDK21 required, Ghidra 12.0.1 required |
+| zip won't install | JDK21 required, Ghidra 12.1.2 required |
 
 ## License
 

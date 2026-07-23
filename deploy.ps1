@@ -12,7 +12,7 @@
   .\deploy.ps1 -Dist           # full LTO rust profile (slow, ship builds)
 #>
 param(
-    [string]$GhidraHome = "D:\ghidra_12.1_PUBLIC",
+    [string]$GhidraHome = "D:\ghidra_12.1.2_PUBLIC",
     [switch]$SkipRust,
     [switch]$SkipJava,
     [switch]$NoClose,
