@@ -1,0 +1,49 @@
+# Build outputs
+/target/
+/plugin/target/
+/plugin/build/
+/plugin/dist/
+/plugin/.gradle/
+/plugin/lib/
+/plugin/bin/
+*.class
+*.jar
+!plugin/src/**/lib/**
+*.exe
+*.pdb
+*.zip
+!plugin/dist/*.zip
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Local AI / agent tooling (do not publish)
+.claude/
+.cursor/
+.grok/
+.rules
+.agent/
+AGENTS.md
+CLAUDE.md
+
+# OS junk
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Logs / temp
+*.log
+*.tmp
+*.temp
+/tmp/

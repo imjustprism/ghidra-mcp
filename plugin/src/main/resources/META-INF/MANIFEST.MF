@@ -1,0 +1,6 @@
+Manifest-Version: 1.0
+Plugin-Class: io.github.imjustprism.ghidra.mcp.GhidraMcpPlugin
+Plugin-Name: ghidra-mcp-plugin
+Plugin-Version: 1.0
+Plugin-Author: imjustprism
+Plugin-Description: Ghidra HTTP bridge for the ghidra-mcp MCP server

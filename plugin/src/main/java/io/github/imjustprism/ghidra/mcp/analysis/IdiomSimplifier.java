@@ -1,0 +1,114 @@
+package io.github.imjustprism.ghidra.mcp.analysis;
+
+import ghidra.program.model.address.Address;
+import ghidra.program.model.listing.CodeUnit;
+import ghidra.program.model.listing.Function;
+import ghidra.program.model.listing.Instruction;
+import ghidra.program.model.listing.Program;
+import ghidra.program.model.scalar.Scalar;
+import io.github.imjustprism.ghidra.mcp.util.Addresses;
+import io.github.imjustprism.ghidra.mcp.util.PluginContext;
+import io.github.imjustprism.ghidra.mcp.util.Responses;
+
+import java.math.BigInteger;
+import java.util.Map;
+
+public final class IdiomSimplifier {
+
+    private IdiomSimplifier() {}
+
+    public static String run(PluginContext ctx, String addr, Map<String, String> q) {
+        boolean apply = "1".equals(q.get("apply"));
+        return ctx.withAddress(addr, (program, a) -> {
+            Function f = Addresses.functionAtOrContaining(program, a);
+            if (f == null) throw new IllegalArgumentException("No function at or containing " + addr);
+            var matches = scan(program, f);
+            if (apply) {
+                ctx.runOnSwingTx(program, "Idiom simplifier comments", () -> {
+                    for (Match m : matches) {
+                        program.getListing().setComment(m.at, CodeUnit.EOL_COMMENT, m.note);
+                    }
+                    return true;
+                });
+            }
+            var t = Responses.table(q, new String[]{"addr", "idiom", "note"}, matches.size());
+            for (Match m : matches) t.row(Responses.addr(m.at), m.kind, m.note);
+            return t.total(matches.size()).build();
+        });
+    }
+
+    private static java.util.List<Match> scan(Program program, Function f) {
+        var out = new java.util.ArrayList<Match>();
+        var listing = program.getListing();
+        Address end = f.getBody().getMaxAddress();
+        var it = listing.getInstructions(f.getEntryPoint(), true);
+        Instruction prev = null;
+        while (it.hasNext()) {
+            Instruction ins = it.next();
+            if (ins.getAddress().compareTo(end) > 0) break;
+            tryUdivMagic(ins, listing, out);
+            trySignExtDrop(ins, out);
+            tryModFold(prev, ins, out);
+            prev = ins;
+        }
+        return out;
+    }
+
+    private static void tryUdivMagic(Instruction ins, ghidra.program.model.listing.Listing l, java.util.List<Match> out) {
+        String mn = ins.getMnemonicString().toUpperCase();
+        if (!mn.equals("MOV")) return;
+        if (ins.getNumOperands() < 2) return;
+        var objs = ins.getOpObjects(1);
+        if (objs == null || objs.length != 1 || !(objs[0] instanceof Scalar s)) return;
+        long v = s.getUnsignedValue();
+        if (v < 0x1000L) return;
+        Integer d = recoverDivisor(v);
+        if (d == null) return;
+        out.add(new Match(ins.getAddress(), "udiv_magic",
+            "idiom: udiv by " + d + " (magic 0x" + Long.toHexString(v) + ")"));
+    }
+
+    static Integer recoverDivisor(long magic) {
+        BigInteger m = BigInteger.valueOf(magic);
+        if (m.signum() <= 0) return null;
+        for (int shift : new int[]{32, 33, 34, 35, 36, 37, 38, 39, 40,
+                64, 65, 66, 67, 68, 69, 70, 71, 72}) {
+            BigInteger twoN = BigInteger.ONE.shiftLeft(shift);
+            for (int d = 3; d <= 255; d++) {
+                if (d == 1 || (d & (d - 1)) == 0) continue;
+                BigInteger bd = BigInteger.valueOf(d);
+
+                BigInteger expected = twoN.add(bd).subtract(BigInteger.ONE).divide(bd);
+                if (expected.equals(m)) return d;
+            }
+        }
+        return null;
+    }
+
+    private static void trySignExtDrop(Instruction ins, java.util.List<Match> out) {
+        String mn = ins.getMnemonicString().toUpperCase();
+        if (!mn.equals("MOVSXD") && !mn.equals("MOVSX")) return;
+        out.add(new Match(ins.getAddress(), "signext_drop",
+            "idiom: sign-ext drop (dest later used 32-bit only)"));
+    }
+
+    private static void tryModFold(Instruction prev, Instruction last, java.util.List<Match> out) {
+        if (last == null || prev == null) return;
+        String lm = last.getMnemonicString().toUpperCase();
+        String pm = prev.getMnemonicString().toUpperCase();
+        if (!pm.equals("IMUL")) return;
+        if (prev.getNumOperands() < 3) return;
+        var objs = prev.getOpObjects(2);
+        if (objs == null || objs.length != 1 || !(objs[0] instanceof Scalar s)) return;
+        long k = s.getSignedValue();
+
+        boolean modulo = (lm.equals("SUB") && k > 0) || (lm.equals("ADD") && k < 0);
+        if (!modulo) return;
+        long d = Math.abs(k);
+        if (d < 2 || d > 0xffff) return;
+        out.add(new Match(last.getAddress(), "mod_fold",
+            "idiom: x %% " + d + " (x - " + d + "*(x/" + d + "))"));
+    }
+
+    private record Match(Address at, String kind, String note) {}
+}

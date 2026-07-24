@@ -1,0 +1,80 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+  RUST_BACKTRACE: 1
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    name: rust ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: fmt
+        run: cargo fmt --all -- --check
+      - name: clippy
+        run: cargo clippy --all-targets --locked -- -D warnings
+      - name: test
+        run: cargo test --all-targets --locked
+
+  deny:
+    name: cargo-deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check bans licenses advisories sources
+
+  java:
+    name: maven package
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      GHIDRA_URL: https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_12.1.2_build/ghidra_12.1.2_PUBLIC_20260605.zip
+      GHIDRA_HOME: ${{ github.workspace }}\ghidra_12.1.2_PUBLIC
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: cache ghidra
+        id: cache-ghidra
+        uses: actions/cache@v4
+        with:
+          path: ghidra.zip
+          key: ghidra-12.1.2-PUBLIC-20260605
+      - name: download ghidra
+        if: steps.cache-ghidra.outputs.cache-hit != 'true'
+        run: curl.exe -L --fail -o ghidra.zip "$env:GHIDRA_URL"
+      - name: extract ghidra
+        run: tar -xf ghidra.zip
+      - name: stage jars
+        working-directory: plugin
+        run: ./setup-libs.ps1 -GhidraHome "$env:GHIDRA_HOME"
+      - name: package
+        working-directory: plugin
+        run: mvn -B package

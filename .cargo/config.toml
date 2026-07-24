@@ -1,0 +1,7 @@
+[term]
+quiet = false
+progress.when = "never"
+
+[alias]
+br = "build --release"
+bd = "build --profile dist"
