@@ -10,7 +10,10 @@ import io.github.imjustprism.ghidra.mcp.http.RouteTable;
 import io.github.imjustprism.ghidra.mcp.util.Bufs;
 import io.github.imjustprism.ghidra.mcp.util.DataTypes;
 import io.github.imjustprism.ghidra.mcp.util.FileGuard;
+import io.github.imjustprism.ghidra.mcp.util.Live;
+import io.github.imjustprism.ghidra.mcp.util.LiveBases;
 import io.github.imjustprism.ghidra.mcp.util.PluginContext;
+import io.github.imjustprism.ghidra.mcp.util.ProcessMemory;
 import io.github.imjustprism.ghidra.mcp.util.Responses;
 import io.github.imjustprism.ghidra.mcp.util.Strings;
 
@@ -51,12 +54,22 @@ public final class BytesHandlers {
 
     public String readBytes(String addr, int length) {
         if (length <= 0 || length > 65536) throw new IllegalArgumentException("Length must be 1..65536");
+        var live = tryLiveRead(addr, length);
+        if (live != null) {
+            return "0x" + Long.toHexString(live.address()) + "\t" + live.bytes().length + "\t"
+                    + Bufs.hex(live.bytes(), live.bytes().length) + "\t# live";
+        }
         return ctx.withAddress(addr, (program, a) -> {
             try {
                 var buf = new byte[length];
                 int read = program.getMemory().getBytes(a, buf, 0, length);
                 return Responses.addr(a) + "\t" + read + "\t" + Bufs.hex(buf, read);
             } catch (Exception e) {
+                var fallback = tryLiveRead(addr, length);
+                if (fallback != null) {
+                    return "0x" + Long.toHexString(fallback.address()) + "\t" + fallback.bytes().length + "\t"
+                            + Bufs.hex(fallback.bytes(), fallback.bytes().length) + "\t# live";
+                }
                 throw new IllegalStateException("Error reading memory: " + e.getMessage(), e);
             }
         });
@@ -64,34 +77,75 @@ public final class BytesHandlers {
 
     public String hexDump(String addr, int length) {
         if (length <= 0 || length > 65536) throw new IllegalArgumentException("Length must be 1..65536");
+        var live = tryLiveRead(addr, length);
+        if (live != null) return formatHexDump(live.address(), live.bytes(), live.bytes().length, true);
         return ctx.withAddress(addr, (program, a) -> {
             try {
                 var buf = new byte[length];
                 int read = program.getMemory().getBytes(a, buf, 0, length);
-                var sb = new StringBuilder(64 + (read / 16 + 1) * 76);
-                sb.append("# format=hex; addr=hex; rows=16B\n");
-                final char[] HEX = "0123456789abcdef".toCharArray();
-                for (int off = 0; off < read; off += 16) {
-                    var line = a.add(off);
-                    int row = Math.min(16, read - off);
-                    sb.append(Responses.addr(line)).append("  ");
-                    for (int i = 0; i < row; i++) {
-                        int b = buf[off + i] & 0xFF;
-                        sb.append(HEX[b >>> 4]).append(HEX[b & 0xF]).append(' ');
-                    }
-                    for (int pad = row; pad < 16; pad++) sb.append("   ");
-                    sb.append(" |");
-                    for (int i = 0; i < row; i++) {
-                        int b = buf[off + i] & 0xFF;
-                        sb.append(b >= 32 && b < 127 ? (char) b : '.');
-                    }
-                    sb.append("|\n");
-                }
-                return sb.toString();
+                return formatHexDump(a.getOffset(), buf, read, false);
             } catch (Exception e) {
+                var fallback = tryLiveRead(addr, length);
+                if (fallback != null) {
+                    return formatHexDump(fallback.address(), fallback.bytes(), fallback.bytes().length, true);
+                }
                 throw new IllegalStateException("Error reading memory: " + e.getMessage(), e);
             }
         });
+    }
+
+    private record LiveBuf(long address, byte[] bytes) {}
+
+    private static LiveBuf tryLiveRead(String addr, int length) {
+        if (!Live.attached() || addr == null || addr.isBlank()) return null;
+        boolean force = LiveBases.isPseudo(addr) || looksDynamic(addr);
+        if (!force) return null;
+        try {
+            long va = LiveBases.resolve(new ProcessMemory(), Live.pid(), addr);
+            var buf = Live.read(va, length);
+            return new LiveBuf(va, buf);
+        } catch (RuntimeException e) {
+            if (LiveBases.isPseudo(addr)) throw e;
+            return null;
+        }
+    }
+
+    private static boolean looksDynamic(String addr) {
+        var t = addr.trim();
+        if (t.regionMatches(true, 0, "rva:", 0, 4)) return false;
+        try {
+            long v = t.startsWith("0x") || t.startsWith("0X")
+                    ? Long.parseUnsignedLong(t.substring(2), 16)
+                    : Long.parseUnsignedLong(t, 16);
+            return v > 0x7_0000_0000L;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
+    private static String formatHexDump(long base, byte[] buf, int read, boolean live) {
+        var sb = new StringBuilder(64 + (read / 16 + 1) * 76);
+        sb.append("# format=hex; addr=hex; rows=16B");
+        if (live) sb.append("; live");
+        sb.append('\n');
+        final char[] HEX = "0123456789abcdef".toCharArray();
+        for (int off = 0; off < read; off += 16) {
+            long line = base + off;
+            int row = Math.min(16, read - off);
+            sb.append(Long.toHexString(line)).append("  ");
+            for (int i = 0; i < row; i++) {
+                int b = buf[off + i] & 0xFF;
+                sb.append(HEX[b >>> 4]).append(HEX[b & 0xF]).append(' ');
+            }
+            for (int pad = row; pad < 16; pad++) sb.append("   ");
+            sb.append(" |");
+            for (int i = 0; i < row; i++) {
+                int b = buf[off + i] & 0xFF;
+                sb.append(b >= 32 && b < 127 ? (char) b : '.');
+            }
+            sb.append("|\n");
+        }
+        return sb.toString();
     }
 
     public String searchBytes(String pattern, Page p, Map<String, String> q) {

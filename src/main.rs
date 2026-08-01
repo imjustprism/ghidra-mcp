@@ -1,4 +1,5 @@
 mod client;
+mod dro;
 mod instance;
 mod tools;
 

@@ -151,7 +151,7 @@ RUST_LOG=ghidra_mcp=debug ./target/release/ghidra-mcp
 
 ## Tools
 
-**176 tools total.**
+**184 tools total.**
 
 Common conventions on most paginated read tools:
 
@@ -160,7 +160,7 @@ Common conventions on most paginated read tools:
 - **program** — open program name or sha256 (otherwise the active program)
 
 <details>
-<summary><b>Listing / metadata</b> (34)</summary>
+<summary><b>Listing / metadata</b> (42)</summary>
 
 | tool | purpose |
 | --- | --- |
@@ -184,6 +184,14 @@ Common conventions on most paginated read tools:
 | `list_tls_callbacks` | PE TLS callbacks |
 | `tls_singleton_map` | TLS slot map (+ live ptrs after live_attach) |
 | `nebula_container_layout` | container layout recovery from decompile |
+| `nebula_assert_helpers` | locate n_assert / n_error / n_warning helpers |
+| `nebula_engine_survey` | Nebula3 readiness: auto-names + assert callers |
+| `seed_nebula_helpers` | auto-discover/name n_assert/n_error/n_warning |
+| `name_from_n_assert` | mass-name FUN_* (sigs or decompile modes) |
+| `name_from_signatures` | fast name from __cdecl signature string xrefs |
+| `list_nebula_instances` | list ::Instance() singleton signature sites |
+| `name_nebula_instances` | rename auto FUN_* that are Type::Instance() |
+| `raknet_packet_lookup` | DSO RakNet packet id → name/notes/handler |
 | `assemble_code` | assemble asm text to bytes |
 | `extract_api_call_sequences` | ordered API-call trace of a function |
 | `vm_descriptor_table` | virtualizer dispatch table map |
@@ -424,6 +432,7 @@ Common conventions on most paginated read tools:
 </details>
 
 > Live attach and Lua helpers are powerful. They require an attached process and, for `lua_exec`, target-specific function addresses when built-in example defaults do not match.
+
 ## Prompts
 
 MCP prompts (slash commands in clients that support them):
@@ -435,6 +444,9 @@ MCP prompts (slash commands in clients that support them):
 | `triage_malware` | anti-analysis, capabilities, encoded data, crypto |
 | `solve_crackme` | locate + solve a validation routine |
 | `recover_types` | RTTI / FID / demangle / propagate |
+| `bootstrap_dro_client` | full Nebula3/DSO bootstrap: survey → assert names → TLS → RakNet |
+| `name_nebula_functions` | mass-recover symbols from n_assert / n_error / n_warning |
+| `analyze_raknet_handler` | map packet id or handler address to DSO protocol + document |
 
 ## Resources
 
@@ -444,6 +456,10 @@ MCP prompts (slash commands in clients that support them):
 | `ghidra://program/current-function` | function at the cursor |
 | `ghidra://program/current-address` | cursor address |
 | `ghidra://debugger/status` | live trace/target state |
+| `ghidra://dro/nebula-playbook` | Nebula3 / DSO RE playbook (assert naming, TLS, containers) |
+| `ghidra://dro/raknet-overview` | RakNet layers, magic, handshake for DSO |
+| `ghidra://dro/raknet-packet-ids` | packet id table (0x05–0x8e, ACK/NACK) |
+| `ghidra://dro/raknet-flows` | login / map / combat / heartbeat flows |
 
 ---
 

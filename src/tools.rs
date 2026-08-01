@@ -1788,6 +1788,137 @@ impl ToParams for NebulaContainerLayout {
     }
 }
 
+const fn default_assert_max() -> u32 {
+    200
+}
+
+const fn default_sig_max() -> u32 {
+    500
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct NameFromNAssert {
+    #[schemars(
+        description = "Optional single function VA/interior/RVA/rva:… . Empty = batch over candidates (capped by max)."
+    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
+    #[schemars(description = "Commit renames (default false = dry-run preview table).")]
+    #[serde(default)]
+    pub apply: bool,
+    #[schemars(
+        description = "Max candidates (default 200 for decomp path; signature path uses name_from_signatures defaults)."
+    )]
+    #[serde(default = "default_assert_max")]
+    pub max: u32,
+    #[schemars(
+        description = "Naming engine: auto (default, fast signature-strings), sigs/signatures/strings (xref-only, no decompile), decompile/decomp (assert-caller decomp)."
+    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
+}
+
+impl ToParams for NameFromNAssert {
+    fn into_params(self) -> Params {
+        let mut p = vec![
+            ("apply", if self.apply { "1" } else { "0" }.to_owned()),
+            ("max", self.max.to_string()),
+        ];
+        if let Some(a) = self.address.filter(|s| !s.trim().is_empty()) {
+            p.push(("address", a));
+        }
+        if let Some(m) = self.mode.filter(|s| !s.trim().is_empty()) {
+            p.push(("mode", m));
+        }
+        p
+    }
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct NameFromSignatures {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
+    #[serde(default)]
+    pub apply: bool,
+    #[serde(default = "default_sig_max")]
+    pub max: u32,
+}
+
+impl ToParams for NameFromSignatures {
+    fn into_params(self) -> Params {
+        let mut p = vec![
+            ("apply", if self.apply { "1" } else { "0" }.to_owned()),
+            ("max", self.max.to_string()),
+        ];
+        if let Some(a) = self.address.filter(|s| !s.trim().is_empty()) {
+            p.push(("address", a));
+        }
+        p
+    }
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema, Default)]
+pub struct ApplyMax {
+    #[serde(default)]
+    pub apply: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max: Option<u32>,
+}
+
+impl ToParams for ApplyMax {
+    fn into_params(self) -> Params {
+        let mut p = vec![("apply", if self.apply { "1" } else { "0" }.to_owned())];
+        if let Some(m) = self.max {
+            p.push(("max", m.to_string()));
+        }
+        p
+    }
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema, Default)]
+pub struct ApplyOnly {
+    #[serde(default)]
+    pub apply: bool,
+}
+
+impl ToParams for ApplyOnly {
+    fn into_params(self) -> Params {
+        vec![("apply", if self.apply { "1" } else { "0" }.to_owned())]
+    }
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema, Default)]
+pub struct RaknetPacketLookup {
+    #[schemars(description = "Packet id as 0x8a / 8a / 138. Omit to search by query only.")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[schemars(description = "Substring match on name/notes/handler (case-insensitive).")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub query: Option<String>,
+}
+
+fn parse_packet_id(raw: &str) -> Result<u8, String> {
+    let t = raw.trim();
+    if t.is_empty() {
+        return Err("empty id".into());
+    }
+    let (radix, digits) = t
+        .strip_prefix("0x")
+        .or_else(|| t.strip_prefix("0X"))
+        .or_else(|| t.strip_prefix("0h"))
+        .map_or_else(
+            || {
+                if t.chars().any(|c| matches!(c, 'a'..='f' | 'A'..='F')) {
+                    (16, t)
+                } else {
+                    (10, t)
+                }
+            },
+            |h| (16, h),
+        );
+    u8::from_str_radix(digits, radix).map_err(|e| format!("invalid packet id '{raw}': {e}"))
+}
+
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
 pub struct ExportOffsets {
     #[schemars(description = "Optional name filter (substring by default; regex=true for regex).")]
@@ -3101,6 +3232,114 @@ impl GhidraServer {
             return Err(ErrorData::invalid_params("address is required", None));
         }
         self.get("nebula_container_layout", p).await
+    }
+
+    #[tool(
+        description = "Locate Nebula3 assert/error helpers in the open program: n_assert (often two), n_error, n_warning — by symbol name and by \"NEBULA ASSERTION\" string xrefs. Returns role/name/address/caller counts. Name these helpers first if auto-named, then run name_from_n_assert",
+        annotations(read_only_hint = true)
+    )]
+    async fn nebula_assert_helpers(&self) -> Result<CallToolResult, ErrorData> {
+        self.get_bare("nebula_assert_helpers").await
+    }
+
+    #[tool(
+        description = "One-screen Nebula3/DRO readiness report: function counts (auto vs named), assert-helper status, how many auto-named callers of n_assert/n_error/n_warning are ready for mass rename. Print the recommended tool sequence (name_from_n_assert → tls_singleton_map → raknet). Start here on a new client binary",
+        annotations(read_only_hint = true)
+    )]
+    async fn nebula_engine_survey(&self) -> Result<CallToolResult, ErrorData> {
+        self.get_bare("nebula_engine_survey").await
+    }
+
+    #[tool(
+        description = "Auto-discover and optionally rename Nebula assert helpers (n_assert, n_assert2, n_error, n_warning) by scoring callees of __cdecl signature sites + NEBULA ASSERTION/CRITICAL strings. Dry-run default; apply=true commits helper names. Run this once on a fresh DRO client before mass naming",
+        annotations(destructive_hint = true)
+    )]
+    async fn seed_nebula_helpers(
+        &self,
+        Parameters(p): Parameters<ApplyOnly>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.post("seed_nebula_helpers", p).await
+    }
+
+    #[tool(
+        description = "Mass-name FUN_* for Nebula3/DRO. mode=auto|sigs (default path): rename from embedded __cdecl signature string xrefs — NO decompile, very fast (~15k+ on dro_client). mode=decompile: decompile callers of n_assert/n_error/n_warning and extract 4th-arg signatures. address= for one function. Dry-run default; apply=true commits + plate comments (file:line) + placeholder types. Prefer name_from_signatures for bulk; use seed_nebula_helpers first if helpers unnamed",
+        annotations(destructive_hint = true)
+    )]
+    async fn name_from_n_assert(
+        &self,
+        Parameters(p): Parameters<NameFromNAssert>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.post("name_from_n_assert", p).await
+    }
+
+    #[tool(
+        description = "Fastest Nebula symbol recovery: walk defined strings containing __cdecl/__thiscall signatures, follow xrefs, rename unique auto-named functions (Util::Array<...>::operator= → Util_Array6…9_operator). No decompile. Dry-run default; apply=true commits. max default 500. On dro_client ~15k unique auto-nameable. Use before hand-naming or decompile-based assert naming",
+        annotations(destructive_hint = true)
+    )]
+    async fn name_from_signatures(
+        &self,
+        Parameters(p): Parameters<NameFromSignatures>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.post("name_from_signatures", p).await
+    }
+
+    #[tool(
+        description = "List Nebula/DSO C++ singleton Instance() methods recovered from signature strings (…::Instance(void)), with ref counts and containing function. Read-only map of Game::EntityManager::Instance, Audio2 servers, etc.",
+        annotations(read_only_hint = true)
+    )]
+    async fn list_nebula_instances(&self) -> Result<CallToolResult, ErrorData> {
+        self.get_bare("list_nebula_instances").await
+    }
+
+    #[tool(
+        description = "Rename auto-named functions that uniquely reference ::Instance(void) signature strings to Type_Instance style names. Dry-run default; apply=true commits + plate comment. Pairs with tls_singleton_map for live singleton navigation",
+        annotations(destructive_hint = true)
+    )]
+    async fn name_nebula_instances(
+        &self,
+        Parameters(p): Parameters<ApplyMax>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.post("name_nebula_instances", p).await
+    }
+
+    #[tool(
+        description = "Look up Drakensang Online / Nebula3 RakNet packet IDs without web search. id=0x8a|8a|138 and/or query=substring (name/notes/handler). Returns id/name/direction/notes/handler_hint. Covers handshake (0x05–0x13), disconnect, and DSO custom 0x82–0x8e (service identify, time sync, game state, map, client auth, player action). Pair with decompile of RakNetClient dispatch and ghidra://dro/raknet-* resources",
+        annotations(read_only_hint = true)
+    )]
+    async fn raknet_packet_lookup(
+        &self,
+        Parameters(p): Parameters<RaknetPacketLookup>,
+    ) -> Result<CallToolResult, ErrorData> {
+        use std::fmt::Write as _;
+        let id = match p.id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            Some(raw) => {
+                Some(parse_packet_id(raw).map_err(|e| ErrorData::invalid_params(e, None))?)
+            }
+            None => None,
+        };
+        let query = p.query.as_deref();
+        let query_empty = query.map(str::trim).is_none_or(str::is_empty);
+        if id.is_none() && query_empty {
+            return Err(ErrorData::invalid_params(
+                "provide id and/or query (e.g. id=0x8a or query=map)",
+                None,
+            ));
+        }
+        let rows = crate::dro::lookup(id, query);
+        if rows.is_empty() {
+            return Ok(ok_text(format!(
+                "# no raknet packet match id={id:?} query={query:?}\n# see ghidra://dro/raknet-packet-ids"
+            )));
+        }
+        let mut out = String::from("id\tname\tdir\tnotes\thandler\n");
+        for r in rows {
+            let _ = writeln!(
+                out,
+                "0x{:02x}\t{}\t{}\t{}\t{}",
+                r.id, r.name, r.direction, r.notes, r.handler_hint
+            );
+        }
+        Ok(ok_text(out))
     }
 
     #[tool(
@@ -4649,28 +4888,161 @@ impl GhidraServer {
              Report recovered classes, named functions, and remaining gaps.",
         )
     }
+
+    #[prompt(
+        name = "bootstrap_dro_client",
+        description = "Full Nebula3/Drakensang client bootstrap: survey, assert naming, TLS map, network surface"
+    )]
+    async fn bootstrap_dro_client(&self) -> Vec<PromptMessage> {
+        user_prompt(
+            "Bootstrap reverse-engineering of this Nebula3 / Drakensang Online client.\n\
+             1. program_info + nebula_engine_survey — note sig_unique_auto_nameable and helpers.\n\
+             2. seed_nebula_helpers apply=false then apply=true — auto-name n_assert/n_assert2/n_error/n_warning.\n\
+             3. name_from_signatures apply=false (max=500+); review; apply=true. Loop until few remain.\n\
+             4. name_from_n_assert mode=decompile for leftover assert callers; name_nebula_instances.\n\
+             5. tls_singleton_map (+ live_attach). list_nebula_instances for static Instance() map.\n\
+             6. find_function_by_string RakNet/DrasaOnlineClient/services; raknet_packet_lookup + decompile.\n\
+             7. Read ghidra://dro/raknet-overview and ghidra://dro/nebula-playbook.\n\
+             8. nebula_container_layout on hot containers; set_variables / propose_struct_from_accesses.\n\
+             Deliver: helper table, rename counts (sigs + decomp + instances), TLS map, network dispatch, next targets.",
+        )
+    }
+
+    #[prompt(
+        name = "name_nebula_functions",
+        description = "Mass-recover Nebula3 function names from signature strings and asserts"
+    )]
+    async fn name_nebula_functions(&self) -> Vec<PromptMessage> {
+        user_prompt(
+            "Recover Nebula3 symbols at scale.\n\
+             1. seed_nebula_helpers if nebula_assert_helpers is empty/weak.\n\
+             2. name_from_signatures apply=false then apply=true (fast path; no decompile).\n\
+             3. name_from_n_assert mode=decompile apply=false then apply=true for leftovers.\n\
+             4. name_nebula_instances for Type::Instance() singletons.\n\
+             5. function_summary_bundle on key newly named methods; set_variables / propagate_function_types.\n\
+             6. nebula_engine_survey — report remaining auto_named and sig_unique_auto_nameable.\n\
+             Do not invent names for FUN_* that still have __cdecl signature strings or call n_assert.",
+        )
+    }
+
+    #[prompt(
+        name = "analyze_raknet_handler",
+        description = "Map a RakNet packet id or handler address to DSO protocol knowledge and document it"
+    )]
+    async fn analyze_raknet_handler(
+        &self,
+        params: Parameters<AnalyzeFunctionArgs>,
+    ) -> Vec<PromptMessage> {
+        user_prompt(&format!(
+            "Analyze the RakNet / DSO network handler at {} (or treat the value as a packet id if it looks like 0xNN).\n\
+             1. If it looks like a packet id: raknet_packet_lookup id={{value}}; else function_summary_bundle {{addr}}.\n\
+             2. Read ghidra://dro/raknet-packet-ids and ghidra://dro/raknet-flows for context.\n\
+             3. Decompile the switch/dispatch and every case callees (clean=true).\n\
+             4. Rename handlers with set_variables / name_from_n_assert when asserts exist.\n\
+             5. batch_set_comment or analysis_note: packet id, direction, payload fields, next steps.\n\
+             Report a id→name→function table for everything you touch.",
+            params.0.address
+        ))
+    }
 }
 
-type Resource = (&'static str, &'static str, &'static str);
+enum ResourceBody {
+    Http(&'static str),
+    StaticFn(fn() -> String),
+}
+
+type Resource = (&'static str, &'static str, ResourceBody);
 
 const RESOURCES: &[Resource] = &[
-    ("ghidra://program/info", "Program info", "program_info"),
+    (
+        "ghidra://program/info",
+        "Program info",
+        ResourceBody::Http("program_info"),
+    ),
     (
         "ghidra://program/current-function",
         "Current function",
-        "get_current_function",
+        ResourceBody::Http("get_current_function"),
     ),
     (
         "ghidra://program/current-address",
         "Current address",
-        "get_current_address",
+        ResourceBody::Http("get_current_address"),
     ),
     (
         "ghidra://debugger/status",
         "Debugger status (live)",
-        "debugger_status",
+        ResourceBody::Http("debugger_status"),
+    ),
+    (
+        "ghidra://dro/raknet-overview",
+        "DSO RakNet overview",
+        ResourceBody::StaticFn(crate::dro::overview_markdown),
+    ),
+    (
+        "ghidra://dro/raknet-packet-ids",
+        "DSO RakNet packet ID table",
+        ResourceBody::StaticFn(crate::dro::packet_ids_markdown),
+    ),
+    (
+        "ghidra://dro/raknet-flows",
+        "DSO RakNet in-game flows",
+        ResourceBody::StaticFn(crate::dro::packet_flows_markdown),
+    ),
+    (
+        "ghidra://dro/nebula-playbook",
+        "Nebula3 / DRO RE playbook",
+        ResourceBody::StaticFn(nebula_playbook_markdown),
     ),
 ];
+
+fn nebula_playbook_markdown() -> String {
+    r"# Nebula3 / Drakensang Online RE playbook
+
+## Always-on mental model
+- Engine: **Nebula3** (gscept/nebula-trifid lineage) + game layer **Drasa** / DSO.
+- Smart pointers: `Core::Ptr<T>` (often decompiles as vtable thrash + refcount).
+- Interned strings: `StringAtom` / atom tables — search raw text if not defined strings.
+- Containers: `Util::Array` / `FixedArray` / `Dictionary` — use `nebula_container_layout`.
+- Diagnostics: `n_assert` / `n_error` / `n_warning` embed **file, line, full C++ signature**.
+
+## First 10 minutes on a new binary
+1. `nebula_engine_survey` — note `sig_unique_auto_nameable` (often 10k+)
+2. `seed_nebula_helpers` dry-run → `apply=true` (n_assert / n_assert2 / n_error / n_warning)
+3. `name_from_signatures` dry-run → `apply=true` with high max (fast; no decompile)
+4. `name_from_n_assert` mode=decompile for leftovers that only show up in assert calls
+5. `name_nebula_instances` for Type::Instance() singletons
+6. `tls_singleton_map` (+ `live_attach`)
+7. Network: `raknet_packet_lookup` + decompile RakNetClient switch
+8. `save_program`
+
+## Naming rules
+- Prefer `name_from_signatures` for bulk Nebula C++ names (signature string xrefs).
+- Prefer `name_from_n_assert` mode=decompile for assert-callers the string pass missed.
+- Sanitized names: `IO_Console_Warning`, templates `Core_Ptr6T9`, operators `…_operator`.
+- Plate comments get `path:line | signature` when apply=true.
+
+## TLS singleton map (static offsets into module TLS)
+| slot | type | role |
+|---|---|---|
+| +0x58 | Game::ClientGameWorld* | local player / world |
+| +0x60 | DrasaClient* | client root |
+| +0x90 | Game::ClientActorManager* | nearby entities |
+| +0x300 | CoreGraphics::TransformDevice* | W2S |
+| +0x6b0 | Game::EntityManager* | entity ids |
+See tool `tls_singleton_map` for the full table.
+
+## Network
+Resources: `ghidra://dro/raknet-overview`, `…/raknet-packet-ids`, `…/raknet-flows`.
+Tool: `raknet_packet_lookup`. Custom game IDs live in **0x82–0x8e**.
+
+## Decomp hygiene
+- `decompile` / `function_summary_bundle` with clean=true
+- `refine_function` then `set_variables` for prototypes
+- `nebula_container_layout` before inventing Array field layouts
+"
+    .to_owned()
+}
 
 #[tool_handler]
 #[prompt_handler]
@@ -4687,7 +5059,7 @@ impl ServerHandler for GhidraServer {
         .with_instructions(
             "Rust-based MCP bridge to the GhidraMCP HTTP plugin. Tools decompile, disassemble, \
              search, and annotate; prompts give guided RE workflows; resources expose live \
-             program and debugger state.\n\n\
+             program and debugger state plus Nebula3/DSO domain knowledge.\n\n\
              Addressing: tools take a full VA, an interior address (resolves to the enclosing \
              function), or an RVA. A small value that is not a mapped VA is auto-rebased to \
              image_base+value; force RVA interpretation with an `rva:` prefix (e.g. rva:0x2d202c). \
@@ -4695,8 +5067,16 @@ impl ServerHandler for GhidraServer {
              Strings: list_strings / search kind=string / find_function_by_string cover only DEFINED \
              program strings; for undefined or embedded text (content ids, locale keys, asset names) \
              use search kind=text (ASCII + UTF-16LE raw-memory scan).\n\n\
-             This client is often a Nebula3 engine: expect Core::Ptr smart pointers, StringAtom \
-             interned strings, and Util::Dictionary/Util::Array containers."
+             Nebula3 / Drakensang Online (primary target):\n\
+             - Start with nebula_engine_survey and resource ghidra://dro/nebula-playbook.\n\
+             - Bulk symbols: seed_nebula_helpers → name_from_signatures (no decompile, 10k+ scale) → \
+             name_from_n_assert mode=decompile for leftovers → name_nebula_instances.\n\
+             - Asserts/signatures embed full C++ names + source paths; never invent FUN_* names first.\n\
+             - Expect Core::Ptr<T>, StringAtom, Util::Array/FixedArray/Dictionary — use \
+             nebula_container_layout and tls_singleton_map (TLS+0x58 world, +0x90 actors, …).\n\
+             - Network is RakNet + DSO custom 0x82–0x8e: raknet_packet_lookup and \
+             ghidra://dro/raknet-* resources (no web search needed).\n\
+             - Prompts: bootstrap_dro_client, name_nebula_functions, analyze_raknet_handler."
                 .to_owned(),
         )
     }
@@ -4718,16 +5098,20 @@ impl ServerHandler for GhidraServer {
         request: ReadResourceRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> Result<ReadResourceResult, ErrorData> {
-        let Some((uri, _, endpoint)) = RESOURCES.iter().find(|(uri, ..)| *uri == request.uri)
-        else {
+        let Some((uri, _, body)) = RESOURCES.iter().find(|(uri, ..)| *uri == request.uri) else {
             return Err(ErrorData::resource_not_found(
                 format!("unknown resource: {}", request.uri),
                 None,
             ));
         };
-        let body = self.http.get(endpoint, NO_QUERY).await.map_err(map_err)?;
+        let text = match body {
+            ResourceBody::Http(endpoint) => {
+                self.http.get(endpoint, NO_QUERY).await.map_err(map_err)?
+            }
+            ResourceBody::StaticFn(f) => f(),
+        };
         Ok(ReadResourceResult::new(vec![ResourceContents::text(
-            body, *uri,
+            text, *uri,
         )]))
     }
 }
@@ -4897,6 +5281,55 @@ mod tests {
                 ("apply", "0".to_owned()),
             ]
         );
+    }
+
+    #[test]
+    fn name_from_n_assert_params_dry_run() {
+        let p = NameFromNAssert {
+            address: None,
+            apply: false,
+            max: 200,
+            mode: None,
+        };
+        assert_eq!(
+            p.into_params(),
+            vec![("apply", "0".to_owned()), ("max", "200".to_owned())]
+        );
+    }
+
+    #[test]
+    fn name_from_n_assert_params_with_address() {
+        let p = NameFromNAssert {
+            address: Some("rva:0x1234".to_owned()),
+            apply: true,
+            max: 50,
+            mode: Some("decompile".to_owned()),
+        };
+        assert_eq!(
+            p.into_params(),
+            vec![
+                ("apply", "1".to_owned()),
+                ("max", "50".to_owned()),
+                ("address", "rva:0x1234".to_owned()),
+                ("mode", "decompile".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_packet_id_accepts_hex_and_decimal() {
+        assert_eq!(parse_packet_id("0x8a").unwrap(), 0x8a);
+        assert_eq!(parse_packet_id("8a").unwrap(), 0x8a);
+        assert_eq!(parse_packet_id("138").unwrap(), 138);
+    }
+
+    #[test]
+    fn dro_resources_are_registered() {
+        let uris: Vec<&str> = RESOURCES.iter().map(|(u, ..)| *u).collect();
+        assert!(uris.contains(&"ghidra://dro/raknet-overview"));
+        assert!(uris.contains(&"ghidra://dro/raknet-packet-ids"));
+        assert!(uris.contains(&"ghidra://dro/raknet-flows"));
+        assert!(uris.contains(&"ghidra://dro/nebula-playbook"));
     }
 
     #[test]

@@ -8,3 +8,12 @@ See the LICENSE file for the full license text.
 This project is not affiliated with, endorsed by, or sponsored by the
 National Security Agency or the Ghidra project.
 Ghidra is a trademark of the National Security Agency.
+
+Nebula3 assert-based function naming is inspired by the approach in
+DSO-Reconstruction/dro_client-decomp (n_assert_namer.py by BaalNetbek).
+Reimplemented for ghidra-mcp; not a copy of that repository's files.
+
+Drakensang Online RakNet packet ID tables and flow notes distilled from
+DSO-Reconstruction/Drakensang_RaknetProtocol research documentation.
+Adapted for agent-facing MCP resources/tools; not a wholesale vendoring
+of that repository.

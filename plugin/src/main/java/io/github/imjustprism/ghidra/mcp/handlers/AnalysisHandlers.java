@@ -42,7 +42,9 @@ import io.github.imjustprism.ghidra.mcp.analysis.Signatures;
 import io.github.imjustprism.ghidra.mcp.analysis.StackStrings;
 import io.github.imjustprism.ghidra.mcp.analysis.StructDiagram;
 import io.github.imjustprism.ghidra.mcp.analysis.Syscalls;
+import io.github.imjustprism.ghidra.mcp.analysis.NebulaAssertNamer;
 import io.github.imjustprism.ghidra.mcp.analysis.NebulaContainers;
+import io.github.imjustprism.ghidra.mcp.analysis.NebulaSingletons;
 import io.github.imjustprism.ghidra.mcp.analysis.TlsCallbacks;
 import io.github.imjustprism.ghidra.mcp.analysis.TlsSingletonMap;
 import io.github.imjustprism.ghidra.mcp.util.Live;
@@ -95,6 +97,21 @@ public final class AnalysisHandlers {
         });
         routes.getQuery("/nebula_container_layout", q -> NebulaContainers.layout(ctx, q.get("address"),
                 q.get("variable"), q));
+        routes.getQuery("/nebula_assert_helpers", q -> NebulaAssertNamer.findHelpers(ctx, q));
+        routes.getQuery("/nebula_engine_survey", q -> NebulaAssertNamer.survey(ctx, q));
+        routes.postForm("/seed_nebula_helpers", p -> NebulaAssertNamer.seedHelpers(ctx,
+                Http.parseBool(p.get("apply"), false), p));
+        routes.postForm("/name_from_n_assert", p -> NebulaAssertNamer.name(ctx, p.get("address"),
+                Http.parseBool(p.get("apply"), false),
+                Http.parseIntOrDefault(p.get("max"), 200),
+                p.getOrDefault("mode", "auto"), p));
+        routes.postForm("/name_from_signatures", p -> NebulaAssertNamer.nameFromSignatures(ctx,
+                p.get("address"), Http.parseBool(p.get("apply"), false),
+                Http.parseIntOrDefault(p.get("max"), 500), p));
+        routes.getQuery("/list_nebula_instances", q -> NebulaSingletons.listInstances(ctx, q));
+        routes.postForm("/name_nebula_instances", p -> NebulaSingletons.nameInstances(ctx,
+                Http.parseBool(p.get("apply"), false),
+                Http.parseIntOrDefault(p.get("max"), 300), p));
         routes.getQuery("/assemble_code", q -> Assemble.assemble(ctx, q.get("address"), q.get("assembly")));
         routes.getQuery("/extract_api_call_sequences", q -> ApiCallSequence.extract(ctx, q.get("address"), q));
         routes.getPage("/extract_iocs", (p, q) -> ExtractIocs.find(ctx, p, q));

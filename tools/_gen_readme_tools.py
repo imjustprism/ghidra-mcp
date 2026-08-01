@@ -45,6 +45,14 @@ CATEGORIES: dict[str, list[str]] = {
         "list_tls_callbacks",
         "tls_singleton_map",
         "nebula_container_layout",
+        "nebula_assert_helpers",
+        "nebula_engine_survey",
+        "seed_nebula_helpers",
+        "name_from_n_assert",
+        "name_from_signatures",
+        "list_nebula_instances",
+        "name_nebula_instances",
+        "raknet_packet_lookup",
         "assemble_code",
         "extract_api_call_sequences",
         "vm_descriptor_table",
@@ -283,6 +291,14 @@ PURPOSES: dict[str, str] = {
     "list_tls_callbacks": "PE TLS callbacks",
     "tls_singleton_map": "TLS slot map (+ live ptrs after live_attach)",
     "nebula_container_layout": "container layout recovery from decompile",
+    "nebula_assert_helpers": "locate n_assert / n_error / n_warning helpers",
+    "nebula_engine_survey": "Nebula3 readiness: auto-names + assert callers",
+    "seed_nebula_helpers": "auto-discover/name n_assert/n_error/n_warning",
+    "name_from_n_assert": "mass-name FUN_* (sigs or decompile modes)",
+    "name_from_signatures": "fast name from __cdecl signature string xrefs",
+    "list_nebula_instances": "list ::Instance() singleton signature sites",
+    "name_nebula_instances": "rename auto FUN_* that are Type::Instance()",
+    "raknet_packet_lookup": "DSO RakNet packet id → name/notes/handler",
     "assemble_code": "assemble asm text to bytes",
     "extract_api_call_sequences": "ordered API-call trace of a function",
     "vm_descriptor_table": "virtualizer dispatch table map",
@@ -451,7 +467,7 @@ def main() -> None:
     readme = README.read_text(encoding="utf-8")
     start = readme.index("## Tools")
     end = readme.index("\n## Prompts")
-    README.write_text(readme[:start] + section + readme[end + 1 :], encoding="utf-8", newline="\n")
+    README.write_text(readme[:start] + section + "\n" + readme[end + 1 :], encoding="utf-8", newline="\n")
     print(f"rewrote Tools section ({n} tools)")
 
 
