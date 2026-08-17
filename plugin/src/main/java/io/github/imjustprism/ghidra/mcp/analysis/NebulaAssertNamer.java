@@ -246,7 +246,9 @@ public final class NebulaAssertNamer {
             }
             sb.append("# next: name_from_signatures (fast, ~")
                     .append(sigStats[1]).append(" ready) → name_from_n_assert mode=decompile → ")
-                    .append("name_nebula_instances → tls_singleton_map\n");
+                    .append("name_nebula_instances → derive_tls_singletons apply=true → ")
+                    .append("factory_catalog / assert_catalog / messaging_catalog / attr_catalog / ")
+                    .append("source_tree / funcsig_graph\n");
             return sb.toString();
         });
     }

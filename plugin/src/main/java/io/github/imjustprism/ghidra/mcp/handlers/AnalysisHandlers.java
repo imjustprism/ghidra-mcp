@@ -42,9 +42,20 @@ import io.github.imjustprism.ghidra.mcp.analysis.Signatures;
 import io.github.imjustprism.ghidra.mcp.analysis.StackStrings;
 import io.github.imjustprism.ghidra.mcp.analysis.StructDiagram;
 import io.github.imjustprism.ghidra.mcp.analysis.Syscalls;
+import io.github.imjustprism.ghidra.mcp.analysis.CodeContext;
 import io.github.imjustprism.ghidra.mcp.analysis.NebulaAssertNamer;
 import io.github.imjustprism.ghidra.mcp.analysis.NebulaContainers;
+import io.github.imjustprism.ghidra.mcp.analysis.NebulaShapes;
 import io.github.imjustprism.ghidra.mcp.analysis.NebulaSingletons;
+import io.github.imjustprism.ghidra.mcp.analysis.ProveOffset;
+import io.github.imjustprism.ghidra.mcp.analysis.Reachability;
+import io.github.imjustprism.ghidra.mcp.analysis.SourceTree;
+import io.github.imjustprism.ghidra.mcp.analysis.TlsSingletons;
+import io.github.imjustprism.ghidra.mcp.analysis.FactoryCatalog;
+import io.github.imjustprism.ghidra.mcp.analysis.AssertCatalog;
+import io.github.imjustprism.ghidra.mcp.analysis.MessagingCatalog;
+import io.github.imjustprism.ghidra.mcp.analysis.AttrCatalog;
+import io.github.imjustprism.ghidra.mcp.analysis.FuncsigGraph;
 import io.github.imjustprism.ghidra.mcp.analysis.TlsCallbacks;
 import io.github.imjustprism.ghidra.mcp.analysis.TlsSingletonMap;
 import io.github.imjustprism.ghidra.mcp.util.Live;
@@ -97,6 +108,33 @@ public final class AnalysisHandlers {
         });
         routes.getQuery("/nebula_container_layout", q -> NebulaContainers.layout(ctx, q.get("address"),
                 q.get("variable"), q));
+        routes.getQuery("/prove_offset", q -> ProveOffset.prove(ctx, q.get("address"), q.get("field"),
+                q.get("class"), Http.parseBool(q.get("proven_only"), false),
+                Http.parseIntOrDefault(q.get("max"), ProveOffset.DEFAULT_MAX), Page.from(q), q));
+        routes.getQuery("/address_context", q -> CodeContext.context(ctx, q.get("address"),
+                Http.parseIntOrDefault(q.get("count"), CodeContext.DEFAULT_COUNT),
+                Http.parseIntOrDefault(q.get("bytes"), CodeContext.DEFAULT_BYTES), q));
+        routes.getQuery("/reachability", q -> Reachability.analyze(ctx, q.get("target"),
+                Http.parseIntOrDefault(q.get("depth"), Reachability.DEFAULT_DEPTH),
+                Http.parseIntOrDefault(q.get("max"), Reachability.DEFAULT_MAX), q));
+        routes.getQuery("/nebula_shape", q -> NebulaShapes.shapes(ctx, q.get("address"),
+                q.get("kind"), q));
+        routes.getQuery("/derive_tls_singletons", q -> TlsSingletons.derive(ctx, q.get("class"),
+                Http.parseIntOrDefault(q.get("max"), TlsSingletons.DEFAULT_MAX),
+                Http.parseBool(q.get("apply"), false), Page.from(q), q));
+        routes.getQuery("/factory_catalog", q -> FactoryCatalog.catalog(ctx, q.get("filter"),
+                Page.from(q), q));
+        routes.getQuery("/assert_catalog", q -> AssertCatalog.catalog(ctx, q.get("filter"),
+                Http.parseBool(q.get("prove"), false),
+                Http.parseIntOrDefault(q.get("max"), AssertCatalog.DEFAULT_MAX), Page.from(q), q));
+        routes.getQuery("/messaging_catalog", q -> MessagingCatalog.catalog(ctx, q.get("filter"),
+                Page.from(q), q));
+        routes.getQuery("/attr_catalog", q -> AttrCatalog.catalog(ctx, q.get("filter"),
+                Page.from(q), q));
+        routes.getQuery("/source_tree", q -> SourceTree.catalog(ctx, q.get("filter"),
+                Page.from(q), q));
+        routes.getQuery("/funcsig_graph", q -> FuncsigGraph.graph(ctx, q.get("filter"),
+                q.get("fmt"), q.get("max"), Page.from(q), q));
         routes.getQuery("/nebula_assert_helpers", q -> NebulaAssertNamer.findHelpers(ctx, q));
         routes.getQuery("/nebula_engine_survey", q -> NebulaAssertNamer.survey(ctx, q));
         routes.postForm("/seed_nebula_helpers", p -> NebulaAssertNamer.seedHelpers(ctx,
@@ -135,7 +173,10 @@ public final class AnalysisHandlers {
         routes.getQuery("/xref_graph", q -> "html".equalsIgnoreCase(q.get("fmt"))
                 ? XrefGraph.html(ctx, q.get("address"), q.get("max"))
                 : XrefGraph.mermaid(ctx, q.get("address"), q.get("max")));
-        routes.getQuery("/namespace_graph", q -> NamespaceGraph.mermaid(ctx, q.get("max")));
+        routes.getQuery("/namespace_graph", q -> "funcsig".equalsIgnoreCase(q.get("source"))
+                ? FuncsigGraph.graph(ctx, q.get("filter"), q.getOrDefault("fmt", "mermaid"),
+                        q.get("max"), Page.from(q), q)
+                : NamespaceGraph.mermaid(ctx, q.get("max")));
         routes.getQuery("/struct_diagram", q -> StructDiagram.mermaid(ctx, q.get("filter"),
                 Http.parseIntOrDefault(q.get("max"), 0)));
         routes.getQuery("/find_orphan_gaps", q -> OrphanGaps.find(ctx,

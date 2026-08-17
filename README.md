@@ -151,7 +151,7 @@ RUST_LOG=ghidra_mcp=debug ./target/release/ghidra-mcp
 
 ## Tools
 
-**184 tools total.**
+**195 tools total.**
 
 Common conventions on most paginated read tools:
 
@@ -160,7 +160,7 @@ Common conventions on most paginated read tools:
 - **program** — open program name or sha256 (otherwise the active program)
 
 <details>
-<summary><b>Listing / metadata</b> (42)</summary>
+<summary><b>Listing / metadata</b> (53)</summary>
 
 | tool | purpose |
 | --- | --- |
@@ -183,6 +183,11 @@ Common conventions on most paginated read tools:
 | `detect_security_mitigations` | PE hardening (ASLR/DEP/CFG/SafeSEH/GS) |
 | `list_tls_callbacks` | PE TLS callbacks |
 | `tls_singleton_map` | TLS slot map (+ live ptrs after live_attach) |
+| `derive_tls_singletons` | derive TLS slots from "0 != Singleton" asserts |
+| `prove_offset` | prove a field offset from the n_assert that names it |
+| `address_context` | function start? mid-instruction? unshifted bytes |
+| `reachability` | dead vs live, ignoring self .pdata; CRT inits are live |
+| `nebula_shape` | proven container geometry + cross-check vs code |
 | `nebula_container_layout` | container layout recovery from decompile |
 | `nebula_assert_helpers` | locate n_assert / n_error / n_warning helpers |
 | `nebula_engine_survey` | Nebula3 readiness: auto-names + assert callers |
@@ -191,6 +196,12 @@ Common conventions on most paginated read tools:
 | `name_from_signatures` | fast name from __cdecl signature string xrefs |
 | `list_nebula_instances` | list ::Instance() singleton signature sites |
 | `name_nebula_instances` | rename auto FUN_* that are Type::Instance() |
+| `factory_catalog` | Core::Factory / Rtti class + FourCC + BSS catalog |
+| `assert_catalog` | this-> n_assert field index (optional prove) |
+| `messaging_catalog` | Messaging:: classes + HandleMessage dispatchers |
+| `attr_catalog` | Attr names and money_* wallets |
+| `source_tree` | functions grouped by embedded .cc/.h path |
+| `funcsig_graph` | C++ namespace graph from __cdecl signature strings |
 | `raknet_packet_lookup` | DSO RakNet packet id → name/notes/handler |
 | `assemble_code` | assemble asm text to bytes |
 | `extract_api_call_sequences` | ordered API-call trace of a function |

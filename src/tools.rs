@@ -1788,6 +1788,331 @@ impl ToParams for NebulaContainerLayout {
     }
 }
 
+const fn default_prove_offset_max() -> u32 {
+    25
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct ProveOffsetArgs {
+    #[schemars(
+        description = "Function VA/RVA/rva:/interior address to prove every offset inside. Give this OR field/class."
+    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
+    #[schemars(
+        description = "Field name as it appears in the n_assert text, e.g. summonMonsterAmount, commands, currState. Searches the whole program's assert strings."
+    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub field: Option<String>,
+    #[schemars(
+        description = "Class name filter, e.g. GameActorShiftedSkill or Skills::SkillManager. Matched against the class the assert's FUNCSIG belongs to."
+    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub class: Option<String>,
+    #[schemars(
+        description = "Drop every row that is not confidence=exact (default false, so ambiguous and unprovable asserts stay visible)."
+    )]
+    #[serde(
+        default,
+        deserialize_with = "de_opt_bool",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub proven_only: Option<bool>,
+    #[schemars(
+        description = "Max functions to decompile on the search path (default 25, hard cap 200)."
+    )]
+    #[serde(default = "default_prove_offset_max")]
+    pub max: u32,
+    #[serde(flatten)]
+    pub page: Page,
+}
+
+impl ToParams for ProveOffsetArgs {
+    fn into_params(self) -> Params {
+        let mut p = self.page.into_params();
+        p.push(("max", self.max.to_string()));
+        if let Some(a) = self.address.filter(|s| !s.trim().is_empty()) {
+            p.push(("address", a));
+        }
+        if let Some(f) = self.field.filter(|s| !s.trim().is_empty()) {
+            p.push(("field", f));
+        }
+        if let Some(c) = self.class.filter(|s| !s.trim().is_empty()) {
+            p.push(("class", c));
+        }
+        if let Some(v) = self.proven_only {
+            p.push(("proven_only", flag(v)));
+        }
+        p
+    }
+}
+
+const fn default_context_count() -> u32 {
+    4
+}
+
+const fn default_context_bytes() -> u32 {
+    16
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct AddressContextArgs {
+    #[schemars(
+        description = "VA, RVA or rva:… address to frame. Interior and unaligned addresses are the point."
+    )]
+    pub address: String,
+    #[schemars(
+        description = "Instructions of context either side of the containing instruction (default 4, max 64)."
+    )]
+    #[serde(default = "default_context_count")]
+    pub count: u32,
+    #[schemars(
+        description = "Bytes to dump from the containing instruction start and from the function entry (default 16, max 256)."
+    )]
+    #[serde(default = "default_context_bytes")]
+    pub bytes: u32,
+    #[schemars(description = "Output format: tsv (default), csv, json, or verbose.")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fmt: Option<String>,
+    #[schemars(
+        description = "Target a specific open program by name or sha256 instead of the active one."
+    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub program: Option<String>,
+}
+
+impl ToParams for AddressContextArgs {
+    fn into_params(self) -> Params {
+        let mut p = vec![
+            ("address", self.address),
+            ("count", self.count.to_string()),
+            ("bytes", self.bytes.to_string()),
+        ];
+        if let Some(f) = self.fmt {
+            p.push(("fmt", f));
+        }
+        if let Some(prog) = self.program {
+            p.push(("program", prog));
+        }
+        p
+    }
+}
+
+const fn default_reach_depth() -> u32 {
+    6
+}
+
+const fn default_reach_max() -> u32 {
+    400
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct ReachabilityArgs {
+    #[schemars(description = "Function name, VA, RVA or rva:… to test for reachability.")]
+    pub target: String,
+    #[schemars(description = "How many caller levels to walk up (default 6, max 24).")]
+    #[serde(default = "default_reach_depth")]
+    pub depth: u32,
+    #[schemars(description = "Max transitive callers to collect (default 400).")]
+    #[serde(default = "default_reach_max")]
+    pub max: u32,
+    #[schemars(description = "Output format: tsv (default), csv, json, or verbose.")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fmt: Option<String>,
+    #[schemars(
+        description = "Target a specific open program by name or sha256 instead of the active one."
+    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub program: Option<String>,
+}
+
+impl ToParams for ReachabilityArgs {
+    fn into_params(self) -> Params {
+        let mut p = vec![
+            ("target", self.target),
+            ("depth", self.depth.to_string()),
+            ("max", self.max.to_string()),
+        ];
+        if let Some(f) = self.fmt {
+            p.push(("fmt", f));
+        }
+        if let Some(prog) = self.program {
+            p.push(("program", prog));
+        }
+        p
+    }
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct NebulaShapeArgs {
+    #[schemars(
+        description = "Optional function VA/RVA/rva:… to identify and cross-check. Omit to get the proven shape table."
+    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
+    #[schemars(
+        description = "Optional single kind: Util::Array, Util::FixedArray, Core::Ptr, Math::point, Util::StringAtom."
+    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    #[schemars(description = "Output format: tsv (default), csv, json, or verbose.")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fmt: Option<String>,
+    #[schemars(
+        description = "Target a specific open program by name or sha256 instead of the active one."
+    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub program: Option<String>,
+}
+
+impl ToParams for NebulaShapeArgs {
+    fn into_params(self) -> Params {
+        let mut p: Params = Vec::new();
+        if let Some(a) = self.address.filter(|s| !s.trim().is_empty()) {
+            p.push(("address", a));
+        }
+        if let Some(k) = self.kind.filter(|s| !s.trim().is_empty()) {
+            p.push(("kind", k));
+        }
+        if let Some(f) = self.fmt {
+            p.push(("fmt", f));
+        }
+        if let Some(prog) = self.program {
+            p.push(("program", prog));
+        }
+        p
+    }
+}
+
+const fn default_tls_derive_max() -> u32 {
+    30
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct DeriveTlsSingletonsArgs {
+    #[schemars(description = "Optional class filter, e.g. SkillManager or TemplateMgr.")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub class: Option<String>,
+    #[schemars(
+        description = "Max functions to decompile in this pass (default 30, cap 120). Page with offset to cover the rest."
+    )]
+    #[serde(default = "default_tls_derive_max")]
+    pub max: u32,
+    #[schemars(
+        description = "When true, merge exact slots from this pass into the program's persisted TLS table (tls_singleton_map source=derived). Default false."
+    )]
+    #[serde(default)]
+    pub apply: bool,
+    #[serde(flatten)]
+    pub page: Page,
+}
+
+impl ToParams for DeriveTlsSingletonsArgs {
+    fn into_params(self) -> Params {
+        let mut p = self.page.into_params();
+        p.push(("max", self.max.to_string()));
+        if self.apply {
+            p.push(("apply", "1".to_string()));
+        }
+        if let Some(c) = self.class.filter(|s| !s.trim().is_empty()) {
+            p.push(("class", c));
+        }
+        p
+    }
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct CatalogFilter {
+    #[schemars(description = "Optional substring filter (class, FourCC, path, attr name).")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filter: Option<String>,
+    #[serde(flatten)]
+    pub page: Page,
+}
+
+impl ToParams for CatalogFilter {
+    fn into_params(self) -> Params {
+        let mut p = self.page.into_params();
+        if let Some(f) = self.filter.filter(|s| !s.trim().is_empty()) {
+            p.push(("filter", f));
+        }
+        p
+    }
+}
+
+const fn default_assert_catalog_max() -> u32 {
+    40
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct AssertCatalogArgs {
+    #[schemars(description = "Optional substring on assert text, field, or class.")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filter: Option<String>,
+    #[schemars(
+        description = "When true, decompile referencing functions and run prove_offset (paged by offset/max). Default false is the fast string index."
+    )]
+    #[serde(
+        default,
+        deserialize_with = "de_opt_bool",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub prove: Option<bool>,
+    #[schemars(description = "Max functions to decompile when prove=true (default 40, cap 200).")]
+    #[serde(default = "default_assert_catalog_max")]
+    pub max: u32,
+    #[serde(flatten)]
+    pub page: Page,
+}
+
+impl ToParams for AssertCatalogArgs {
+    fn into_params(self) -> Params {
+        let mut p = self.page.into_params();
+        p.push(("max", self.max.to_string()));
+        if let Some(f) = self.filter.filter(|s| !s.trim().is_empty()) {
+            p.push(("filter", f));
+        }
+        if let Some(v) = self.prove {
+            p.push(("prove", flag(v)));
+        }
+        p
+    }
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct FuncsigGraphArgs {
+    #[schemars(description = "Optional namespace/class substring, e.g. Skills or Messaging.")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filter: Option<String>,
+    #[schemars(description = "\"mermaid\" (default) or \"tsv\" (namespace table).")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fmt: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "de_opt_u32",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub max: Option<u32>,
+    #[serde(flatten)]
+    pub page: Page,
+}
+
+impl ToParams for FuncsigGraphArgs {
+    fn into_params(self) -> Params {
+        let mut p = self.page.into_params();
+        if let Some(f) = self.filter.filter(|s| !s.trim().is_empty()) {
+            p.push(("filter", f));
+        }
+        if let Some(f) = self.fmt {
+            p.push(("fmt", f));
+        }
+        if let Some(m) = self.max {
+            p.push(("max", m.to_string()));
+        }
+        p
+    }
+}
+
 const fn default_assert_max() -> u32 {
     200
 }
@@ -2289,14 +2614,29 @@ pub struct GraphMax {
         skip_serializing_if = "Option::is_none"
     )]
     pub max: Option<u32>,
+    #[schemars(
+        description = "\"symbols\" (default, Ghidra namespaces) or \"funcsig\" (Nebula C++ namespaces parsed from __cdecl signature strings)."
+    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[schemars(description = "Optional namespace substring when source=funcsig.")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filter: Option<String>,
 }
 
 impl ToParams for GraphMax {
     fn into_params(self) -> Params {
-        self.max
-            .map(|m| ("max", m.to_string()))
-            .into_iter()
-            .collect()
+        let mut p = Params::new();
+        if let Some(m) = self.max {
+            p.push(("max", m.to_string()));
+        }
+        if let Some(s) = self.source.filter(|s| !s.trim().is_empty()) {
+            p.push(("source", s));
+        }
+        if let Some(f) = self.filter.filter(|s| !s.trim().is_empty()) {
+            p.push(("filter", f));
+        }
+        p
     }
 }
 
@@ -3213,7 +3553,7 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Nebula3/dro TLS singleton slot map (NOT PE TLS callbacks). Static table: TLS+0x58 ClientGameWorld, +0x90 ClientActorManager, +0x300 TransformDevice, +0x6b0 EntityManager, etc. After live_attach, also resolves the game-thread TLS base and fills live pointer columns. Use with read_memory base=tls:0x90 after attach",
+        description = "Nebula3/dro TLS singleton slot map (NOT PE TLS callbacks). Baked table plus slots persisted by derive_tls_singletons apply=true (source=static|derived|conflict). TLS+0x58 ClientGameWorld, +0x5e0 SkillManager, +0x5b0 TemplateManager, +0x90 ClientActorManager, +0x300 TransformDevice, +0x6b0 EntityManager, etc. After live_attach, also resolves the game-thread TLS base and fills live pointer columns. Use with read_memory base=tls:0x90 after attach",
         annotations(read_only_hint = true)
     )]
     async fn tls_singleton_map(&self) -> Result<CallToolResult, ErrorData> {
@@ -3232,6 +3572,140 @@ impl GhidraServer {
             return Err(ErrorData::invalid_params("address is required", None));
         }
         self.get("nebula_container_layout", p).await
+    }
+
+    #[tool(
+        description = "PROVE a struct field offset from the n_assert that names it, instead of guessing. Nebula3/Drasa debug builds carry n_assert(\"this->field ...\", \"source/file.cc\", line, \"FUNCSIG\") and the offset is the register displacement in the compare that guards it. Give address=<function> to prove every offset in one function, or field=<name> and/or class=<name> to find the asserting functions program-wide by their assert strings. TSV cols: class,field,offset,width,base,container,confidence,assert,source,line,site,func,func_addr,funcsig,detail. offset is a BYTE offset (pointer arithmetic is rescaled by element size) from base; class comes from the assert's own FUNCSIG so inlined asserts are attributed to the inlined class, not the enclosing function. confidence: exact = one field and one guarded dereference; ambiguous = every candidate listed; size-member = a Size() load whose container base needs nebula_shape; no-guard/indirect = assert found but no offset provable, never silently dropped",
+        annotations(read_only_hint = true)
+    )]
+    async fn prove_offset(
+        &self,
+        Parameters(p): Parameters<ProveOffsetArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let blank = |s: &Option<String>| s.as_ref().is_none_or(|v| v.trim().is_empty());
+        if blank(&p.address) && blank(&p.field) && blank(&p.class) {
+            return Err(ErrorData::invalid_params(
+                "give address=<function> to prove every offset in one function, or field=<name> and/or class=<name> to search assert strings program-wide",
+                None,
+            ));
+        }
+        self.get("prove_offset", p).await
+    }
+
+    #[tool(
+        description = "Answer definitively whether an address is a function start, and if not, where the instruction containing it actually begins. Use this BEFORE reading a byte window or judging a symbol pin: read_bytes at an interior address silently returns a shifted window and makes a clean prologue look like garbage. Emits # verdict (function_start | instruction_start | mid_instruction | data | undefined), # instruction starts/len/delta/aligned, # unshifted hex from the real instruction start, # entry_bytes hex from the containing function entry, # pdata_slot when the address is itself a RUNTIME_FUNCTION record, and # pdata_cover giving the function the exception directory says owns this address plus whether that agrees with Ghidra. Then a TSV of surrounding instructions, cols: addr,delta,bytes,text,mark",
+        annotations(read_only_hint = true)
+    )]
+    async fn address_context(
+        &self,
+        Parameters(p): Parameters<AddressContextArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if p.address.trim().is_empty() {
+            return Err(ErrorData::invalid_params("address is required", None));
+        }
+        self.get("address_context", p).await
+    }
+
+    #[tool(
+        description = "Decide whether a function is dead or live, ignoring its own .pdata unwind entry. A lone DATA xref to a function is almost always its own RUNTIME_FUNCTION record, not a dispatch table, and mistaking one for the other is how implemented-but-never-constructed code gets called live. Classifies every reference as self_unwind (excluded), call, vtable, crt_init, data_table or pdata_other, then walks callers up to depth. Emits # verdict: unreferenced | only_via_vtable | data_only | crt_init | called. crt_init is a C++ static initializer (.CRT$XCU or atexit / Factory::Register thunk) — not dead. TSV cols: kind(ref|caller|root),addr,func,section,ref_type,depth,note",
+        annotations(read_only_hint = true)
+    )]
+    async fn reachability(
+        &self,
+        Parameters(p): Parameters<ReachabilityArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if p.target.trim().is_empty() {
+            return Err(ErrorData::invalid_params("target is required", None));
+        }
+        self.get("reachability", p).await
+    }
+
+    #[tool(
+        description = "The proven Nebula3 container geometry, and a cross-check against real code. With no arguments returns the fixed table: Util::Array size@0x08 elems@0x10, Util::FixedArray size@0x00 elems@0x08, Core::Ptr 8 bytes with the pointee named by FUNCSIG, Math::point 16 bytes with w>0, Util::StringAtom 8-byte interned pointer, each row carrying its discriminating assert string and header. With address=<function> it identifies which container the function or its direct callees actually assert, derives size_off/elems_off from the dereferences in the guard, and sets agrees=yes|conflict|unchecked so a shape that contradicts the code is loud instead of silent. TSV cols: kind,elem_type,size_off,elems_off,width,derived_size_off,derived_elems_off,agrees,via,func,assert,source,line,funcsig",
+        annotations(read_only_hint = true)
+    )]
+    async fn nebula_shape(
+        &self,
+        Parameters(p): Parameters<NebulaShapeArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.get("nebula_shape", p).await
+    }
+
+    #[tool(
+        description = "Derive Nebula3/Drasa TLS singleton slots from the binary instead of trusting a hand-typed table. Finds every function asserting \"0 != Singleton\", reads the tls_base[slot] compare that guards it, and takes the class from the assert's FUNCSIG, so SkillManager@0x5e0 and TemplateMgr@0x5b0 fall out mechanically. Cross-checks each derived slot against the static tls_singleton_map table and marks it yes, new or conflict. apply=true merges exact slots into the program (tls_singleton_map source=derived). TSV cols: slot,class,agrees,known_type,confidence,func,func_addr,site,source,line,funcsig. Decompiles are capped by max; the header reports how many reference sites were left unscanned and the offset to resume at",
+        annotations(destructive_hint = true)
+    )]
+    async fn derive_tls_singletons(
+        &self,
+        Parameters(p): Parameters<DeriveTlsSingletonsArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.get("derive_tls_singletons", p).await
+    }
+
+    #[tool(
+        description = "Catalog Nebula3 Core::Factory / Core::Rtti classes with no decompile. Walks callers of Factory::Register and Rtti::Construct, reads the class-name string, a printable FourCC imm32 (Messaging::Defend → DFND), and the BSS RTTI operand. TSV cols: class,fourcc,fourcc_ascii,rtti,register,register_addr,factory,via,thunk,thunk_addr. filter=Messaging or Skills. The real class graph for this engine — MSVC RTTI here is PathEngine only",
+        annotations(read_only_hint = true)
+    )]
+    async fn factory_catalog(
+        &self,
+        Parameters(p): Parameters<CatalogFilter>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.get("factory_catalog", p).await
+    }
+
+    #[tool(
+        description = "Index every n_assert that names a field (this->foo). prove=false (default) is a fast defined-string table: assert,fields,str_addr,refs,sample. prove=true decompiles referencing functions and runs the prove_offset engine (page with offset/max). filter=currState or SkillManager. This is the struct database for Nebula debug builds",
+        annotations(read_only_hint = true)
+    )]
+    async fn assert_catalog(
+        &self,
+        Parameters(p): Parameters<AssertCatalogArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.get("assert_catalog", p).await
+    }
+
+    #[tool(
+        description = "Catalog the local Messaging protocol: every Messaging::Class string (joined to factory FourCC/RTTI when the static initializer was found) plus every Properties/UI *HandleMessage* dispatcher. TSV cols: kind(message|handler),class,fourcc,fourcc_ascii,rtti,func,func_addr,refs. Local game logic is message classes; the wire opcode is still raknet 0x8b PLAYER_ACTION. Chain: Messaging::UseItem → NetworkCommandCreatorProperty_HandleUseItem",
+        annotations(read_only_hint = true)
+    )]
+    async fn messaging_catalog(
+        &self,
+        Parameters(p): Parameters<CatalogFilter>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.get("messaging_catalog", p).await
+    }
+
+    #[tool(
+        description = "Catalog Attr:: names and money_* wallets. Gold is Attr money_rc (and money_vc for premium), not a C++ field — prove_offset field=gold is empty on purpose. Walks AttributeDefinitionBase::Register caller trees plus money_* strings. TSV cols: name,kind(attr|money),str_addr,refs,func,func_addr",
+        annotations(read_only_hint = true)
+    )]
+    async fn attr_catalog(
+        &self,
+        Parameters(p): Parameters<CatalogFilter>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.get("attr_catalog", p).await
+    }
+
+    #[tool(
+        description = "Group functions by the embedded Jenkins/source path in n_assert strings (stripped at /code/, /nebula3/, /drasa_online/). TSV cols: path,dir,strings,xrefs,funcs,sample,sample_addr. filter=shared/skills or client/properties to open a whole subsystem without knowing a symbol",
+        annotations(read_only_hint = true)
+    )]
+    async fn source_tree(
+        &self,
+        Parameters(p): Parameters<CatalogFilter>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.get("source_tree", p).await
+    }
+
+    #[tool(
+        description = "Render the real Nebula C++ namespace/class graph from __cdecl/__thiscall signature strings (not Ghidra's DLL/switchD_* namespaces). fmt=mermaid (default) or tsv (ns,parent,classes,sigs). filter=Skills. namespace_graph source=funcsig is the same mermaid path",
+        annotations(read_only_hint = true)
+    )]
+    async fn funcsig_graph(
+        &self,
+        Parameters(p): Parameters<FuncsigGraphArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.get("funcsig_graph", p).await
     }
 
     #[tool(
@@ -3587,7 +4061,7 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Render the program's namespace/class hierarchy as a Mermaid top-down graph (parent namespace -> child). A module-altitude view of how the binary is organized. max caps the namespace count (default 80, hard cap 400)",
+        description = "Render the program's namespace/class hierarchy as a Mermaid top-down graph (parent namespace -> child). source=symbols (default) uses Ghidra namespaces (DLLs / switchD_* on dro_client). source=funcsig uses __cdecl signature strings — the real Nebula module graph (Skills, Messaging, Game, …). filter= substring when source=funcsig. max caps the namespace count (default 80, hard cap 400)",
         annotations(read_only_hint = true)
     )]
     async fn namespace_graph(
@@ -4900,11 +5374,12 @@ impl GhidraServer {
              2. seed_nebula_helpers apply=false then apply=true — auto-name n_assert/n_assert2/n_error/n_warning.\n\
              3. name_from_signatures apply=false (max=500+); review; apply=true. Loop until few remain.\n\
              4. name_from_n_assert mode=decompile for leftover assert callers; name_nebula_instances.\n\
-             5. tls_singleton_map (+ live_attach). list_nebula_instances for static Instance() map.\n\
-             6. find_function_by_string RakNet/DrasaOnlineClient/services; raknet_packet_lookup + decompile.\n\
-             7. Read ghidra://dro/raknet-overview and ghidra://dro/nebula-playbook.\n\
-             8. nebula_container_layout on hot containers; set_variables / propose_struct_from_accesses.\n\
-             Deliver: helper table, rename counts (sigs + decomp + instances), TLS map, network dispatch, next targets.",
+             5. derive_tls_singletons (page offset until coverage=0) then apply=true; tls_singleton_map.\n\
+             6. factory_catalog, assert_catalog, messaging_catalog, attr_catalog, source_tree, funcsig_graph.\n\
+             7. find_function_by_string RakNet/DrasaOnlineClient/services; raknet_packet_lookup + decompile.\n\
+             8. Read ghidra://dro/raknet-overview and ghidra://dro/nebula-playbook.\n\
+             9. nebula_container_layout / prove_offset on hot containers; set_variables / propose_struct_from_accesses.\n\
+             Deliver: helper table, rename counts (sigs + decomp + instances), TLS map, factory/assert/messaging catalogs, network dispatch, next targets.",
         )
     }
 
@@ -5012,9 +5487,18 @@ fn nebula_playbook_markdown() -> String {
 3. `name_from_signatures` dry-run → `apply=true` with high max (fast; no decompile)
 4. `name_from_n_assert` mode=decompile for leftovers that only show up in assert calls
 5. `name_nebula_instances` for Type::Instance() singletons
-6. `tls_singleton_map` (+ `live_attach`)
-7. Network: `raknet_packet_lookup` + decompile RakNetClient switch
-8. `save_program`
+6. `derive_tls_singletons` page until coverage=0, then `apply=true`; `tls_singleton_map`
+7. Indexes (no guessing): `factory_catalog` · `assert_catalog` · `messaging_catalog` · `attr_catalog` · `source_tree` · `funcsig_graph`
+8. Network: `raknet_packet_lookup` + `messaging_catalog filter=UseItem` — wire is still 0x8b
+9. `save_program`
+
+## How to search (do not decompile a random FUN_*)
+- Field on a class → `prove_offset` / `assert_catalog prove=true filter=…`
+- Live object → `list_nebula_instances` → `derive_tls_singletons class=…` → `tls:SLOT`
+- Player action → `messaging_catalog` → `*HandleMessage*` → raknet 0x8b
+- Gold / item / wallet → `attr_catalog` (`money_rc` is gold). Not a C++ field.
+- Class / FourCC → `factory_catalog` (MSVC RTTI here is PathEngine only)
+- Subsystem → `source_tree filter=shared/skills` or `funcsig_graph filter=Skills`
 
 ## Naming rules
 - Prefer `name_from_signatures` for bulk Nebula C++ names (signature string xrefs).
@@ -5026,20 +5510,25 @@ fn nebula_playbook_markdown() -> String {
 | slot | type | role |
 |---|---|---|
 | +0x58 | Game::ClientGameWorld* | local player / world |
-| +0x60 | DrasaClient* | client root |
+| +0x60 | Game::DrasaClient* | client root |
 | +0x90 | Game::ClientActorManager* | nearby entities |
+| +0x5b0 | Managers::TemplateManager* | templates |
+| +0x5e0 | Skills::SkillManager* | skills |
 | +0x300 | CoreGraphics::TransformDevice* | W2S |
 | +0x6b0 | Game::EntityManager* | entity ids |
-See tool `tls_singleton_map` for the full table.
+See tool `tls_singleton_map` for the full table. `derive_tls_singletons apply=true` persists more.
 
 ## Network
 Resources: `ghidra://dro/raknet-overview`, `…/raknet-packet-ids`, `…/raknet-flows`.
 Tool: `raknet_packet_lookup`. Custom game IDs live in **0x82–0x8e**.
+Local protocol is `Messaging::*` (see `messaging_catalog`); `NetworkCommandCreatorProperty::HandleMessage` encodes C→S.
 
 ## Decomp hygiene
+- `address_context` before reading bytes at an interior VA
+- `reachability` — `.pdata` is not a call; `.CRT$XCU` / atexit is `crt_init`, not dead
 - `decompile` / `function_summary_bundle` with clean=true
 - `refine_function` then `set_variables` for prototypes
-- `nebula_container_layout` before inventing Array field layouts
+- `nebula_shape` / `nebula_container_layout` before inventing Array field layouts
 "
     .to_owned()
 }
@@ -5071,11 +5560,15 @@ impl ServerHandler for GhidraServer {
              - Start with nebula_engine_survey and resource ghidra://dro/nebula-playbook.\n\
              - Bulk symbols: seed_nebula_helpers → name_from_signatures (no decompile, 10k+ scale) → \
              name_from_n_assert mode=decompile for leftovers → name_nebula_instances.\n\
+             - Indexes: factory_catalog (class+FourCC+RTTI), assert_catalog (this-> fields), \
+             messaging_catalog, attr_catalog (money_rc is gold), source_tree, funcsig_graph.\n\
+             - Offsets: prove_offset / assert_catalog prove=true — never guess this+0x??.\n\
+             - TLS: derive_tls_singletons then tls_singleton_map (TLS+0x58 world, +0x5e0 skills, …).\n\
              - Asserts/signatures embed full C++ names + source paths; never invent FUN_* names first.\n\
              - Expect Core::Ptr<T>, StringAtom, Util::Array/FixedArray/Dictionary — use \
-             nebula_container_layout and tls_singleton_map (TLS+0x58 world, +0x90 actors, …).\n\
-             - Network is RakNet + DSO custom 0x82–0x8e: raknet_packet_lookup and \
-             ghidra://dro/raknet-* resources (no web search needed).\n\
+             nebula_shape and nebula_container_layout.\n\
+             - Network is RakNet + DSO custom 0x82–0x8e plus Messaging::* classes: \
+             raknet_packet_lookup, messaging_catalog, ghidra://dro/raknet-* resources.\n\
              - Prompts: bootstrap_dro_client, name_nebula_functions, analyze_raknet_handler."
                 .to_owned(),
         )
@@ -5312,6 +5805,167 @@ mod tests {
                 ("max", "50".to_owned()),
                 ("address", "rva:0x1234".to_owned()),
                 ("mode", "decompile".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn prove_offset_params_omit_blank_selectors() {
+        let p = ProveOffsetArgs {
+            address: Some("   ".to_owned()),
+            field: Some("summonMonsterAmount".to_owned()),
+            class: None,
+            proven_only: Some(true),
+            max: 25,
+            page: Page {
+                offset: 0,
+                limit: 100,
+                fmt: None,
+                program: None,
+            },
+        };
+        assert_eq!(
+            p.into_params(),
+            vec![
+                ("offset", "0".to_owned()),
+                ("limit", "100".to_owned()),
+                ("max", "25".to_owned()),
+                ("field", "summonMonsterAmount".to_owned()),
+                ("proven_only", "1".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn address_context_params_carry_count_and_bytes() {
+        let p = AddressContextArgs {
+            address: "rva:0x8b703d".to_owned(),
+            count: 4,
+            bytes: 16,
+            fmt: Some("tsv".to_owned()),
+            program: None,
+        };
+        assert_eq!(
+            p.into_params(),
+            vec![
+                ("address", "rva:0x8b703d".to_owned()),
+                ("count", "4".to_owned()),
+                ("bytes", "16".to_owned()),
+                ("fmt", "tsv".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn reachability_params_carry_depth_and_max() {
+        let p = ReachabilityArgs {
+            target: "1408b703c".to_owned(),
+            depth: 6,
+            max: 400,
+            fmt: None,
+            program: Some("dro_client64.exe".to_owned()),
+        };
+        assert_eq!(
+            p.into_params(),
+            vec![
+                ("target", "1408b703c".to_owned()),
+                ("depth", "6".to_owned()),
+                ("max", "400".to_owned()),
+                ("program", "dro_client64.exe".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn nebula_shape_params_are_empty_without_selectors() {
+        let p = NebulaShapeArgs {
+            address: None,
+            kind: None,
+            fmt: None,
+            program: None,
+        };
+        assert!(p.into_params().is_empty());
+    }
+
+    #[test]
+    fn derive_tls_singletons_params_page_then_max() {
+        let p = DeriveTlsSingletonsArgs {
+            class: Some("SkillManager".to_owned()),
+            max: 30,
+            apply: false,
+            page: Page {
+                offset: 30,
+                limit: 100,
+                fmt: None,
+                program: None,
+            },
+        };
+        assert_eq!(
+            p.into_params(),
+            vec![
+                ("offset", "30".to_owned()),
+                ("limit", "100".to_owned()),
+                ("max", "30".to_owned()),
+                ("class", "SkillManager".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn catalog_filter_omits_blank_filter() {
+        let p = CatalogFilter {
+            filter: Some("  ".to_owned()),
+            page: Page {
+                offset: 0,
+                limit: 50,
+                fmt: None,
+                program: None,
+            },
+        };
+        assert_eq!(
+            p.into_params(),
+            vec![("offset", "0".to_owned()), ("limit", "50".to_owned())]
+        );
+    }
+
+    #[test]
+    fn assert_catalog_params_carry_prove() {
+        let p = AssertCatalogArgs {
+            filter: Some("currState".to_owned()),
+            prove: Some(true),
+            max: 40,
+            page: Page {
+                offset: 0,
+                limit: 100,
+                fmt: None,
+                program: None,
+            },
+        };
+        assert_eq!(
+            p.into_params(),
+            vec![
+                ("offset", "0".to_owned()),
+                ("limit", "100".to_owned()),
+                ("max", "40".to_owned()),
+                ("filter", "currState".to_owned()),
+                ("prove", "1".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn graph_max_funcsig_source() {
+        let p = GraphMax {
+            max: Some(80),
+            source: Some("funcsig".to_owned()),
+            filter: Some("Skills".to_owned()),
+        };
+        assert_eq!(
+            p.into_params(),
+            vec![
+                ("max", "80".to_owned()),
+                ("source", "funcsig".to_owned()),
+                ("filter", "Skills".to_owned()),
             ]
         );
     }
