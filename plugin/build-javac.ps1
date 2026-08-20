@@ -166,5 +166,81 @@ if ($Install) {
 }
 
 Remove-Item $build -Recurse -Force -ErrorAction SilentlyContinue
+
+# --- restart ---------------------------------------------------------------
+
+if ($Restart) {
+    # A running JVM read the old jar's central directory at startup and will not
+    # reread it, so new classes only appear after a full restart.
+    $ghidraHome = $env:GHIDRA_HOME
+    if (-not $ghidraHome) {
+        $ghidraHome = @(
+            (Join-Path $env:USERPROFILE "scoop\apps\ghidra\current"),
+            "C:\ghidra_${version}_PUBLIC",
+            "D:\ghidra_${version}_PUBLIC"
+        ) | Where-Object { Test-Path (Join-Path $_ "ghidraRun.bat") } | Select-Object -First 1
+    }
+    if (-not $ghidraHome) {
+        Write-Host "warn: set GHIDRA_HOME to restart automatically" -ForegroundColor Yellow
+    } else {
+        # Persist first: the force-kill below is not a clean shutdown.
+        try {
+            Invoke-WebRequest -Uri "http://127.0.0.1:8080/save_program" -Method POST `
+                -TimeoutSec 30 -UseBasicParsing -ErrorAction Stop | Out-Null
+            Say "saved open program"
+        } catch {
+            Say "note: no live plugin to save through (ghidra not running?)"
+        }
+
+        # Match on the launcher path, not the process name: every language server
+        # on the machine is also javaw.
+        $procs = @(Get-CimInstance Win32_Process -Filter "Name='javaw.exe' OR Name='java.exe'" `
+            -ErrorAction SilentlyContinue |
+            Where-Object { $_.CommandLine -and $_.CommandLine -match 'ghidra' -and $_.CommandLine -match 'GhidraRun|ghidra\.Ghidra' })
+
+        $forced = $false
+        foreach ($p in $procs) {
+            $proc = Get-Process -Id $p.ProcessId -ErrorAction SilentlyContinue
+            if (-not $proc) { continue }
+            $proc.CloseMainWindow() | Out-Null
+            if (-not $proc.WaitForExit(15000)) {
+                taskkill /F /T /PID $p.ProcessId 2>&1 | Out-Null
+                $forced = $true
+            }
+        }
+        if ($procs.Count -gt 0) { Say "closed ghidra ($($procs.Count) process(es))" }
+
+        # A force-kill leaves the project lock behind. Only clear it once every
+        # Ghidra process is confirmed gone, so a second instance is never stomped.
+        if ($forced) {
+            Start-Sleep -Milliseconds 1000
+            $alive = @(Get-CimInstance Win32_Process -Filter "Name='javaw.exe' OR Name='java.exe'" `
+                -ErrorAction SilentlyContinue |
+                Where-Object { $_.CommandLine -and $_.CommandLine -match 'GhidraRun|ghidra\.Ghidra' })
+            if ($alive.Count -eq 0) {
+                $prefs = Join-Path $env:APPDATA "ghidra\ghidra_${version}_PUBLIC\preferences"
+                if (Test-Path $prefs) {
+                    $last = (Select-String -Path $prefs -Pattern '^LastOpenedProject=(.+)$').Matches.Groups[1].Value
+                    if ($last) {
+                        $last = $last -replace '\\:', ':' -replace '\\\\', '\'
+                        foreach ($suffix in @(".lock", ".lock~")) {
+                            $lock = "$last$suffix"
+                            if (Test-Path -LiteralPath $lock) {
+                                Remove-Item -LiteralPath $lock -Force -ErrorAction SilentlyContinue
+                                Say "cleared stale $suffix"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        $launcher = Join-Path $ghidraHome "ghidraRun.bat"
+        Start-Process -FilePath "cmd.exe" `
+            -ArgumentList @("/c", "start", '""', "/B", $launcher) -WindowStyle Hidden | Out-Null
+        Say "relaunched ghidra"
+    }
+}
+
 Say ""
-Say "done. Restart Ghidra to load the new classes."
+if ($Restart) { Say "done." } else { Say "done. Restart Ghidra to load the new classes." }

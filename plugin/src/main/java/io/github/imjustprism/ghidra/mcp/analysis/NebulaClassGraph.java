@@ -66,6 +66,32 @@ public final class NebulaClassGraph {
     public record Entry(String klass, String fourcc, long size, String rtti,
                         String parentRtti, String creator, String site) {}
 
+    /**
+     * The recovered classes for {@code program}, for callers that want the class
+     * table itself rather than a rendered report (see {@code SdkExport}). Empty
+     * when {@code Core::Rtti::Construct} cannot be located.
+     */
+    public static List<Entry> entries(Program program) {
+        var hub = resolveHub(program, null);
+        return hub == null ? List.of() : collect(program, hub);
+    }
+
+    /**
+     * Map each class to its parent's name by joining the parent Rtti operand back
+     * to the class that owns that Rtti object.
+     */
+    public static Map<String, String> parentMap(List<Entry> entries) {
+        var byRtti = new HashMap<String, String>();
+        for (var e : entries) {
+            if (!e.rtti().isEmpty()) byRtti.putIfAbsent(e.rtti(), e.klass());
+        }
+        var parentOf = new LinkedHashMap<String, String>();
+        for (var e : entries) {
+            parentOf.put(e.klass(), byRtti.getOrDefault(e.parentRtti(), ""));
+        }
+        return parentOf;
+    }
+
     public static String graph(PluginContext ctx, String filter, String root, String ctorSpec,
                                Page page, Map<String, String> q) {
         return ctx.withProgram(program -> {
@@ -83,14 +109,7 @@ public final class NebulaClassGraph {
                         + "wrong hub? pass ctor=<address>\n";
             }
 
-            var byRtti = new HashMap<String, String>();
-            for (var e : entries) {
-                if (!e.rtti().isEmpty()) byRtti.putIfAbsent(e.rtti(), e.klass());
-            }
-            var parentOf = new LinkedHashMap<String, String>();
-            for (var e : entries) {
-                parentOf.put(e.klass(), byRtti.getOrDefault(e.parentRtti(), ""));
-            }
+            var parentOf = parentMap(entries);
 
             var wanted = filter == null ? "" : filter.trim().toLowerCase(Locale.ROOT);
             var subtree = root == null || root.isBlank() ? null : descendants(parentOf, root.trim());

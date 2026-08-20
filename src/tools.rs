@@ -946,7 +946,11 @@ pub struct Page {
         description = "Return only the match count, no rows. Use it to size a query before deciding \
                        how to page it."
     )]
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "de_opt_bool"
+    )]
     pub count: Option<bool>,
     #[schemars(
         description = "Cap the reply in bytes (1000..2000000, default 200000). Truncation happens at \
@@ -2375,7 +2379,11 @@ pub struct NebulaClassGraph {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ctor: Option<String>,
     #[schemars(description = "Recompute instead of reusing the cached graph.")]
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "de_opt_bool"
+    )]
     pub refresh: Option<bool>,
     #[serde(flatten)]
     pub page: Page,
@@ -2395,6 +2403,41 @@ impl ToParams for NebulaClassGraph {
         }
         if self.refresh == Some(true) {
             p.push(("refresh", "1".to_owned()));
+        }
+        p
+    }
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema, Default)]
+pub struct SdkExport {
+    #[schemars(
+        description = "Substring filter on the fully qualified class name \
+                       (e.g. Skills, Game::Inventory, Manager)."
+    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filter: Option<String>,
+    #[schemars(
+        description = "Emit Core::Ptr<T> / Util::Array<T> instantiations too. Off by default: \
+                       'class Ptr<Foo> {' is not a declaration you can compile."
+    )]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "de_opt_bool"
+    )]
+    pub templates: Option<bool>,
+    #[serde(flatten)]
+    pub page: Page,
+}
+
+impl ToParams for SdkExport {
+    fn into_params(self) -> Params {
+        let mut p = self.page.into_params();
+        if let Some(f) = self.filter.filter(|s| !s.trim().is_empty()) {
+            p.push(("filter", f));
+        }
+        if self.templates == Some(true) {
+            p.push(("templates", "1".to_owned()));
         }
         p
     }
@@ -4258,6 +4301,17 @@ impl GhidraServer {
         Parameters(p): Parameters<NebulaClassGraph>,
     ) -> Result<CallToolResult, ErrorData> {
         self.get("nebula_class_graph", p).await
+    }
+
+    #[tool(
+        description = "Reconstruct a compilable C++ SDK from the engine's own debug metadata. Nebula3 debug builds put __FUNCSIG__ in every n_assert, so the binary ships ~20k complete member signatures (return type, qualified name, parameter types, constness); a signature string referenced by exactly one function pins that method to an address. Joined against Core::Rtti::Construct for sizeof/parent/FourCC, that is enough to re-declare the engine API. fmt=header emits C++ class declarations with the address of each method as a trailing comment; omit fmt for a TSV index (class,method,ret,params,qualifiers,addr,refs,parent,size,fourcc). filter=Skills narrows to a subsystem. No decompile, so a whole-program export is seconds. Re-run it on a new client build to regenerate every address automatically — the anchor is the signature string, not a byte pattern",
+        annotations(read_only_hint = true)
+    )]
+    async fn sdk_export(
+        &self,
+        Parameters(p): Parameters<SdkExport>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.get("sdk_export", p).await
     }
 
     #[tool(

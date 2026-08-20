@@ -82,6 +82,14 @@ public final class Responses {
          */
         private final int winOffset;
         private final int winLimit;
+        /**
+         * The caller's requested offset, tracked even when no filter is active so
+         * {@link #build()} can say that rows were withheld. Without it a paged
+         * reply looks identical to a complete one.
+         */
+        private final int pageOffset;
+        /** True when {@link Page#MAX_LIMIT} cut the requested limit down. */
+        private final boolean limitClamped;
         private final StringBuilder sb;
         private int emitted;
         private int matched;
@@ -91,11 +99,14 @@ public final class Responses {
         private boolean jsonFirst = true;
 
         private Table(Fmt fmt, String[] cols, int expectedRows) {
-            this(fmt, cols, expectedRows, null, null, false, MAX_BYTES, 0, Integer.MAX_VALUE);
+            this(fmt, cols, expectedRows, null, null, false, MAX_BYTES, 0, Integer.MAX_VALUE, 0, false);
         }
 
         private Table(Fmt fmt, String[] cols, int expectedRows, int[] keep, Pattern rowFilter,
-                      boolean countOnly, int maxBytes, int winOffset, int winLimit) {
+                      boolean countOnly, int maxBytes, int winOffset, int winLimit,
+                      int pageOffset, boolean limitClamped) {
+            this.pageOffset = pageOffset;
+            this.limitClamped = limitClamped;
             this.fmt = fmt;
             this.cols = cols;
             this.keep = keep;
@@ -277,6 +288,17 @@ public final class Responses {
                     sb.append('\n');
                 } else if (total >= 0) {
                     sb.append("# total=").append(total).append('\n');
+                    // An unfiltered page that stopped short of the total is
+                    // indistinguishable from a complete one unless we say so.
+                    if (!countOnly && emitted > 0 && pageOffset + emitted < total) {
+                        sb.append("# showing ").append(pageOffset).append("..")
+                          .append(pageOffset + emitted).append(" of ").append(total)
+                          .append(" — next: offset=").append(pageOffset + emitted);
+                        if (limitClamped) {
+                            sb.append(" (limit clamped to ").append(Page.MAX_LIMIT).append(')');
+                        }
+                        sb.append('\n');
+                    }
                 }
                 if (countOnly) {
                     sb.append("# count only — drop count=1 to see the rows\n");
@@ -313,18 +335,20 @@ public final class Responses {
      */
     private static Table shaped(Fmt fmt, String[] cols, int expectedRows, Map<String, String> q) {
         if (q == null) return new Table(fmt, cols, expectedRows);
+        int reqOffset = Math.max(0, Http.parseIntOrDefault(q.get("offset"), 0));
+        int reqLimit = Http.parseIntOrDefault(q.get("limit"), Page.DEFAULT_LIMIT);
+        boolean clamped = reqLimit > Page.MAX_LIMIT;
         int winOffset = 0;
         int winLimit = Integer.MAX_VALUE;
         if (Page.hasFilter(q)) {
             // Page.from widened the handler's scan window so we see everything;
             // recover what the caller actually asked for and apply it to the matches.
-            winOffset = Math.max(0, Http.parseIntOrDefault(q.get("offset"), 0));
-            int lim = Http.parseIntOrDefault(q.get("limit"), Page.DEFAULT_LIMIT);
-            winLimit = lim <= 0 ? Page.DEFAULT_LIMIT : Math.min(lim, Page.MAX_LIMIT);
+            winOffset = reqOffset;
+            winLimit = reqLimit <= 0 ? Page.DEFAULT_LIMIT : Math.min(reqLimit, Page.MAX_LIMIT);
         }
         return new Table(fmt, cols, expectedRows, parseFields(cols, q.get("fields")),
                 parseGrep(q.get("grep")), isTrue(q.get("count")), parseMaxBytes(q.get("max_bytes")),
-                winOffset, winLimit);
+                winOffset, winLimit, reqOffset, clamped);
     }
 
     /** Resolve {@code fields=} to column indices; unknown names are ignored. */

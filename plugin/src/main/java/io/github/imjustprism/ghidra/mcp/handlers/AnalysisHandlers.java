@@ -34,6 +34,7 @@ import io.github.imjustprism.ghidra.mcp.analysis.HiddenStrings;
 import io.github.imjustprism.ghidra.mcp.analysis.IocExport;
 import io.github.imjustprism.ghidra.mcp.analysis.PeFacts;
 import io.github.imjustprism.ghidra.mcp.analysis.SampleIntake;
+import io.github.imjustprism.ghidra.mcp.analysis.SdkExport;
 import io.github.imjustprism.ghidra.mcp.analysis.SecretCompares;
 import io.github.imjustprism.ghidra.mcp.analysis.SelfModify;
 import io.github.imjustprism.ghidra.mcp.analysis.Entropy;
@@ -160,6 +161,8 @@ public final class AnalysisHandlers {
                 Page.from(q), q));
         routes.getQuery("/nebula_class_graph", q -> NebulaClassGraph.graph(ctx, q.get("filter"),
                 q.get("root"), q.get("ctor"), Page.from(q), q));
+        routes.getQuery("/sdk_export", q -> SdkExport.export(ctx, q.get("filter"),
+                Page.from(q), q));
         routes.getQuery("/assert_catalog", q -> AssertCatalog.catalog(ctx, q.get("filter"),
                 Http.parseBool(q.get("prove"), false),
                 Http.parseIntOrDefault(q.get("max"), AssertCatalog.DEFAULT_MAX), Page.from(q), q));
