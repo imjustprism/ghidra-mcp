@@ -2437,6 +2437,19 @@ pub struct SdkExport {
     )]
     pub fields_prove: Option<bool>,
     #[schemars(
+        description = "Also recover members from what the code dereferences, merging Ghidra's \
+                       structure inference across every method of a class. Complements \
+                       fields_prove: asserts give real names but only exist where the engine \
+                       bounds-checks, which is common in containers and rare in managers; access \
+                       patterns give offsets without names but see every dereference."
+    )]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "de_opt_bool"
+    )]
+    pub fields_infer: Option<bool>,
+    #[schemars(
         description = "Ceiling on functions decompiled for fields_prove (default 300). The reply \
                        reports how much of the budget was spent, and says so when it ran out."
     )]
@@ -2472,6 +2485,9 @@ impl ToParams for SdkExport {
         }
         if self.fields_prove == Some(true) {
             p.push(("fields_prove", "1".to_owned()));
+        }
+        if self.fields_infer == Some(true) {
+            p.push(("fields_infer", "1".to_owned()));
         }
         if let Some(n) = self.field_max {
             p.push(("field_max", n.to_string()));

@@ -1,6 +1,9 @@
 package io.github.imjustprism.ghidra.mcp.analysis;
 
+import ghidra.app.decompiler.DecompileOptions;
+import ghidra.app.decompiler.util.FillOutStructureHelper;
 import ghidra.program.model.listing.Program;
+import ghidra.util.task.ConsoleTaskMonitor;
 import io.github.imjustprism.ghidra.mcp.http.Page;
 import io.github.imjustprism.ghidra.mcp.util.Addresses;
 import io.github.imjustprism.ghidra.mcp.util.Deadline;
@@ -91,12 +94,37 @@ public final class SdkExport {
             var fmt = q == null ? null : q.get("fmt");
             if ("header".equalsIgnoreCase(fmt) || "cpp".equalsIgnoreCase(fmt)) {
                 boolean templates = q != null && "1".equals(q.get("templates"));
-                var scan = wantsFields(q)
-                        ? proveFields(program, byClass, fieldMax(q),
-                                fieldPerClass(q, byClass.size()))
-                        : null;
+                // Drop the instantiations before costing anything: a filter like
+                // Managers::TemplateManager also matches every Core::Ptr<...> and
+                // Util::Array<...> wrapping it, and spending the field budget on
+                // classes the header then discards can exhaust it before the class
+                // actually asked for is ever reached.
+                int skipped = 0;
+                if (!templates) {
+                    var it = byClass.keySet().iterator();
+                    while (it.hasNext()) {
+                        if (simpleName(it.next()).indexOf('<') >= 0) {
+                            it.remove();
+                            skipped++;
+                        }
+                    }
+                }
+                int budget = fieldMax(q);
+                int perClass = fieldPerClass(q, byClass.size());
+                FieldScan scan = null;
+                if (wantsFields(q) || wantsInfer(q)) {
+                    var proven = wantsFields(q)
+                            ? proveFields(program, byClass, budget, perClass)
+                            : new FieldScan(Map.of(), 0, 0, byClass.size(), false);
+                    var inferred = wantsInfer(q)
+                            ? inferFields(program, byClass, budget, perClass)
+                            : Map.<String, List<Field>>of();
+                    scan = new FieldScan(mergeFields(proven.byClass(), inferred),
+                            proven.decompiled(), proven.classesScanned(),
+                            proven.classesTotal(), proven.exhausted());
+                }
                 return header(byClass, meta, parentOf, methods.size(), classes.size(),
-                        templates, scan);
+                        skipped, scan);
             }
             return index(byClass, meta, parentOf, methods.size(), classes.size(), page, q);
         });
@@ -128,8 +156,16 @@ public final class SdkExport {
     }
 
     private static boolean wantsFields(Map<String, String> q) {
+        return flag(q, "fields_prove");
+    }
+
+    private static boolean wantsInfer(Map<String, String> q) {
+        return flag(q, "fields_infer");
+    }
+
+    private static boolean flag(Map<String, String> q, String key) {
         if (q == null) return false;
-        var v = q.get("fields_prove");
+        var v = q.get(key);
         return "1".equals(v) || "true".equalsIgnoreCase(v);
     }
 
@@ -227,6 +263,89 @@ public final class SdkExport {
      */
     private record FieldScan(Map<String, List<Field>> byClass, int decompiled,
                              int classesScanned, int classesTotal, boolean exhausted) {}
+
+    /**
+     * Recover members from what the code actually dereferences, using Ghidra's
+     * {@code FillOutStructureHelper} on each method's {@code this} pointer.
+     *
+     * <p>This is the complement to the assert pass. Asserts give real field
+     * names but only exist where the engine bounds-checks something, which is
+     * common in container classes and rare in managers. Access patterns give no
+     * names but see every dereference — and since any one method touches only a
+     * few members, the layout only appears once results are merged across the
+     * whole class.
+     *
+     * <p>{@code processStructure} builds the structure in memory without adding
+     * it to the data type manager, so this stays read-only.
+     */
+    private static Map<String, List<Field>> inferFields(Program program,
+                                                        Map<String, List<Method>> byClass,
+                                                        int budget, int perClass) {
+        var out = new LinkedHashMap<String, List<Field>>();
+        var helper = new FillOutStructureHelper(program, new ConsoleTaskMonitor());
+        var decomp = helper.setUpDecompiler(new DecompileOptions());
+        if (decomp == null) return out;
+        try {
+            if (!decomp.openProgram(program)) return out;
+            int spent = 0;
+            for (var e : byClass.entrySet()) {
+                if (spent >= budget) break;
+                int here = 0;
+                var merged = new TreeMap<Long, Field>();
+                for (var m : e.getValue()) {
+                    if (spent >= budget || here >= perClass) break;
+                    if (m.addr().isEmpty() || m.isStatic()) continue;
+                    var fn = Addresses.functionAtOrContaining(program,
+                            Addresses.resolve(program, m.addr()));
+                    if (fn == null || fn.getParameterCount() == 0) continue;
+                    var self = fn.getParameter(0);
+                    var storage = self.getVariableStorage().getMinAddress();
+                    if (storage == null) continue;
+                    here++;
+                    spent++;
+                    try {
+                        var hv = helper.computeHighVariable(storage, fn, decomp);
+                        if (hv == null) continue;
+                        var struct = helper.processStructure(hv, fn, false, false, decomp);
+                        if (struct == null) continue;
+                        for (var c : struct.getDefinedComponents()) {
+                            long off = c.getOffset();
+                            if (merged.containsKey(off)) continue;
+                            merged.put(off, new Field(off,
+                                    "field_" + String.format("%X", off),
+                                    Integer.toString(c.getLength()),
+                                    "", "inferred", "dereferenced by " + fn.getName()));
+                        }
+                    } catch (RuntimeException ex) {
+                        // One uncooperative function must not sink the class.
+                    }
+                }
+                if (!merged.isEmpty()) out.put(e.getKey(), new ArrayList<>(merged.values()));
+            }
+        } finally {
+            decomp.dispose();
+        }
+        return out;
+    }
+
+    /**
+     * Union the two member sources. A named, offset-proven assert field always
+     * wins over an anonymous inferred one at the same offset.
+     */
+    private static Map<String, List<Field>> mergeFields(Map<String, List<Field>> proven,
+                                                        Map<String, List<Field>> inferred) {
+        var out = new LinkedHashMap<String, List<Field>>();
+        var classes = new java.util.LinkedHashSet<String>();
+        classes.addAll(proven.keySet());
+        classes.addAll(inferred.keySet());
+        for (var klass : classes) {
+            var bySlot = new TreeMap<Long, Field>();
+            for (var f : inferred.getOrDefault(klass, List.of())) bySlot.put(f.offset(), f);
+            for (var f : proven.getOrDefault(klass, List.of())) bySlot.put(f.offset(), f);
+            out.put(klass, new ArrayList<>(bySlot.values()));
+        }
+        return out;
+    }
 
     /**
      * Keep a proof only when the assert attributes it to the class we are
@@ -428,7 +547,7 @@ public final class SdkExport {
     private static String header(Map<String, List<Method>> byClass,
                                  Map<String, NebulaClassGraph.Entry> meta,
                                  Map<String, String> parentOf,
-                                 int totalMethods, int totalClasses, boolean templates,
+                                 int totalMethods, int totalClasses, int skipped,
                                  FieldScan scan) {
         var fields = scan == null ? Map.<String, List<Field>>of() : scan.byClass();
         var sb = new StringBuilder(1 << 16);
@@ -444,6 +563,8 @@ public final class SdkExport {
             sb.append("// Compare the last offset against sizeof to see what is still missing.\n");
             sb.append("// Member types are inferred from the width of the dereference, so an\n");
             sb.append("// integer type means \"read this many bytes here\", not a declared type.\n");
+            sb.append("// A member marked 'inferred' came from what the code dereferences, not\n");
+            sb.append("// from an assert: the offset is real but the name is a placeholder.\n");
             sb.append("// fields: decompiled ").append(scan.decompiled())
               .append(" function(s) across ").append(scan.classesScanned())
               .append(" of ").append(scan.classesTotal()).append(" class(es)");
@@ -458,16 +579,8 @@ public final class SdkExport {
         }
         sb.append('\n');
 
-        int skipped = 0;
         for (var e : byClass.entrySet()) {
             var klass = e.getKey();
-            // Core::Ptr<Foo> / Util::Array<Foo> instantiations are library
-            // internals, and "class Ptr<Foo> {" is not a declaration you can
-            // compile. Keep them out unless asked for.
-            if (!templates && simpleName(klass).indexOf('<') >= 0) {
-                skipped++;
-                continue;
-            }
             var info = meta.get(klass);
             var parent = parentOf.getOrDefault(klass, "");
 

@@ -233,7 +233,7 @@ Common conventions on most paginated read tools:
 | `name_nebula_instances` | rename auto FUN_* that are Type::Instance() |
 | `factory_catalog` | Core::Factory / Rtti class + FourCC + BSS catalog |
 | `nebula_class_graph` | class hierarchy + sizeof from Core::Rtti::Construct |
-| `sdk_export` | compilable C++ headers from __FUNCSIG__ + Rtti (fmt=header) |
+| `sdk_export` | C++ headers from __FUNCSIG__ + Rtti; members via fields_prove/fields_infer |
 | `assert_catalog` | this-> n_assert field index (optional prove) |
 | `messaging_catalog` | Messaging:: classes + HandleMessage dispatchers |
 | `attr_catalog` | Attr names and money_* wallets |
