@@ -2,6 +2,9 @@ package io.github.imjustprism.ghidra.mcp.analysis;
 
 import ghidra.program.model.listing.Program;
 import io.github.imjustprism.ghidra.mcp.http.Page;
+import io.github.imjustprism.ghidra.mcp.util.Addresses;
+import io.github.imjustprism.ghidra.mcp.util.Deadline;
+import io.github.imjustprism.ghidra.mcp.util.DecompileCache;
 import io.github.imjustprism.ghidra.mcp.util.PluginContext;
 import io.github.imjustprism.ghidra.mcp.util.Responses;
 
@@ -36,6 +39,16 @@ public final class SdkExport {
             {"class", "method", "ret", "params", "qualifiers", "addr", "refs", "parent", "size", "fourcc"};
 
     private SdkExport() {}
+
+    /** Default ceiling on functions decompiled for {@code fields=1}. */
+    public static final int DEFAULT_FIELD_MAX = 300;
+
+    /**
+     * One proven data member: the byte offset and width come from the compare
+     * that guards the {@code n_assert} naming the field, never from a guess.
+     */
+    public record Field(long offset, String name, String width, String container,
+                        String confidence, String assertExpr) {}
 
     /** One recovered member function. */
     public record Method(String klass, String name, String ret, String params,
@@ -75,7 +88,11 @@ public final class SdkExport {
             var fmt = q == null ? null : q.get("fmt");
             if ("header".equalsIgnoreCase(fmt) || "cpp".equalsIgnoreCase(fmt)) {
                 boolean templates = q != null && "1".equals(q.get("templates"));
-                return header(byClass, meta, parentOf, methods.size(), classes.size(), templates);
+                var fields = wantsFields(q)
+                        ? proveFields(program, byClass, fieldMax(q))
+                        : Map.<String, List<Field>>of();
+                return header(byClass, meta, parentOf, methods.size(), classes.size(),
+                        templates, fields, wantsFields(q));
             }
             return index(byClass, meta, parentOf, methods.size(), classes.size(), page, q);
         });
@@ -104,6 +121,132 @@ public final class SdkExport {
                     m.isConst(), m.isStatic(), addr, refs.size()));
         }
         return out;
+    }
+
+    private static boolean wantsFields(Map<String, String> q) {
+        if (q == null) return false;
+        var v = q.get("fields_prove");
+        return "1".equals(v) || "true".equalsIgnoreCase(v);
+    }
+
+    private static int fieldMax(Map<String, String> q) {
+        if (q == null) return DEFAULT_FIELD_MAX;
+        var raw = q.get("field_max");
+        if (raw == null || raw.isBlank()) return DEFAULT_FIELD_MAX;
+        try {
+            int n = Integer.parseInt(raw.trim());
+            return n <= 0 ? DEFAULT_FIELD_MAX : n;
+        } catch (NumberFormatException e) {
+            return DEFAULT_FIELD_MAX;
+        }
+    }
+
+    /**
+     * Prove data members for the selected classes.
+     *
+     * <p>{@code prove_offset} normally hunts for asserting functions by string
+     * search. Here we already know which functions belong to a class — the
+     * signature strings resolved them — so decompile those directly and keep the
+     * proofs the assert attributes back to the same class.
+     *
+     * <p>Decompilation is the expensive step, so this is opt-in and capped; the
+     * caller is told how much of the budget was spent.
+     */
+    private static Map<String, List<Field>> proveFields(Program program,
+                                                        Map<String, List<Method>> byClass,
+                                                        int budget) {
+        var out = new LinkedHashMap<String, List<Field>>();
+        int spent = 0;
+        for (var e : byClass.entrySet()) {
+            if (spent >= budget) break;
+            var klass = e.getKey();
+            // offset -> field, so repeated proofs of the same member collapse and
+            // the better-supported one wins.
+            var best = new TreeMap<Long, Field>();
+            for (var m : e.getValue()) {
+                if (spent >= budget) break;
+                if (m.addr().isEmpty()) continue;
+                var fn = Addresses.functionAtOrContaining(program,
+                        Addresses.resolve(program, m.addr()));
+                if (fn == null) continue;
+                spent++;
+                String c;
+                try {
+                    c = Deadline.call("sdk_export decompile " + m.addr(), 20,
+                            () -> DecompileCache.decompile(program, fn));
+                } catch (RuntimeException ex) {
+                    continue;
+                }
+                for (var p : ProveOffset.analyze(program, fn, c)) {
+                    var f = toField(p, klass);
+                    if (f == null) continue;
+                    var prev = best.get(f.offset());
+                    if (prev == null || rank(f.confidence()) > rank(prev.confidence())) {
+                        best.put(f.offset(), f);
+                    }
+                }
+            }
+            if (!best.isEmpty()) out.put(klass, new ArrayList<>(best.values()));
+        }
+        return out;
+    }
+
+    /**
+     * Keep a proof only when the assert attributes it to the class we are
+     * emitting — an inlined assert quotes its own class, not the caller's.
+     */
+    private static Field toField(ProveOffset.Proof p, String klass) {
+        if (p.offset() == null || p.offset().isBlank()) return null;
+        if (p.owner() == null || !sameClass(p.owner(), klass)) return null;
+        long off;
+        try {
+            var raw = p.offset().trim();
+            off = raw.startsWith("0x") || raw.startsWith("0X")
+                    ? Long.parseLong(raw.substring(2), 16)
+                    : Long.parseLong(raw);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+        return new Field(off, p.field(), p.width(), p.container(),
+                p.confidence(), p.assertExpr());
+    }
+
+    private static boolean sameClass(String owner, String klass) {
+        var a = owner.trim();
+        var b = klass.trim();
+        return a.equalsIgnoreCase(b) || a.endsWith("::" + b) || b.endsWith("::" + a);
+    }
+
+    private static int rank(String confidence) {
+        if (confidence == null) return 0;
+        return switch (confidence) {
+            case "exact" -> 3;
+            case "size-member" -> 2;
+            case "ambiguous" -> 1;
+            default -> 0;
+        };
+    }
+
+    /**
+     * Best available type for a member.
+     *
+     * <p>A resolved container shape wins. Failing that, {@code size-member} still
+     * tells us the field is a container even when the shape pass could not settle
+     * which one, and that is worth more than the width of the {@code Size()} load.
+     * Otherwise fall back to an integer of the access width — which is the width
+     * of the dereference, not necessarily of the member.
+     */
+    private static String typeForWidth(String width, String container, String confidence) {
+        if (container != null && !container.isBlank()) return container;
+        if ("size-member".equals(confidence)) return "Util::FixedArray<>";
+        if (width == null) return "void*";
+        return switch (width.trim()) {
+            case "1" -> "uint8_t";
+            case "2" -> "uint16_t";
+            case "4" -> "uint32_t";
+            case "8" -> "uint64_t";
+            default -> "void*";
+        };
     }
 
     /**
@@ -248,14 +391,25 @@ public final class SdkExport {
     private static String header(Map<String, List<Method>> byClass,
                                  Map<String, NebulaClassGraph.Entry> meta,
                                  Map<String, String> parentOf,
-                                 int totalMethods, int totalClasses, boolean templates) {
+                                 int totalMethods, int totalClasses, boolean templates,
+                                 Map<String, List<Field>> fields, boolean fieldsAsked) {
         var sb = new StringBuilder(1 << 16);
         sb.append("// Reconstructed from dro_client64 debug metadata (__FUNCSIG__ + Core::Rtti::Construct).\n");
         sb.append("// methods=").append(totalMethods)
           .append(" classes_with_methods=").append(byClass.size())
           .append(" rtti_classes=").append(totalClasses).append('\n');
         sb.append("// Declarations only: offsets marked /* +0x.. */ are proven, sizes come from\n");
-        sb.append("// the Rtti initialiser. Bodies are not recovered — bind by address.\n\n");
+        sb.append("// the Rtti initialiser. Bodies are not recovered — bind by address.\n");
+        if (fieldsAsked) {
+            sb.append("// Members are proven from the n_assert guarding each this->field; only\n");
+            sb.append("// members some assert actually names appear, so a class is rarely complete.\n");
+            sb.append("// Compare the last offset against sizeof to see what is still missing.\n");
+            sb.append("// Member types are inferred from the width of the dereference, so an\n");
+            sb.append("// integer type means \"read this many bytes here\", not a declared type.\n");
+        } else {
+            sb.append("// Members omitted — pass fields_prove=1 to recover them (decompiles, slower).\n");
+        }
+        sb.append('\n');
 
         int skipped = 0;
         for (var e : byClass.entrySet()) {
@@ -287,7 +441,29 @@ public final class SdkExport {
             var simple = simpleName(klass);
             sb.append("class ").append(simple);
             if (!parent.isEmpty()) sb.append(" : public ").append(parent);
-            sb.append(" {\npublic:\n");
+            sb.append(" {\n");
+
+            var members = fields.get(klass);
+            if (members != null && !members.isEmpty()) {
+                long last = 0;
+                for (var f : members) {
+                    sb.append("    /* +0x").append(String.format("%04X", f.offset())).append(" */ ")
+                      .append(typeForWidth(f.width(), f.container(), f.confidence())).append(' ')
+                      .append(f.name()).append(';');
+                    sb.append("   // ").append(f.confidence());
+                    if (f.assertExpr() != null && !f.assertExpr().isBlank()) {
+                        sb.append(" — \"").append(f.assertExpr()).append('"');
+                    }
+                    sb.append('\n');
+                    last = Math.max(last, f.offset());
+                }
+                if (info != null && info.size() > last) {
+                    sb.append("    // ... unproven up to sizeof 0x")
+                      .append(Long.toHexString(info.size())).append('\n');
+                }
+                sb.append('\n');
+            }
+            sb.append("public:\n");
             for (var m : e.getValue()) {
                 sb.append("    ");
                 if (m.isStatic()) sb.append("static ");

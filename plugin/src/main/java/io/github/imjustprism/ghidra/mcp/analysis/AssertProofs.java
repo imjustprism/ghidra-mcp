@@ -12,9 +12,20 @@ public final class AssertProofs {
 
     public static final int UNKNOWN_SCALE = -1;
 
+    /**
+     * An assert site, in either arity this engine emits.
+     *
+     * <p>{@code n_assert} is {@code (expr, file, line, FUNCSIG)}, but {@code n_error}
+     * and {@code n_assert2} carry a human message first:
+     * {@code (expr, "Inventory has not been setup", file, line, FUNCSIG)}. The
+     * message group is therefore optional — pinning the file to argument two
+     * silently drops every five-argument assert, which is where a large share of
+     * the field guards live.
+     */
     private static final Pattern ASSERT_CALL = Pattern.compile(
             "(?:n_assert\\w*|n_verify\\w*|n_error\\w*|n_warning\\w*|FUN_[0-9a-fA-F]+)\\s*\\(\\s*"
                     + "\"((?:[^\"\\\\]|\\\\.)*)\"\\s*,\\s*"
+                    + "(?:\"((?:[^\"\\\\]|\\\\.)*)\"\\s*,\\s*)?"
                     + "\"((?:[^\"\\\\]|\\\\.)*\\.(?:cc|cpp|cxx|c|h|hpp))\"\\s*,\\s*"
                     + "(0x[0-9a-fA-F]+|[0-9]+)\\s*,\\s*"
                     + "\"((?:[^\"\\\\]|\\\\.)*)\"",
@@ -73,8 +84,9 @@ public final class AssertProofs {
         if (c == null || c.isEmpty()) return out;
         var m = ASSERT_CALL.matcher(c);
         while (m.find()) {
-            out.add(new Site(m.group(1), normalizePath(m.group(2)), parseNum(m.group(3)),
-                    m.group(4), m.start(), m.end()));
+            // group 2 is the optional human message; file/line/sig follow it.
+            out.add(new Site(m.group(1), normalizePath(m.group(3)), parseNum(m.group(4)),
+                    m.group(5), m.start(), m.end()));
         }
         return out;
     }

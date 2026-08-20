@@ -42,12 +42,6 @@ public final class NebulaAssertNamer {
     private static final Map<Program, List<Helper>> HELPER_CACHE =
             java.util.Collections.synchronizedMap(new WeakHashMap<>());
 
-    private static final Pattern ASSERT_CALL = Pattern.compile(
-            "(?:n_assert\\w*|n_verify|FUN_[0-9a-fA-F]+)\\s*\\(\\s*\"([^\"]*)\"\\s*,\\s*\"([^\"]*)\"\\s*,\\s*([^,]+),\\s*\"([^\"]*)\"",
-            Pattern.DOTALL);
-    private static final Pattern ASSERT_PATH_SIG = Pattern.compile(
-            "\\w+\\s*\\(\\s*\"([^\"]+)\"\\s*,\\s*\"([^\"]+\\.(?:cc|cpp|c|h|hpp)[^\"]*)\"\\s*,\\s*([^,]+),\\s*\"([^\"]*(?:__cdecl|__thiscall|__stdcall)[^\"]*)\"",
-            Pattern.DOTALL);
     private static final Pattern CALL_CONV = Pattern.compile(
             "\\b__(?:cdecl|stdcall|fastcall|thiscall|vectorcall)\\b");
     private static final Pattern N_ERROR_WARN = Pattern.compile(
@@ -748,49 +742,31 @@ public final class NebulaAssertNamer {
         return fromErrorWarning(decompiled);
     }
 
+    /**
+     * Name a function from the {@code n_assert} sites in its decompile.
+     *
+     * <p>Parsing is delegated to {@link AssertProofs#sites} so there is one
+     * definition of what an assert call looks like. This used to carry its own
+     * regex that pinned the source file to argument two, which mis-parsed the
+     * five-argument {@code n_error(expr, message, file, line, FUNCSIG)} form and
+     * recorded the human message as the filename.
+     */
     static Extracted fromAssertCall(String decompiled) {
-        Matcher m = ASSERT_CALL.matcher(decompiled);
-        if (!m.find()) {
-            m = ASSERT_PATH_SIG.matcher(decompiled);
-            if (!m.find()) return null;
-            m.reset();
-            if (!m.find()) return null;
-        } else {
-            m.reset();
-        }
         var names = new ArrayList<String>();
         var sigs = new ArrayList<String>();
         String file = null;
         String line = null;
-        Matcher mm = ASSERT_CALL.matcher(decompiled);
-        boolean any = false;
-        while (mm.find()) {
-            any = true;
-            if (file == null && mm.group(2) != null && !mm.group(2).isBlank()) {
-                file = mm.group(2);
-                line = normalizeLine(mm.group(3));
+        for (var site : AssertProofs.sites(decompiled)) {
+            if (file == null && site.file() != null && !site.file().isBlank()) {
+                file = site.file();
+                line = Integer.toString(site.line());
             }
-            var sig = mm.group(4);
+            var sig = site.sig();
             if (sig == null) continue;
             var q = qualifiedFromSignature(sig);
             if (q == null) continue;
             names.add(q);
             sigs.add(sig);
-        }
-        if (!any) {
-            mm = ASSERT_PATH_SIG.matcher(decompiled);
-            while (mm.find()) {
-                if (file == null && mm.group(2) != null && !mm.group(2).isBlank()) {
-                    file = mm.group(2);
-                    line = normalizeLine(mm.group(3));
-                }
-                var sig = mm.group(4);
-                if (sig == null) continue;
-                var q = qualifiedFromSignature(sig);
-                if (q == null) continue;
-                names.add(q);
-                sigs.add(sig);
-            }
         }
         if (names.isEmpty()) return null;
         var unique = new LinkedHashSet<>(names);

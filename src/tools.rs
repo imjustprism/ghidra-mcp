@@ -2426,6 +2426,26 @@ pub struct SdkExport {
         deserialize_with = "de_opt_bool"
     )]
     pub templates: Option<bool>,
+    #[schemars(
+        description = "Recover data members too, proving each offset from the n_assert that names \
+                       the field. Decompiles, so it is slower — pair it with filter=."
+    )]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "de_opt_bool"
+    )]
+    pub fields_prove: Option<bool>,
+    #[schemars(
+        description = "Ceiling on functions decompiled for fields_prove (default 300). The reply \
+                       reports how much of the budget was spent."
+    )]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "de_opt_u32"
+    )]
+    pub field_max: Option<u32>,
     #[serde(flatten)]
     pub page: Page,
 }
@@ -2438,6 +2458,12 @@ impl ToParams for SdkExport {
         }
         if self.templates == Some(true) {
             p.push(("templates", "1".to_owned()));
+        }
+        if self.fields_prove == Some(true) {
+            p.push(("fields_prove", "1".to_owned()));
+        }
+        if let Some(n) = self.field_max {
+            p.push(("field_max", n.to_string()));
         }
         p
     }
