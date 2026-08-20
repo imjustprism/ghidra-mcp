@@ -1,7 +1,9 @@
 package io.github.imjustprism.ghidra.mcp.handlers;
 
 import ghidra.util.Msg;
+import io.github.imjustprism.ghidra.mcp.analysis.AuthSurface;
 import io.github.imjustprism.ghidra.mcp.analysis.AntiDebug;
+import io.github.imjustprism.ghidra.mcp.analysis.CapabilityMap;
 import io.github.imjustprism.ghidra.mcp.analysis.ApiCallSequence;
 import io.github.imjustprism.ghidra.mcp.analysis.Assemble;
 import io.github.imjustprism.ghidra.mcp.analysis.AntiVm;
@@ -15,15 +17,25 @@ import io.github.imjustprism.ghidra.mcp.analysis.Completeness;
 import io.github.imjustprism.ghidra.mcp.analysis.Constraints;
 import io.github.imjustprism.ghidra.mcp.analysis.Coverage;
 import io.github.imjustprism.ghidra.mcp.analysis.Diff;
+import io.github.imjustprism.ghidra.mcp.analysis.DecodeKeystream;
 import io.github.imjustprism.ghidra.mcp.analysis.DecodeStrings;
 import io.github.imjustprism.ghidra.mcp.analysis.DynamicApi;
 import io.github.imjustprism.ghidra.mcp.analysis.CryptoConstants;
+import io.github.imjustprism.ghidra.mcp.analysis.CryptoRecipe;
 import io.github.imjustprism.ghidra.mcp.analysis.DominatorTree;
 import io.github.imjustprism.ghidra.mcp.analysis.FunctionHash;
 import io.github.imjustprism.ghidra.mcp.analysis.Emulator;
 import io.github.imjustprism.ghidra.mcp.analysis.EncodedStrings;
 import io.github.imjustprism.ghidra.mcp.analysis.ExtractIocs;
 import io.github.imjustprism.ghidra.mcp.analysis.FormatStringVulns;
+import io.github.imjustprism.ghidra.mcp.analysis.FunctionBehavior;
+import io.github.imjustprism.ghidra.mcp.analysis.HashBlobs;
+import io.github.imjustprism.ghidra.mcp.analysis.HiddenStrings;
+import io.github.imjustprism.ghidra.mcp.analysis.IocExport;
+import io.github.imjustprism.ghidra.mcp.analysis.PeFacts;
+import io.github.imjustprism.ghidra.mcp.analysis.SampleIntake;
+import io.github.imjustprism.ghidra.mcp.analysis.SecretCompares;
+import io.github.imjustprism.ghidra.mcp.analysis.SelfModify;
 import io.github.imjustprism.ghidra.mcp.analysis.Entropy;
 import io.github.imjustprism.ghidra.mcp.analysis.IdiomSimplifier;
 import io.github.imjustprism.ghidra.mcp.analysis.MagicConstants;
@@ -44,6 +56,8 @@ import io.github.imjustprism.ghidra.mcp.analysis.StructDiagram;
 import io.github.imjustprism.ghidra.mcp.analysis.Syscalls;
 import io.github.imjustprism.ghidra.mcp.analysis.CodeContext;
 import io.github.imjustprism.ghidra.mcp.analysis.NebulaAssertNamer;
+import io.github.imjustprism.ghidra.mcp.analysis.NebulaBootstrap;
+import io.github.imjustprism.ghidra.mcp.analysis.NebulaClassGraph;
 import io.github.imjustprism.ghidra.mcp.analysis.NebulaContainers;
 import io.github.imjustprism.ghidra.mcp.analysis.NebulaShapes;
 import io.github.imjustprism.ghidra.mcp.analysis.NebulaSingletons;
@@ -88,6 +102,26 @@ public final class AnalysisHandlers {
         routes.getQuery("/find_encoded_strings", q -> EncodedStrings.find(ctx, q.get("address"),
                 Http.parseIntOrDefault(q.get("length"), 0x10000),
                 Http.parseIntOrDefault(q.get("min_len"), 6), Page.from(q), q));
+        routes.getQuery("/recover_hidden_strings", q -> HiddenStrings.recover(ctx, q.get("address"),
+                q.get("algo"), Http.parseIntOrDefault(q.get("min_len"), 4),
+                Http.parseBool(q.get("apply"), false), Page.from(q), q));
+        routes.getQuery("/recover_auth_surface", q -> AuthSurface.recover(ctx, Page.from(q), q));
+        routes.getQuery("/function_behavior", q -> FunctionBehavior.summarize(ctx, q.get("address"),
+                Page.from(q), q));
+        routes.getQuery("/sample_intake", q -> SampleIntake.run(ctx, Http.parseBool(q.get("deep"), false),
+                Page.from(q), q));
+        routes.getQuery("/capability_map", q -> CapabilityMap.map(ctx, Page.from(q), q));
+        routes.getQuery("/recover_crypto_recipe", q -> CryptoRecipe.recover(ctx, q.get("address"),
+                Page.from(q), q));
+        routes.getQuery("/find_secret_compares", q -> SecretCompares.find(ctx, Page.from(q), q));
+        routes.getQuery("/export_yara", q -> IocExport.export(ctx, q.get("format"), q.get("name"),
+                Http.parseBool(q.get("deep"), false), Page.from(q), q));
+        routes.getQuery("/decode_keystream", q -> DecodeKeystream.decode(ctx, q.get("address"),
+                Http.parseIntOrDefault(q.get("length"), 64), q.get("seed"), q.get("algo"),
+                Http.parseIntOrDefault(q.get("increment"), 1), q));
+        routes.getQuery("/pe_facts", q -> PeFacts.facts(ctx, q));
+        routes.getQuery("/find_hash_blobs", q -> HashBlobs.find(ctx, Page.from(q), q));
+        routes.getQuery("/find_self_modify", q -> SelfModify.find(ctx, Page.from(q), q));
         routes.getQuery("/find_api_hashes", q -> ApiHashes.find(ctx, q.get("algo"), Page.from(q), q));
         routes.getQuery("/find_stack_strings", q -> StackStrings.find(ctx, q.get("address"), Page.from(q), q));
         routes.getQuery("/high_entropy_regions", q -> Entropy.highEntropyRegions(ctx,
@@ -124,6 +158,8 @@ public final class AnalysisHandlers {
                 Http.parseBool(q.get("apply"), false), Page.from(q), q));
         routes.getQuery("/factory_catalog", q -> FactoryCatalog.catalog(ctx, q.get("filter"),
                 Page.from(q), q));
+        routes.getQuery("/nebula_class_graph", q -> NebulaClassGraph.graph(ctx, q.get("filter"),
+                q.get("root"), q.get("ctor"), Page.from(q), q));
         routes.getQuery("/assert_catalog", q -> AssertCatalog.catalog(ctx, q.get("filter"),
                 Http.parseBool(q.get("prove"), false),
                 Http.parseIntOrDefault(q.get("max"), AssertCatalog.DEFAULT_MAX), Page.from(q), q));
@@ -137,6 +173,7 @@ public final class AnalysisHandlers {
                 q.get("fmt"), q.get("max"), Page.from(q), q));
         routes.getQuery("/nebula_assert_helpers", q -> NebulaAssertNamer.findHelpers(ctx, q));
         routes.getQuery("/nebula_engine_survey", q -> NebulaAssertNamer.survey(ctx, q));
+        routes.postForm("/nebula_bootstrap", p -> NebulaBootstrap.dispatch(ctx, p));
         routes.postForm("/seed_nebula_helpers", p -> NebulaAssertNamer.seedHelpers(ctx,
                 Http.parseBool(p.get("apply"), false), p));
         routes.postForm("/name_from_n_assert", p -> NebulaAssertNamer.name(ctx, p.get("address"),

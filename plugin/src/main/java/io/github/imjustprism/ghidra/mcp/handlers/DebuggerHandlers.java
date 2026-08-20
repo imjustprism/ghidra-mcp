@@ -50,6 +50,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -148,6 +149,7 @@ public final class DebuggerHandlers {
         routes.getQuery("/read_pointer_path", q -> readPointerPath(q.get("base"), q.get("offsets"),
                 Math.min(Math.max(Http.parseIntOrDefault(q.get("value_len"), 0), 0), 65536)));
         routes.postForm("/live_read_struct", this::liveReadStruct);
+        routes.postForm("/live_probe", this::liveProbe);
         routes.getQuery("/debugger_list_breakpoints", q -> breakpoints(q));
         routes.getQuery("/debugger_translate_static_to_dynamic",
                 q -> staticToDynamic(q.get("address")));
@@ -417,8 +419,13 @@ public final class DebuggerHandlers {
 
     private String liveProcesses(Map<String, String> q, String name) {
         requireRpm();
+        // Process enumeration goes through JNA into Toolhelp32 and can block hard
+        // (loader lock, protected processes, endpoint-security hooks). Bound it so
+        // the caller gets an actionable error instead of hanging until its own
+        // timeout expires.
         if (name != null && !name.isBlank()) {
-            var cands = ProcessResolver.resolve(rpm, name);
+            var cands = io.github.imjustprism.ghidra.mcp.util.Deadline.call(
+                    "live_processes name=" + name, 20, () -> ProcessResolver.resolve(rpm, name));
             var t = Responses.table(q,
                     new String[]{"pid", "name", "openable", "wow64", "modules", "status"}, cands.size());
             for (var c : cands) {
@@ -427,33 +434,61 @@ public final class DebuggerHandlers {
             }
             return t.build();
         }
-        var procs = rpm.listProcesses();
+        var procs = io.github.imjustprism.ghidra.mcp.util.Deadline.call(
+                "live_processes", 20, rpm::listProcesses);
         var t = Responses.table(q, new String[]{"pid", "name"}, procs.size());
         for (var p : procs) t.row(p.pid(), p.name());
         return t.build();
     }
 
+    /**
+     * Attach the memory plane to a running process.
+     *
+     * <p>Rewritten to be diagnosable. Every step that touches the OS or another
+     * thread's state is individually deadline-bounded and timed, so a stall names
+     * the step that stalled instead of hanging the caller until its own timeout
+     * expires with nothing to show. The timings are reported on success too —
+     * when this gets slow again, the answer is in the response.
+     *
+     * <p>Two behaviours also changed. The previous version published
+     * {@code anchor} before the remaining steps ran, so a failure part-way left
+     * the plugin claiming to be attached to a target it had not finished
+     * inspecting; the anchor is now published only once everything has
+     * succeeded. And attaching by pid used to synthesise the name
+     * {@code "pid1234"}, which then never matched a module, so
+     * {@code main_base} silently fell back to whatever module happened to be
+     * first; the real name is now recovered from the process list.
+     */
     private String liveAttach(String name, String pidStr) {
         requireRpm();
+        var timings = new LinkedHashMap<String, Long>();
+        var extra = new StringBuilder();
         int pid;
         String resolvedName;
-        var extra = new StringBuilder();
+
         if (pidStr != null && !pidStr.isBlank()) {
-            pid = Integer.parseInt(pidStr.trim());
-            int err = rpm.probeOpen(pid);
+            try {
+                pid = Integer.parseInt(pidStr.trim());
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException("pid must be a number, got '" + pidStr + "'");
+            }
+            int err = step(timings, "probe_open", 10, () -> rpm.probeOpen(pid));
             if (err != 0) throw new IllegalStateException(openFailure(name, pid, err));
-            resolvedName = (name == null || name.isBlank()) ? "pid" + pid : name;
+            resolvedName = (name != null && !name.isBlank()) ? name : resolveName(timings, pid);
         } else {
             if (name == null || name.isBlank()) {
                 throw new IllegalArgumentException("name or pid is required (see live_processes)");
             }
-            var cands = ProcessResolver.resolve(rpm, name);
+            var cands = step(timings, "resolve_by_name", 20,
+                    () -> ProcessResolver.resolve(rpm, name));
             if (cands.isEmpty()) {
                 throw new IllegalStateException("No running process named '" + name
                         + "'. Confirm it is running (live_processes).");
             }
             var best = cands.get(0);
-            if (!best.openable()) throw new IllegalStateException(openFailure(name, best.pid(), best.openError()));
+            if (!best.openable()) {
+                throw new IllegalStateException(openFailure(name, best.pid(), best.openError()));
+            }
             pid = best.pid();
             resolvedName = best.name();
             long openable = cands.stream().filter(ProcessResolver.Candidate::openable).count();
@@ -463,23 +498,225 @@ public final class DebuggerHandlers {
                         .append(" (most modules). Pass pid= to choose another (see live_processes).");
             }
         }
-        boolean wow64 = rpm.isWow64(pid);
-        synchronized (luaLock) {
-            disposeExecutor();
-        }
-        anchor = new LiveAnchor(resolvedName, pid, wow64);
-        var mods = rpm.modules(pid);
-        int threads = rpm.threadIds(pid).size();
+
+        final int target = pid;
+        boolean wow64 = step(timings, "is_wow64", 10, () -> rpm.isWow64(target));
+        var mods = step(timings, "modules", 20, () -> rpm.modules(target));
+        int threads = step(timings, "threads", 20, () -> rpm.threadIds(target).size());
+
+        // Tear down any previous Lua executor last, and under its own deadline:
+        // it talks to the *old* target and must never be able to block attaching
+        // to a new one.
+        step(timings, "release_previous", 15, () -> {
+            synchronized (luaLock) {
+                disposeExecutor();
+            }
+            return Boolean.TRUE;
+        });
+
         long mainBase = mainModuleBase(mods, resolvedName);
+        anchor = new LiveAnchor(resolvedName, pid, wow64);
+
         var sb = new StringBuilder();
         sb.append("attached ").append(resolvedName).append(" pid=").append(pid)
                 .append(" (").append(wow64 ? "WOW64/32-bit" : "64-bit").append(", connector-less)\n");
         sb.append("main_base=0x").append(Long.toHexString(mainBase))
                 .append(", modules=").append(mods.size())
                 .append(", threads=").append(threads).append('\n');
+        sb.append("timing_ms");
+        for (var e : timings.entrySet()) {
+            sb.append(' ').append(e.getKey()).append('=').append(e.getValue());
+        }
+        sb.append('\n');
         sb.append("memory plane ready: read_memory / read_pointer_path resolve directly via this "
                 + "process (no dbgeng/trace). For registers/breakpoints/stepping use debugger_launch.");
         return sb.append(extra).toString();
+    }
+
+    // -----------------------------------------------------------------------
+    // live probes: named, persistent live-state reads
+    // -----------------------------------------------------------------------
+
+    private static final String PROBE_NODE = "MCP.LiveProbes";
+
+    /**
+     * Named live-memory reads, saved with the program.
+     *
+     * <p>Finding a value in a running game is a two-stage job: work out the
+     * pointer chain and field layout once (slow, with {@code pointer_scan} and
+     * {@code prove_offset}), then read it a thousand times (should be trivial).
+     * Without somewhere to record stage one, every read repeats it — a hand-built
+     * pointer path plus a hand-built schema, every time, in every session.
+     *
+     * <p>A probe stores the chain and schema under a name, in the program's own
+     * options, so it survives restarts and travels with the database. After
+     * {@code define}, reading player state is {@code live_probe op=run name=player}.
+     */
+    private String liveProbe(Map<String, String> q) {
+        var op = q.getOrDefault("op", "run");
+        op = op == null || op.isBlank() ? "run" : op.trim().toLowerCase(Locale.ROOT);
+        var program = ctx.currentProgram();
+        if (program == null) throw new IllegalArgumentException("No program loaded");
+        var name = q.get("name") == null ? "" : q.get("name").trim();
+
+        switch (op) {
+            case "define", "set" -> {
+                if (name.isEmpty()) throw new IllegalArgumentException("name is required");
+                var base = q.get("base");
+                var schema = q.get("schema");
+                if (base == null || base.isBlank()) {
+                    throw new IllegalArgumentException(
+                            "base is required (absolute VA, or tls:0x58 / teb:0x58 after live_attach)");
+                }
+                if (schema == null || schema.isBlank()) {
+                    throw new IllegalArgumentException(
+                            "schema is required, e.g. \"pos: vec3 +0x34; hp: f32 +0x50\"");
+                }
+                var offsets = q.getOrDefault("offsets", "");
+                var note = q.getOrDefault("note", "");
+                ctx.runOnSwingTx(program, "live_probe define", () -> {
+                    var opts = program.getOptions(PROBE_NODE);
+                    opts.setString(name + ".base", base);
+                    opts.setString(name + ".offsets", offsets == null ? "" : offsets);
+                    opts.setString(name + ".schema", schema);
+                    opts.setString(name + ".note", note == null ? "" : note);
+                    return true;
+                });
+                return "probe '" + name + "' saved (persists with the program; save to keep)\n"
+                        + "  base=" + base + " offsets=" + offsets + "\n"
+                        + "  run it with: live_probe op=run name=" + name + "\n";
+            }
+            case "delete", "remove" -> {
+                if (name.isEmpty()) throw new IllegalArgumentException("name is required");
+                ctx.runOnSwingTx(program, "live_probe delete", () -> {
+                    var opts = program.getOptions(PROBE_NODE);
+                    for (var suffix : new String[]{".base", ".offsets", ".schema", ".note"}) {
+                        opts.removeOption(name + suffix);
+                    }
+                    return true;
+                });
+                return "probe '" + name + "' deleted\n";
+            }
+            case "list" -> {
+                var opts = program.getOptions(PROBE_NODE);
+                var t = Responses.table(q, new String[]{"probe", "base", "offsets", "note"}, 16);
+                int n = 0;
+                for (var probe : probeNames(program)) {
+                    t.row(probe, opts.getString(probe + ".base", ""),
+                            opts.getString(probe + ".offsets", ""),
+                            opts.getString(probe + ".note", ""));
+                    n++;
+                }
+                return (n == 0
+                        ? "# no probes defined — live_probe op=define name=<n> base=<b> schema=<s>\n"
+                        : "") + t.total(n).build();
+            }
+            case "show" -> {
+                if (name.isEmpty()) throw new IllegalArgumentException("name is required");
+                var opts = program.getOptions(PROBE_NODE);
+                var base = probeBase(program, name);
+                if (base == null) throw new IllegalArgumentException(unknownProbe(program, name));
+                return "probe\t" + name + "\nbase\t" + base
+                        + "\noffsets\t" + opts.getString(name + ".offsets", "")
+                        + "\nschema\t" + opts.getString(name + ".schema", "").replace("\n", "; ")
+                        + "\nnote\t" + opts.getString(name + ".note", "") + '\n';
+            }
+            case "run", "read" -> {
+                if (name.isEmpty()) throw new IllegalArgumentException("name is required");
+                var opts = program.getOptions(PROBE_NODE);
+                var base = probeBase(program, name);
+                if (base == null) throw new IllegalArgumentException(unknownProbe(program, name));
+                var offsets = opts.getString(name + ".offsets", "");
+                var schema = opts.getString(name + ".schema", "");
+                long addr = resolveChain(base, offsets);
+                var body = readStructAt(addr, schema, q);
+                return "# probe " + name + " base=" + base
+                        + (offsets.isBlank() ? "" : " offsets=" + offsets)
+                        + " -> 0x" + Long.toHexString(addr) + '\n' + body;
+            }
+            default -> throw new IllegalArgumentException(
+                    "op must be define, run, list, show, or delete");
+        }
+    }
+
+    private java.util.List<String> probeNames(ghidra.program.model.listing.Program program) {
+        var opts = program.getOptions(PROBE_NODE);
+        var names = new java.util.TreeSet<String>();
+        for (var key : opts.getOptionNames()) {
+            if (!key.endsWith(".base")) continue;
+            names.add(key.substring(0, key.length() - ".base".length()));
+        }
+        return new ArrayList<>(names);
+    }
+
+    /**
+     * The stored base for a probe, or null if it is not defined.
+     *
+     * <p>Ghidra's {@code Options.getString(key, default)} <em>registers</em> the
+     * option as a side effect, so probing for a name that does not exist would
+     * otherwise conjure it into the store and list it as defined ever after.
+     * Check membership first.
+     */
+    private String probeBase(ghidra.program.model.listing.Program program, String name) {
+        var opts = program.getOptions(PROBE_NODE);
+        var key = name + ".base";
+        return opts.contains(key) ? opts.getString(key, null) : null;
+    }
+
+    private String unknownProbe(ghidra.program.model.listing.Program program, String name) {
+        var known = probeNames(program);
+        return "no probe named '" + name + "'"
+                + (known.isEmpty() ? " (none defined yet)" : "; defined: " + String.join(", ", known));
+    }
+
+    /**
+     * Resolve a pointer chain to a final address.
+     *
+     * <p>Same rule as {@code read_pointer_path}: for each offset, dereference
+     * then add — {@code final = [...[[base]+off0]+off1...]+offN}. The final
+     * address is not dereferenced.
+     */
+    private long resolveChain(String base, String offsetsStr) {
+        var lc = liveCtx();
+        var program = ctx.currentProgram();
+        int ptr = program != null ? program.getDefaultPointerSize() : lc.space().getPointerSize();
+        long snap = lc.trace() != null ? liveSnap(lc.trace()) : 0;
+        long cur = LiveBases.isPseudo(base) ? resolveLiveAddress(base) : parseOffset(base);
+        long[] offsets = PointerPath.parseOffsets(offsetsStr);
+        for (int i = 0; i < offsets.length; i++) {
+            var at = lc.space().getAddress(cur);
+            var pb = readScanChunk(lc, snap, at, ptr, lc.pid());
+            if (pb == null || pb.length < ptr) {
+                throw new IllegalStateException("probe chain broke at step " + i + ": cannot read "
+                        + ptr + " bytes at 0x" + Long.toHexString(cur)
+                        + " (target moved, or the chain is stale — re-derive it)");
+            }
+            cur = PointerPath.toUnsignedLong(pb, ptr, lc.bigEndian()) + offsets[i];
+        }
+        return cur;
+    }
+
+    /** Run one attach step under a deadline, recording how long it took. */
+    private static <T> T step(Map<String, Long> timings, String label, int seconds,
+                              java.util.concurrent.Callable<T> body) {
+        long t0 = System.nanoTime();
+        try {
+            return io.github.imjustprism.ghidra.mcp.util.Deadline.call("live_attach:" + label,
+                    seconds, body);
+        } finally {
+            timings.put(label, (System.nanoTime() - t0) / 1_000_000L);
+        }
+    }
+
+    /** The real image name for a pid, so main_base matches a module. */
+    private String resolveName(Map<String, Long> timings, int pid) {
+        var found = step(timings, "resolve_name", 20, () -> {
+            for (var p : rpm.listProcesses()) {
+                if (p.pid() == pid) return p.name();
+            }
+            return "";
+        });
+        return found == null || found.isBlank() ? "pid" + pid : found;
     }
 
     private static final long DEFAULT_LUA_EXEC_FN = 0x9e64d0L;
@@ -1002,12 +1239,22 @@ public final class DebuggerHandlers {
         var schema = q.get("schema");
         if (address == null || address.isBlank()) throw new IllegalArgumentException("address is required");
         if (schema == null || schema.isBlank()) throw new IllegalArgumentException("schema is required");
+        long baseOff = LiveBases.isPseudo(address) ? resolveLiveAddress(address) : parseOffset(address);
+        return readStructAt(baseOff, schema, q);
+    }
+
+    /**
+     * Read a schema at an already-resolved live address.
+     *
+     * <p>Split out of {@link #liveReadStruct} so {@code live_probe} can reuse the
+     * exact same decoding rather than growing a second, subtly different one.
+     */
+    private String readStructAt(long baseOff, String schema, Map<String, String> q) {
         var lc = liveCtx();
         var program = ctx.currentProgram();
         int ptr = program != null ? program.getDefaultPointerSize() : lc.space().getPointerSize();
         var fields = parseStructSchema(schema, ptr);
         long snap = lc.trace() != null ? liveSnap(lc.trace()) : 0;
-        long baseOff = LiveBases.isPseudo(address) ? resolveLiveAddress(address) : parseOffset(address);
         var base = lc.space().getAddress(baseOff);
         var t = Responses.table(q, new String[]{"field", "type", "offset", "address", "value"}, fields.size());
         for (var f : fields) {

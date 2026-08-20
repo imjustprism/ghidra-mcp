@@ -26,6 +26,36 @@ public final class DecompileMinimal {
         return s;
     }
 
+    /** minimize() plus drop std::string SSO / length-error noise that buries malware logic. */
+    public static String minimizeStd(String src) {
+        String s = minimize(src);
+        if (s == null || s.isEmpty()) return s;
+        var out = new StringBuilder(s.length());
+        int i = 0;
+        while (i < s.length()) {
+            int nl = s.indexOf('\n', i);
+            String line = nl < 0 ? s.substring(i) : s.substring(i, nl);
+            i = nl < 0 ? s.length() : nl + 1;
+            if (isStdNoise(line)) continue;
+            out.append(line);
+            if (nl >= 0) out.append('\n');
+        }
+        return collapseBlankLines(out.toString());
+    }
+
+    static boolean isStdNoise(String line) {
+        var t = line.trim();
+        if (t.isEmpty()) return false;
+        return t.contains("__throw_length_error")
+                || t.contains("basic_string::append")
+                || t.contains("basic_string: construction from null")
+                || t.contains("cannot create std::vector larger than max_size")
+                || t.contains("vector::_M_default_append")
+                || t.contains("vector::_M_realloc_insert")
+                || t.contains("vector::_M_range_insert")
+                || t.equals("std::__throw_bad_function_call();");
+    }
+
     private static String stripWarningBlocks(String s) {
         var sb = new StringBuilder(s.length());
         int i = 0, n = s.length();

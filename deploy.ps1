@@ -4,7 +4,7 @@
   Build + deploy ghidra-mcp (plugin zip + Rust bridge) — fast, kill-locks-first.
 
 .EXAMPLE
-  $env:GHIDRA_HOME = "C:\ghidra_12.1.2_PUBLIC"
+  $env:GHIDRA_HOME = "C:\ghidra_12.1.3_PUBLIC"
   .\deploy.ps1
   .\deploy.ps1 -Relaunch
   .\deploy.ps1 -SkipRust
@@ -452,15 +452,14 @@ try {
         $env:CARGO_TERM_PROGRESS = "never"
         $env:CARGO_TERM_COLOR = "never"
         $env:CARGO_TERM_VERBOSE = "false"
-        $env:CARGO_INCREMENTAL = "1"
-        # use all cores; sccache if installed
+        # use all cores; sccache if installed. sccache rejects incremental rustc
+        # (CARGO_INCREMENTAL set to anything, or profile.incremental=true).
+        Remove-Item Env:CARGO_INCREMENTAL -ErrorAction SilentlyContinue
         if (-not $env:CARGO_BUILD_JOBS) {
             $env:CARGO_BUILD_JOBS = [Environment]::ProcessorCount
         }
-        if (-not $env:RUSTC_WRAPPER) {
-            $sccache = Get-Command sccache -ErrorAction SilentlyContinue
-            if ($sccache) { $env:RUSTC_WRAPPER = $sccache.Source }
-        }
+        # sccache 0.17 refuses rustc -vV when this crate's release profile has
+        # incremental=true; compile with the real rustc for deploy.
 
         $logDir = Join-Path $env:TEMP "ghidra-mcp-deploy"
         New-Item -ItemType Directory -Force -Path $logDir | Out-Null
@@ -485,7 +484,10 @@ try {
         }
 
         if (-not $SkipRust) {
-            $cargoArgs = @("build", "--profile", $rustProfile, "--color", "never")
+            $cargoArgs = @(
+                "build", "--profile", $rustProfile, "--color", "never",
+                "--config", "profile.$rustProfile.incremental=false"
+            )
             # Prefer direct cargo — vcvars only if link.exe missing
             $needVc = -not (Get-Command link.exe -ErrorAction SilentlyContinue)
             $vcvars = $null

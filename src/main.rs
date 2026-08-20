@@ -4,7 +4,7 @@ mod instance;
 mod tools;
 
 use clap::Parser;
-use rmcp::{ServiceExt, transport::stdio};
+use rmcp::{ServiceExt, model::ProtocolVersion, transport::stdio};
 use tools::GhidraServer;
 use url::Url;
 
@@ -62,6 +62,7 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!(
         url = %args.ghidra_server,
+        protocol = %ProtocolVersion::V_2026_07_28,
         replace_siblings = replace,
         detach = args.detach,
         timeout_secs = args.timeout_secs,

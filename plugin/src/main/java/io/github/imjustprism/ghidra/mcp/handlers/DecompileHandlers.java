@@ -22,14 +22,14 @@ public final class DecompileHandlers {
     }
 
     public void register(RouteTable routes) {
-        routes.getQuery("/decompile", q -> decompile(q.get("target"), Http.parseBool(q.get("clean"), false),
+        routes.getQuery("/decompile", q -> decompile(q.get("target"), q.get("clean"),
                 Http.parseIntOrDefault(q.get("offset"), 0), Http.parseIntOrDefault(q.get("limit"), 0),
                 q.get("grep")));
         routes.getQuery("/disassemble_function", q -> disassembleAt(q.get("address")));
         routes.getQuery("/instruction_at", q -> instructionAt(q.get("address")));
     }
 
-    public String decompile(String target, boolean clean, int offset, int limit, String grep) {
+    public String decompile(String target, String cleanMode, int offset, int limit, String grep) {
         return ctx.withProgram(program -> {
             if (target == null || target.isBlank()) {
                 throw new IllegalArgumentException("target (function name or address) is required");
@@ -38,9 +38,19 @@ public final class DecompileHandlers {
             var func = Addresses.resolveFunction(program, t);
             if (func == null) throw new IllegalArgumentException(notFound(program, t));
             var c = DecompileCache.decompile(program, func);
-            if (clean) c = DecompileMinimal.minimize(c);
+            c = applyClean(c, cleanMode);
             return window(c, offset, limit, grep);
         });
+    }
+
+    static String applyClean(String c, String cleanMode) {
+        if (cleanMode == null || cleanMode.isBlank()) return c;
+        var m = cleanMode.trim().toLowerCase(java.util.Locale.ROOT);
+        return switch (m) {
+            case "std", "aggressive", "2" -> DecompileMinimal.minimizeStd(c);
+            case "1", "true", "yes", "on" -> DecompileMinimal.minimize(c);
+            default -> c;
+        };
     }
 
     private static String notFound(ghidra.program.model.listing.Program program, String t) {

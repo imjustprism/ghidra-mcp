@@ -28,6 +28,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.WeakHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -36,6 +37,10 @@ public final class NebulaAssertNamer {
     private static final int MAX_PREVIEW = 500;
     private static final int DEFAULT_MAX = 200;
     private static final int DISCOVER_CDECL_SAMPLE = 600;
+
+    /** Memoised helper discovery, keyed weakly so a closed program is collectable. */
+    private static final Map<Program, List<Helper>> HELPER_CACHE =
+            java.util.Collections.synchronizedMap(new WeakHashMap<>());
 
     private static final Pattern ASSERT_CALL = Pattern.compile(
             "(?:n_assert\\w*|n_verify|FUN_[0-9a-fA-F]+)\\s*\\(\\s*\"([^\"]*)\"\\s*,\\s*\"([^\"]*)\"\\s*,\\s*([^,]+),\\s*\"([^\"]*)\"",
@@ -78,10 +83,19 @@ public final class NebulaAssertNamer {
     }
 
     public static String seedHelpers(PluginContext ctx, boolean apply, Map<String, String> q) {
+        if (q != null && "1".equals(q.get("refresh"))) clearHelperCache();
         return ctx.withProgram(program -> {
+            // Timed individually: this call dominates the bootstrap chain and the
+            // three phases have wildly different costs, so the report says which.
+            long t0 = System.nanoTime();
             ensureNebulaFormatStrings(program);
+            long msStrings = (System.nanoTime() - t0) / 1_000_000L;
+            long t1 = System.nanoTime();
             var discovered = discoverHelpersByCalleeScore(program);
+            long msDiscover = (System.nanoTime() - t1) / 1_000_000L;
+            long t2 = System.nanoTime();
             var named = resolveHelpers(program);
+            long msResolve = (System.nanoTime() - t2) / 1_000_000L;
             record Plan(Function fn, String role, String newName, String how) {}
             var plans = new ArrayList<Plan>();
             var takenRoles = new HashSet<String>();
@@ -144,6 +158,10 @@ public final class NebulaAssertNamer {
             sb.append(apply
                     ? "# seeded " + applied[0] + " helper name(s)\n"
                     : "# preview seed_nebula_helpers (pass apply=1)\n");
+            sb.append("# timing_ms seed_strings=").append(msStrings)
+                    .append(" discover=").append(msDiscover)
+                    .append(" resolve=").append(msResolve)
+                    .append(" (discover is memoised per program; refresh=1 recomputes)\n");
             sb.append("role\taddress\told\tnew\thow\tstatus\n");
             for (int i = 0; i < plans.size(); i++) {
                 var p = plans.get(i);
@@ -502,7 +520,34 @@ public final class NebulaAssertNamer {
         return n;
     }
 
+    /**
+     * Which functions are n_assert / n_assert2 / n_error / n_warning.
+     *
+     * <p>Memoised per program. The computation walks up to
+     * {@link #DISCOVER_CDECL_SAMPLE} signature strings and, for every function
+     * referencing one, enumerates its callees — on a client where a single
+     * assert string has thousands of references that is minutes of work, and it
+     * used to run again on every call from seedHelpers, name() and survey().
+     *
+     * <p>Caching across edits is deliberate: renaming the helpers does not change
+     * <em>which</em> functions they are, and {@code resolveHelpers} already picks
+     * up anything that has since been named. Call {@link #clearHelperCache} after
+     * re-analysis, or pass {@code refresh=1}.
+     */
     static List<Helper> discoverHelpersByCalleeScore(Program program) {
+        var cached = HELPER_CACHE.get(program);
+        if (cached != null) return cached;
+        var computed = computeHelpersByCalleeScore(program);
+        HELPER_CACHE.put(program, computed);
+        return computed;
+    }
+
+    /** Drop the memoised helper discovery, e.g. after re-running analysis. */
+    public static void clearHelperCache() {
+        HELPER_CACHE.clear();
+    }
+
+    private static List<Helper> computeHelpersByCalleeScore(Program program) {
         var fm = program.getFunctionManager();
         var mon = new ConsoleTaskMonitor();
         var scores = new HashMap<Long, int[]>();

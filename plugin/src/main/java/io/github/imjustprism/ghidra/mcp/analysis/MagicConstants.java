@@ -30,6 +30,9 @@ public final class MagicConstants {
             Map.entry(0x8f1bbcdcL, "SHA-1 round K3"),
             Map.entry(0xca62c1d6L, "SHA-1 round K4"),
             Map.entry(0x9e3779b9L, "golden ratio (TEA delta / hash mix)"),
+            Map.entry(0x9E3779B97F4A7C15L, "SplitMix64 golden / string-xor increment"),
+            Map.entry(0xBF58476D1CE4E5B9L, "SplitMix64 mixer #1 (string decrypt)"),
+            Map.entry(0x94D049BB133111EBL, "SplitMix64 mixer #2 (string decrypt)"),
             Map.entry(0x811c9dc5L, "FNV-1 32 offset basis"),
             Map.entry(0x01000193L, "FNV-1 32 prime"),
             Map.entry(0xedb88320L, "CRC-32 reversed poly"),
@@ -79,13 +82,17 @@ public final class MagicConstants {
                     for (var o : objs) {
                         if (!(o instanceof Scalar s)) continue;
                         long v = s.getUnsignedValue();
-                        if (v < min || v > max) continue;
-                        if (isUninteresting(v)) continue;
+                        String meaning = classify(v);
+                        boolean known = !meaning.isEmpty();
+                        if (!known) {
+                            if (Long.compareUnsigned(v, min) < 0 || Long.compareUnsigned(v, max) > 0) continue;
+                            if (isUninteresting(v)) continue;
+                        }
                         if (!w.take()) continue;
                         Function f = program.getFunctionManager().getFunctionContaining(ins.getAddress());
                         String fname = f == null ? "" : f.getName();
                         t.row(Responses.addr(ins.getAddress()), fname, ins.toString(),
-                              "0x" + Long.toHexString(v), v, classify(v));
+                              "0x" + Long.toHexString(v), v, meaning);
                     }
                 }
             }

@@ -228,10 +228,10 @@ pub fn lookup(id: Option<u8>, query: Option<&str>) -> Vec<&'static PacketRow> {
     PACKETS
         .iter()
         .filter(|row| {
-            if let Some(id) = id {
-                if row.id != id {
-                    return false;
-                }
+            if let Some(id) = id
+                && row.id != id
+            {
+                return false;
             }
             if let Some(ref ql) = q_lower {
                 let name = row.name.to_ascii_lowercase();

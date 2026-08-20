@@ -2,7 +2,7 @@
 name = "ghidra-mcp"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 description = "Fast Rust MCP server bridging LLMs to Ghidra via an HTTP plugin"
 license = "Apache-2.0"
 repository = "https://github.com/imjustprism/ghidra-mcp"
@@ -13,7 +13,7 @@ categories = ["development-tools", "command-line-utilities"]
 authors = ["imjustprism"]
 
 [dependencies]
-rmcp = { version = "1.7", features = ["server", "transport-io", "macros"] }
+rmcp = { version = "3.1", features = ["server", "transport-io", "macros", "schemars"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "signal"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "http2"] }
 serde = { version = "1", features = ["derive"] }

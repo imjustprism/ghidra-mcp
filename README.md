@@ -2,8 +2,8 @@
 
 [![CI](https://github.com/imjustprism/ghidra-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/imjustprism/ghidra-mcp/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![Rust](https://img.shields.io/badge/rust-1.85%2B-orange.svg)](rust-toolchain.toml)
-[![Ghidra](https://img.shields.io/badge/ghidra-12.1.2-red.svg)](https://ghidra-sre.org/)
+[![Rust](https://img.shields.io/badge/rust-1.88%2B-orange.svg)](rust-toolchain.toml)
+[![Ghidra](https://img.shields.io/badge/ghidra-12.1.3-red.svg)](https://ghidra-sre.org/)
 [![JDK](https://img.shields.io/badge/jdk-21-green.svg)](https://adoptium.net/)
 
 **MCP server for [Ghidra](https://ghidra-sre.org/).** A small Rust bridge plus a Ghidra Java plugin that expose a live reversing session to any MCP client (Claude Desktop, Cursor, VS Code, custom agents, …).
@@ -31,7 +31,7 @@ flowchart LR
 
 | piece | role |
 | --- | --- |
-| **Rust bridge** (`ghidra-mcp`) | MCP server over stdio. Translates tool calls into HTTP against the plugin. |
+| **Rust bridge** (`ghidra-mcp`) | MCP server over stdio. Speaks **MCP `2026-07-28`** (`server/discover`, per-request `_meta`, cache hints, completions) and still answers the older `initialize` handshake for Claude Desktop / Cursor / anything on `2025-11-25` and earlier. Translates tool calls into HTTP against the plugin. |
 | **Java plugin** (`ghidra-mcp-plugin`) | Runs inside Ghidra. Serves endpoints for listing, decompile, edit, emulator, debugger, live process attach, … |
 | **Optional headless script** (`ghidra-scripts/ServeMcp.java`) | Lightweight read-only HTTP surface for `analyzeHeadless` without the full UI plugin. |
 
@@ -41,9 +41,9 @@ flowchart LR
 
 | dependency | version / notes |
 | --- | --- |
-| [Ghidra](https://github.com/NationalSecurityAgency/ghidra/releases) | **12.1.2** (extension metadata targets this release) |
+| [Ghidra](https://github.com/NationalSecurityAgency/ghidra/releases) | **12.1.3** (extension metadata targets this release) |
 | JDK | **21** (Temurin / Adoptium recommended) |
-| Rust | **1.85+** stable (`rustup` + `cargo`) |
+| Rust | **1.88+** stable (`rustup` + `cargo`) |
 | Maven | **3.9+** (plugin build) |
 | OS | Windows is the primary path for live attach / debugger helpers; Linux/macOS work for static analysis tools |
 
@@ -69,7 +69,7 @@ cargo build --profile dist
 ```powershell
 # Stage Ghidra jars into plugin/lib (required for Maven system-scoped deps)
 cd plugin
-.\setup-libs.ps1 -GhidraHome "C:\path\to\ghidra_12.1.2_PUBLIC"
+.\setup-libs.ps1 -GhidraHome "C:\path\to\ghidra_12.1.3_PUBLIC"
 # or: $env:GHIDRA_HOME = "..."; .\setup-libs.ps1
 
 mvn clean package
@@ -112,7 +112,7 @@ Optional auth (must match **Edit → Tool Options → Ghidra MCP HTTP Server →
 ### One-shot Windows deploy (optional)
 
 ```powershell
-$env:GHIDRA_HOME = "C:\ghidra_12.1.2_PUBLIC"
+$env:GHIDRA_HOME = "C:\ghidra_12.1.3_PUBLIC"
 .\deploy.ps1            # build plugin + bridge, install extension
 .\deploy.ps1 -Relaunch  # also start Ghidra
 .\deploy.ps1 -Dist      # fat-LTO Rust profile
@@ -149,9 +149,43 @@ RUST_LOG=ghidra_mcp=debug ./target/release/ghidra-mcp
 
 ---
 
+## Response shaping
+
+Every table-shaped tool (71 of them) accepts four parameters whose whole purpose is to
+keep a caller from pulling a wide result into its context just to read part of it. Each
+table names its columns in its `# cols=` header, so the projection is discoverable from
+any previous reply.
+
+| param | effect |
+| --- | --- |
+| `fields=address,name` | emit only these columns, in this order |
+| `grep=<regex>` | emit only matching rows, case-insensitive |
+| `count=1` | report how many matched and emit no rows |
+| `max_bytes=<n>` | cap the reply (1000‥2000000, default 200000) |
+
+`grep` filters the **whole** result set and then pages the matches, so
+`grep=CreateFile&limit=10` returns the first ten matches out of all of them — not
+whatever happened to land in the first page. The reply reports `matched=N of scanned=M`
+so the size of the search stays visible. A malformed regex is treated as a literal
+rather than failing the call.
+
+`grep` matches against the whole tab-joined row and is independent of `fields` —
+`fields` decides what you see, `grep` decides which rows you get, so
+`grep=vector fields=addr` still finds rows by name and shows you only addresses.
+Because the match is against the joined row, `^` anchors to the start of the *row*
+(the first column), not to each column; prefer an unanchored pattern unless you
+mean the first column.
+
+```
+list_functions grep=^FUN_140a count=1              # how many, no rows
+list_functions grep=crypt fields=addr,fn limit=20  # two columns, first 20 matches
+```
+
+---
+
 ## Tools
 
-**195 tools total.**
+**210 tools total.**
 
 Common conventions on most paginated read tools:
 
@@ -160,7 +194,7 @@ Common conventions on most paginated read tools:
 - **program** — open program name or sha256 (otherwise the active program)
 
 <details>
-<summary><b>Listing / metadata</b> (53)</summary>
+<summary><b>Listing / metadata</b> (55)</summary>
 
 | tool | purpose |
 | --- | --- |
@@ -191,12 +225,14 @@ Common conventions on most paginated read tools:
 | `nebula_container_layout` | container layout recovery from decompile |
 | `nebula_assert_helpers` | locate n_assert / n_error / n_warning helpers |
 | `nebula_engine_survey` | Nebula3 readiness: auto-names + assert callers |
+| `nebula_bootstrap` | run the whole recovery chain in one call |
 | `seed_nebula_helpers` | auto-discover/name n_assert/n_error/n_warning |
 | `name_from_n_assert` | mass-name FUN_* (sigs or decompile modes) |
 | `name_from_signatures` | fast name from __cdecl signature string xrefs |
 | `list_nebula_instances` | list ::Instance() singleton signature sites |
 | `name_nebula_instances` | rename auto FUN_* that are Type::Instance() |
 | `factory_catalog` | Core::Factory / Rtti class + FourCC + BSS catalog |
+| `nebula_class_graph` | class hierarchy + sizeof from Core::Rtti::Construct |
 | `assert_catalog` | this-> n_assert field index (optional prove) |
 | `messaging_catalog` | Messaging:: classes + HandleMessage dispatchers |
 | `attr_catalog` | Attr names and money_* wallets |
@@ -213,7 +249,7 @@ Common conventions on most paginated read tools:
 | `list_strings` | defined strings (optional regex + xrefs) |
 | `list_relocations` | relocation entries |
 | `list_bookmarks` | analysis bookmarks |
-| `extract_iocs` | URLs/IPs/emails/registry/paths/GUIDs/wallets |
+| `extract_iocs` | URLs/IPs/emails/registry/paths/GUIDs/wallets (/api, JWT; scope=raw|both) |
 | `find_rop_gadgets` | ROP gadgets (ret-terminated) |
 | `find_format_string_vulns` | printf-family non-constant format (CWE-134) |
 | `export_offsets` | name+RVA skeleton (tsv/cpp) |
@@ -225,7 +261,7 @@ Common conventions on most paginated read tools:
 
 | tool | purpose |
 | --- | --- |
-| `decompile` | C pseudocode by name or address (clean=true strips noise) |
+| `decompile` | C pseudocode (clean=true casts; clean=std drops std::string noise) |
 | `disassemble_function` | raw assembly for a function |
 | `instruction_at` | single instruction at address |
 | `pcode_function` | raw p-code per instruction |
@@ -347,11 +383,23 @@ Common conventions on most paginated read tools:
 </details>
 
 <details>
-<summary><b>Signatures / malware triage</b> (26)</summary>
+<summary><b>Signatures / malware triage</b> (38)</summary>
 
 | tool | purpose |
 | --- | --- |
 | `find_encoded_strings` | xor-encoded string blobs |
+| `recover_hidden_strings` | SplitMix64 / rolling-XOR / MOV-imm string decrypt |
+| `recover_auth_surface` | license/C2/HWID/crypto surface in one call |
+| `function_behavior` | compact malware function card (tags+APIs+hidden strings) |
+| `sample_intake` | one-call PE + packer + capa + optional hidden strings |
+| `capability_map` | capa-style inject/C2/crypto/anti-debug/HWID/license map |
+| `recover_crypto_recipe` | BCrypt/WinCrypt call-order recipes (AES-GCM/HMAC) |
+| `find_secret_compares` | strcmp/memcmp/license-string/fat-immediate compares |
+| `export_yara` | YARA rule from hosts, /api/ paths, GUIDs, mutexes |
+| `decode_keystream` | apply SplitMix/rolling-XOR seed to a ciphertext range |
+| `pe_facts` | PE timestamp, subsystem, admin manifest, PDB |
+| `find_hash_blobs` | defined MD5/SHA-1/SHA-256-sized constant blobs |
+| `find_self_modify` | VirtualProtect+WriteProcessMemory unpack/hook sites |
 | `find_api_hashes` | resolve hashed imports |
 | `find_stack_strings` | stack-built strings |
 | `high_entropy_regions` | packed/encrypted high-entropy zones |
@@ -362,7 +410,7 @@ Common conventions on most paginated read tools:
 | `extract_constraints` | cmp/branch constraints |
 | `simplify_expression` | recover linear-MBA normal form |
 | `find_opaque_predicates` | always-true/false conditional branches |
-| `find_magic_constants` | magic immediate operands |
+| `find_magic_constants` | magic immediates (incl. SplitMix64 string-xor mixers) |
 | `neutralize_anti_debug` | patch anti-debug calls to return 0 |
 | `idiom_simplifier` | annotate arithmetic idioms |
 | `make_signature` | unique wildcarded AOB signature |
@@ -421,7 +469,7 @@ Common conventions on most paginated read tools:
 </details>
 
 <details>
-<summary><b>Live process</b> (14)</summary>
+<summary><b>Live process</b> (15)</summary>
 
 | tool | purpose |
 | --- | --- |
@@ -436,6 +484,7 @@ Common conventions on most paginated read tools:
 | `scan` | live memory scan session (op=first|next|results|close) |
 | `read_pointer_path` | resolve multi-level pointer chain |
 | `live_read_struct` | read typed live-memory fields from a schema |
+| `live_probe` | named persistent live reads (define/run/list) |
 | `pointer_scan` | reverse-scan image for pointers into a target |
 | `live_write_memory` | write live process memory |
 | `live_write_register` | write live register |
@@ -507,7 +556,7 @@ Project style leans hard on short, type-safe code with **no source comments** (n
 | bridge: `error sending request` | Ghidra not running, plugin disabled, wrong port, or firewall |
 | plugin missing from Configure | look under **Developer**, not the default category |
 | port 8080 busy | change Tool Options port; match `--ghidra-server` |
-| zip won't install | need **JDK 21** and **Ghidra 12.1.2** |
+| zip won't install | need **JDK 21** and **Ghidra 12.1.3** |
 | Maven can't find jars | run `plugin/setup-libs.ps1 -GhidraHome …` first |
 | debugger tools stubbed | stage optional Debugger jars via `setup-libs.ps1` (warnings if missing) |
 | auth failures | set the same token in Tool Options and `--ghidra-token` / `GHIDRA_TOKEN` |

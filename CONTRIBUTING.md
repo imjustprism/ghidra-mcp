@@ -10,7 +10,7 @@ Thanks for taking an interest in `ghidra-mcp`.
 
 ## Dev setup
 
-1. Install **JDK 21**, **Maven 3.9+**, **Rust stable (≥ 1.85)**, and **Ghidra 12.1.2**.
+1. Install **JDK 21**, **Maven 3.9+**, **Rust stable (≥ 1.88)**, and **Ghidra 12.1.3**.
 2. Stage Ghidra jars:
 
    ```powershell
@@ -43,7 +43,7 @@ cd plugin && mvn -B test package
 Windows full rebuild + extension install:
 
 ```powershell
-$env:GHIDRA_HOME = "C:\path\to\ghidra_12.1.2_PUBLIC"
+$env:GHIDRA_HOME = "C:\path\to\ghidra_12.1.3_PUBLIC"
 .\deploy.ps1
 ```
 

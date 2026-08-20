@@ -65,6 +65,7 @@ public final class CryptoConstants {
         var sigs = new ArrayList<Sig>(2 + WORD_TABLES.size());
         sigs.add(new Sig("aes_sbox", AES_SBOX));
         sigs.add(new Sig("aes_inv_sbox", AES_INV_SBOX));
+        sigs.add(new Sig("chacha20_const", "expand 32-byte k".getBytes(java.nio.charset.StandardCharsets.US_ASCII)));
         for (var wt : WORD_TABLES) {
             sigs.add(new Sig(wt.name(), wordsToBytes(wt.words(), big)));
         }

@@ -1,11 +1,14 @@
+use std::borrow::Cow;
+
 use rmcp::{
     ErrorData, RoleServer, ServerHandler,
     handler::server::wrapper::Parameters,
     model::{
-        AnnotateAble, CallToolResult, Content, GetPromptRequestParams, GetPromptResult,
-        Implementation, ListPromptsResult, ListResourcesResult, PaginatedRequestParams,
-        PromptMessage, PromptMessageRole, RawResource, ReadResourceRequestParams,
-        ReadResourceResult, ResourceContents, ServerCapabilities, ServerInfo,
+        CacheScope, CallToolResult, CompleteRequestParams, CompleteResult, CompletionInfo,
+        ContentBlock, DiscoverResult, Implementation, ListResourcesResult, ListToolsResult,
+        PaginatedRequestParams, PromptMessage, ProtocolVersion, ReadResourceRequestParams,
+        ReadResourceResponse, ReadResourceResult, Reference, Resource, ResourceContents, Role,
+        ServerCapabilities, ServerInfo,
     },
     prompt, prompt_handler, prompt_router, schemars,
     service::RequestContext,
@@ -16,32 +19,45 @@ use url::Url;
 
 use crate::client::{BridgeError, GhidraHttp};
 
+const SUPPORTED_PROTOCOL_VERSIONS: &[ProtocolVersion] = &[
+    ProtocolVersion::V_2026_07_28,
+    ProtocolVersion::V_2025_11_25,
+    ProtocolVersion::V_2025_06_18,
+    ProtocolVersion::V_2025_03_26,
+    ProtocolVersion::V_2024_11_05,
+];
+const CATALOG_TTL_MS: u64 = 300_000;
+const STATIC_RESOURCE_TTL_MS: u64 = 3_600_000;
+const LIVE_RESOURCE_TTL_MS: u64 = 2_000;
+const COMPLETE_LIMIT: usize = 20;
+
 #[derive(Clone)]
 pub struct GhidraServer {
     http: GhidraHttp,
 }
 
 fn ok_text(s: impl Into<String>) -> CallToolResult {
-    CallToolResult::success(vec![Content::text(s.into())])
+    CallToolResult::success(vec![ContentBlock::text(s.into())])
 }
 
-fn map_err(e: BridgeError) -> ErrorData {
+fn tool_fail(e: BridgeError) -> CallToolResult {
+    CallToolResult::error(vec![ContentBlock::text(bridge_message(e))])
+}
+
+fn resource_err(e: BridgeError) -> ErrorData {
+    ErrorData::internal_error(bridge_message(e), None)
+}
+
+fn bridge_message(e: BridgeError) -> String {
     match &e {
-        BridgeError::Upstream { status, .. } if (400..500).contains(status) => {
-            ErrorData::invalid_params(e.to_string(), None)
+        BridgeError::Http(h) if h.is_connect() => format!(
+            "{e} — cannot reach the GhidraMCP plugin. Is Ghidra running with the \
+             ghidra-mcp extension enabled and a program open?"
+        ),
+        BridgeError::Http(h) if h.is_timeout() => {
+            format!("{e} — request timed out. Raise --timeout-secs for long operations")
         }
-        BridgeError::Http(h) if h.is_connect() => ErrorData::internal_error(
-            format!(
-                "{e} — cannot reach the GhidraMCP plugin. Is Ghidra running with the \
-                 ghidra-mcp extension enabled and a program open?"
-            ),
-            None,
-        ),
-        BridgeError::Http(h) if h.is_timeout() => ErrorData::internal_error(
-            format!("{e} — request timed out. Raise --timeout-secs for long operations"),
-            None,
-        ),
-        _ => ErrorData::internal_error(e.to_string(), None),
+        _ => e.to_string(),
     }
 }
 
@@ -72,6 +88,33 @@ where
                 .map_err(serde::de::Error::custom)
         }
     }
+}
+
+fn de_opt_clean<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Clean {
+        Bool(bool),
+        Str(String),
+        Num(u32),
+    }
+    Ok(match Option::<Clean>::deserialize(deserializer)? {
+        None => None,
+        Some(Clean::Bool(true)) => Some("1".into()),
+        Some(Clean::Bool(false)) => Some("0".into()),
+        Some(Clean::Num(n)) => Some(n.to_string()),
+        Some(Clean::Str(s)) => {
+            let t = s.trim();
+            if t.is_empty() {
+                None
+            } else {
+                Some(t.to_owned())
+            }
+        }
+    })
 }
 
 fn de_opt_bool<'de, D>(deserializer: D) -> Result<Option<bool>, D::Error>
@@ -115,6 +158,18 @@ impl ToParams for Page {
         }
         if let Some(prog) = self.program {
             p.push(("program", prog));
+        }
+        if let Some(fields) = self.fields {
+            p.push(("fields", fields));
+        }
+        if let Some(grep) = self.grep {
+            p.push(("grep", grep));
+        }
+        if self.count == Some(true) {
+            p.push(("count", "1".to_owned()));
+        }
+        if let Some(cap) = self.max_bytes {
+            p.push(("max_bytes", cap.to_string()));
         }
         p
     }
@@ -873,6 +928,32 @@ pub struct Page {
     )]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub program: Option<String>,
+    #[schemars(
+        description = "Return only these columns, comma-separated, in this order (e.g. \
+                       fields=address,name). Every table names its columns in the '# cols=' header. \
+                       The cheapest way to cut response size when you need one or two of them."
+    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fields: Option<String>,
+    #[schemars(
+        description = "Case-insensitive regex; only matching rows are returned. The reply reports \
+                       'matched=N of scanned=M', so you still learn how much was searched. Filter \
+                       here instead of pulling the whole table back and reading it."
+    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grep: Option<String>,
+    #[schemars(
+        description = "Return only the match count, no rows. Use it to size a query before deciding \
+                       how to page it."
+    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub count: Option<bool>,
+    #[schemars(
+        description = "Cap the reply in bytes (1000..2000000, default 200000). Truncation happens at \
+                       a row boundary."
+    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_bytes: Option<u32>,
 }
 const fn default_limit() -> u32 {
     100
@@ -942,14 +1023,14 @@ pub struct Decompile {
     )]
     pub target: String,
     #[schemars(
-        description = "Strip cosmetic noise (redundant casts, decompiler WARNING blocks, blank lines)."
+        description = "Noise filter: true/1 = strip casts and WARNING blocks; std/aggressive/2 = also drop std::string SSO / length-error noise that buries HTTP/crypto logic."
     )]
     #[serde(
         default,
-        deserialize_with = "de_opt_bool",
+        deserialize_with = "de_opt_clean",
         skip_serializing_if = "Option::is_none"
     )]
-    pub clean: Option<bool>,
+    pub clean: Option<String>,
     #[schemars(
         description = "Line window: skip this many lines of the output (paged/grep output is 1-based line-numbered)."
     )]
@@ -981,8 +1062,12 @@ pub struct Decompile {
 impl ToParams for Decompile {
     fn into_params(self) -> Params {
         let mut p = vec![("target", self.target)];
-        if self.clean.unwrap_or(false) {
-            p.push(("clean", "1".to_string()));
+        if let Some(c) = self.clean
+            && !c.is_empty()
+            && c != "0"
+            && !c.eq_ignore_ascii_case("false")
+        {
+            p.push(("clean", c));
         }
         if let Some(o) = self.offset {
             p.push(("offset", o.to_string()));
@@ -1131,6 +1216,205 @@ const fn default_scan_length() -> u32 {
 }
 const fn default_min_len() -> u32 {
     6
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct RecoverHiddenStrings {
+    #[schemars(
+        description = "Optional function address. Omit to scan the whole program for decrypt loops."
+    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
+    #[schemars(description = "auto (default), splitmix, rolling_xor, imm, or all.")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub algo: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "de_opt_u32",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub min_len: Option<u32>,
+    #[serde(
+        default,
+        deserialize_with = "de_opt_bool",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub apply: Option<bool>,
+    #[serde(flatten)]
+    pub page: Page,
+}
+
+impl ToParams for RecoverHiddenStrings {
+    fn into_params(self) -> Params {
+        let mut p = self.page.into_params();
+        if let Some(a) = self.address {
+            p.push(("address", a));
+        }
+        if let Some(a) = self.algo {
+            p.push(("algo", a));
+        }
+        if let Some(m) = self.min_len {
+            p.push(("min_len", m.to_string()));
+        }
+        if self.apply.unwrap_or(false) {
+            p.push(("apply", "1".to_owned()));
+        }
+        p
+    }
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct RecoverAuthSurface {
+    #[serde(flatten)]
+    pub page: Page,
+}
+
+impl ToParams for RecoverAuthSurface {
+    fn into_params(self) -> Params {
+        self.page.into_params()
+    }
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct FunctionBehavior {
+    pub address: String,
+    #[serde(flatten)]
+    pub page: Page,
+}
+
+impl ToParams for FunctionBehavior {
+    fn into_params(self) -> Params {
+        let mut p = self.page.into_params();
+        p.push(("address", self.address));
+        p
+    }
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct ExtractIocs {
+    #[schemars(description = "defined (default), raw (scan .rdata/.data ASCII+UTF-16), or both.")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
+    #[serde(flatten)]
+    pub page: Page,
+}
+
+impl ToParams for ExtractIocs {
+    fn into_params(self) -> Params {
+        let mut p = self.page.into_params();
+        if let Some(s) = self.scope {
+            p.push(("scope", s));
+        }
+        p
+    }
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct SampleIntake {
+    #[serde(
+        default,
+        deserialize_with = "de_opt_bool",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub deep: Option<bool>,
+    #[serde(flatten)]
+    pub page: Page,
+}
+
+impl ToParams for SampleIntake {
+    fn into_params(self) -> Params {
+        let mut p = self.page.into_params();
+        if self.deep.unwrap_or(false) {
+            p.push(("deep", "1".to_owned()));
+        }
+        p
+    }
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct RecoverCryptoRecipe {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
+    #[serde(flatten)]
+    pub page: Page,
+}
+
+impl ToParams for RecoverCryptoRecipe {
+    fn into_params(self) -> Params {
+        let mut p = self.page.into_params();
+        if let Some(a) = self.address {
+            p.push(("address", a));
+        }
+        p
+    }
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct ExportYara {
+    #[schemars(description = "yara (default) or tsv/json/csv")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub format: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "de_opt_bool",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub deep: Option<bool>,
+    #[serde(flatten)]
+    pub page: Page,
+}
+
+impl ToParams for ExportYara {
+    fn into_params(self) -> Params {
+        let mut p = self.page.into_params();
+        if let Some(f) = self.format {
+            p.push(("format", f));
+        }
+        if let Some(n) = self.name {
+            p.push(("name", n));
+        }
+        if self.deep.unwrap_or(false) {
+            p.push(("deep", "1".to_owned()));
+        }
+        p
+    }
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+pub struct DecodeKeystream {
+    pub address: String,
+    #[serde(default = "default_keystream_len")]
+    pub length: u32,
+    pub seed: String,
+    #[schemars(description = "splitmix (default), rolling_xor, xor8")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub algo: Option<String>,
+    #[serde(default = "default_keystream_inc")]
+    pub increment: u32,
+}
+
+const fn default_keystream_len() -> u32 {
+    64
+}
+const fn default_keystream_inc() -> u32 {
+    1
+}
+
+impl ToParams for DecodeKeystream {
+    fn into_params(self) -> Params {
+        let mut p = vec![
+            ("address", self.address),
+            ("length", self.length.to_string()),
+            ("seed", self.seed),
+            ("increment", self.increment.to_string()),
+        ];
+        if let Some(a) = self.algo {
+            p.push(("algo", a));
+        }
+        p
+    }
 }
 
 #[derive(Deserialize, Serialize, schemars::JsonSchema, Default, Clone, Copy)]
@@ -2021,6 +2305,101 @@ impl ToParams for DeriveTlsSingletonsArgs {
     }
 }
 
+#[derive(Deserialize, Serialize, schemars::JsonSchema, Default)]
+pub struct LiveProbe {
+    #[schemars(
+        description = "define (save a probe), run (read it), list, show, or delete. Default run."
+    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub op: Option<String>,
+    #[schemars(description = "Probe name, e.g. player or inventory.")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[schemars(
+        description = "op=define: chain root — an absolute live VA, or tls:0x58 / teb:0x58 after live_attach                        (see tls_singleton_map for the slots)."
+    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base: Option<String>,
+    #[schemars(
+        description = "op=define: comma-separated hex offsets. For each one, dereference then add:                        final = [...[[base]+off0]+off1...]+offN. The final address is not dereferenced.                        Omit for a direct read at base."
+    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub offsets: Option<String>,
+    #[schemars(
+        description = "op=define: field layout, one per line or separated by ';' —                        'pos: vec3 +0x34; hp: f32 +0x50; name: string[32] +0x08'.                        Types: ptr, u8/16/32/64, i8/16/32/64, f32, f64, vec3, mat3x4, string[N], bytes[N]."
+    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schema: Option<String>,
+    #[schemars(description = "op=define: free text recording how the chain was derived.")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+    #[serde(flatten)]
+    pub page: Page,
+}
+
+impl ToParams for LiveProbe {
+    fn into_params(self) -> Params {
+        let mut p = self.page.into_params();
+        for (key, value) in [
+            ("op", self.op),
+            ("name", self.name),
+            ("base", self.base),
+            ("offsets", self.offsets),
+            ("schema", self.schema),
+            ("note", self.note),
+        ] {
+            if let Some(v) = value.filter(|s| !s.trim().is_empty()) {
+                p.push((key, v));
+            }
+        }
+        p
+    }
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema, Default)]
+pub struct NebulaClassGraph {
+    #[schemars(
+        description = "Substring filter on the class or its parent (e.g. Messaging, Game::)."
+    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filter: Option<String>,
+    #[schemars(
+        description = "Show only this class and everything deriving from it, e.g. root=Core::RefCounted."
+    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub root: Option<String>,
+    #[schemars(
+        description = "Address of Core::Rtti::Construct, if auto-detection picks the wrong function. \
+                       Normally omit it."
+    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ctor: Option<String>,
+    #[schemars(description = "Recompute instead of reusing the cached graph.")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh: Option<bool>,
+    #[serde(flatten)]
+    pub page: Page,
+}
+
+impl ToParams for NebulaClassGraph {
+    fn into_params(self) -> Params {
+        let mut p = self.page.into_params();
+        if let Some(f) = self.filter.filter(|s| !s.trim().is_empty()) {
+            p.push(("filter", f));
+        }
+        if let Some(r) = self.root.filter(|s| !s.trim().is_empty()) {
+            p.push(("root", r));
+        }
+        if let Some(c) = self.ctor.filter(|s| !s.trim().is_empty()) {
+            p.push(("ctor", c));
+        }
+        if self.refresh == Some(true) {
+            p.push(("refresh", "1".to_owned()));
+        }
+        p
+    }
+}
+
 #[derive(Deserialize, Serialize, schemars::JsonSchema)]
 pub struct CatalogFilter {
     #[schemars(description = "Optional substring filter (class, FourCC, path, attr name).")]
@@ -2195,6 +2574,85 @@ impl ToParams for ApplyMax {
         let mut p = vec![("apply", if self.apply { "1" } else { "0" }.to_owned())];
         if let Some(m) = self.max {
             p.push(("max", m.to_string()));
+        }
+        p
+    }
+}
+
+#[derive(Deserialize, Serialize, schemars::JsonSchema, Default)]
+pub struct NebulaBootstrap {
+    #[schemars(
+        description = "start (default) launches the chain and returns a job id; status polls progress; result fetches the finished report; list shows retained jobs."
+    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub op: Option<String>,
+    #[schemars(
+        description = "Job id from a previous start, for op=status / op=result. Omit to use the most recent job."
+    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job: Option<String>,
+    #[schemars(
+        description = "Seconds op=start blocks before handing back a job id. Default 25: a small binary finishes inline, a full client returns a job to poll."
+    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wait: Option<u32>,
+    #[schemars(
+        description = "Commit the renames. Default false: every step runs as a dry run and reports what it would name."
+    )]
+    #[serde(default)]
+    pub apply: bool,
+    #[schemars(
+        description = "Also run the decompile fill-in for assert callers the signature-string path missed. Slow (decompiles thousands of functions); off by default."
+    )]
+    #[serde(default)]
+    pub decompile: bool,
+    #[schemars(
+        description = "Cap for the signature-string step. Default 50000, which covers every candidate on dro_client (~20k)."
+    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sig_max: Option<u32>,
+    #[schemars(description = "Cap for the decompile fill-in step. Default 2000.")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decompile_max: Option<u32>,
+    #[schemars(description = "Cap for singleton Instance() naming. Default 2000.")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instance_max: Option<u32>,
+    #[schemars(description = "Cap for TLS singleton derivation. Default 120.")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tls_max: Option<u32>,
+    #[schemars(
+        description = "Include each step's full row-by-row output instead of just the summary table."
+    )]
+    #[serde(default)]
+    pub verbose: bool,
+}
+
+impl ToParams for NebulaBootstrap {
+    fn into_params(self) -> Params {
+        let mut p = vec![
+            ("apply", if self.apply { "1" } else { "0" }.to_owned()),
+            (
+                "decompile",
+                if self.decompile { "1" } else { "0" }.to_owned(),
+            ),
+            ("verbose", if self.verbose { "1" } else { "0" }.to_owned()),
+        ];
+        if let Some(op) = self.op {
+            p.push(("op", op));
+        }
+        if let Some(job) = self.job {
+            p.push(("job", job));
+        }
+        for (key, value) in [
+            ("wait", self.wait),
+            ("sig_max", self.sig_max),
+            ("decompile_max", self.decompile_max),
+            ("instance_max", self.instance_max),
+            ("tls_max", self.tls_max),
+        ] {
+            if let Some(v) = value {
+                p.push((key, v.to_string()));
+            }
         }
         p
     }
@@ -2759,35 +3217,35 @@ impl GhidraServer {
     }
 
     async fn get(&self, path: &str, params: impl ToParams) -> Result<CallToolResult, ErrorData> {
-        self.http
+        Ok(self
+            .http
             .get(path, &params.into_params())
             .await
-            .map(ok_text)
-            .map_err(map_err)
+            .map_or_else(tool_fail, ok_text))
     }
 
     async fn get_bare(&self, path: &str) -> Result<CallToolResult, ErrorData> {
-        self.http
+        Ok(self
+            .http
             .get(path, NO_QUERY)
             .await
-            .map(ok_text)
-            .map_err(map_err)
+            .map_or_else(tool_fail, ok_text))
     }
 
     async fn post(&self, path: &str, params: impl ToParams) -> Result<CallToolResult, ErrorData> {
-        self.http
+        Ok(self
+            .http
             .post_form(path, &params.into_params())
             .await
-            .map(ok_text)
-            .map_err(map_err)
+            .map_or_else(tool_fail, ok_text))
     }
 
     async fn post_bare(&self, path: &str) -> Result<CallToolResult, ErrorData> {
-        self.http
+        Ok(self
+            .http
             .post_form(path, NO_QUERY)
             .await
-            .map(ok_text)
-            .map_err(map_err)
+            .map_or_else(tool_fail, ok_text))
     }
 }
 
@@ -2895,7 +3353,7 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Decompile a function to C. target is a function name OR an address; an interior address resolves to its enclosing function, and a small value that is not a mapped VA is auto-treated as an RVA (image_base+value; force with rva:0x2d202c). clean=true strips cosmetic noise (redundant (int)/(uint)/(longlong) casts on iVar/uVar/param_/local_, decompiler WARNING comment blocks, blank lines). offset/limit page the output by line and grep=<regex> returns only matching lines — both emit 1-based line numbers so a large function can be read in pieces instead of dumped whole",
+        description = "Decompile a function to C. target is a function name OR an address; an interior address resolves to its enclosing function, and a small value that is not a mapped VA is auto-treated as an RVA (image_base+value; force with rva:0x2d202c). clean=true strips cosmetic noise (redundant (int)/(uint)/(longlong) casts on iVar/uVar/param_/local_, decompiler WARNING comment blocks, blank lines). clean=std (or aggressive) also drops std::string SSO / throw_length_error noise so HTTP/crypto in C++ loaders is readable. offset/limit page the output by line and grep=<regex> returns only matching lines — both emit 1-based line numbers so a large function can be read in pieces instead of dumped whole. For malware, prefer function_behavior first — it recovers hidden strings without a 1500-line dump",
         annotations(read_only_hint = true)
     )]
     async fn decompile(
@@ -3365,6 +3823,144 @@ impl GhidraServer {
     }
 
     #[tool(
+        description = "Recover obfuscated strings without running the sample (FLOSS-style, static). Detects SplitMix64 keystream XOR (MortisEngine / similar: golden 0x9E3779B97F4A7C15 + two mixers), rolling XOR, and contiguous MOV-imm byte stores (GET/POST/version). Reconstructs the ciphertext from .rdata MOVAPS loads and stack immediates, decrypts, and reports algo/func/seed/plaintext. address= one function or omit for a whole-program scan. algo=auto|splitmix|rolling_xor|imm|all. apply=true writes EOL comments at the decrypt loops. Use this BEFORE decompiling a 1500-line Login — host, /api/auth/login, User-Agent come out as a table",
+        annotations(read_only_hint = true)
+    )]
+    async fn recover_hidden_strings(
+        &self,
+        Parameters(p): Parameters<RecoverHiddenStrings>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.get("recover_hidden_strings", p).await
+    }
+
+    #[tool(
+        description = "One-call license / C2 / HWID / crypto surface for a loader or client. Combines WinINet/WinHTTP/BCrypt/HWID/inject imports, defined strings (JSON keys, Authorization, X-Request-Sig, |drm-v1), and recover_hidden_strings (obfuscated host/path). Returns a kind/where/detail/value table: http_api, endpoint_path, host, json_key, http_header, crypto_marker, hwid_api, inject_api, hidden_string. The first tool to run on a paid-cheat / license-locked sample",
+        annotations(read_only_hint = true)
+    )]
+    async fn recover_auth_surface(
+        &self,
+        Parameters(p): Parameters<RecoverAuthSurface>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.get("recover_auth_surface", p).await
+    }
+
+    #[tool(
+        description = "Compact malware-oriented function card. Tags (http/auth/crypto/inject/hwid/antidebug/splitmix64), imported API sequence, defined strings, and recovered hidden strings — without dumping a 1500-line std::string decompile. Use on Login, FetchPayload, AntiDebugCheck instead of function_summary_bundle when the function is huge",
+        annotations(read_only_hint = true)
+    )]
+    async fn function_behavior(
+        &self,
+        Parameters(p): Parameters<FunctionBehavior>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if p.address.trim().is_empty() {
+            return Err(ErrorData::invalid_params("address is required", None));
+        }
+        self.get("function_behavior", p).await
+    }
+
+    #[tool(
+        description = "One-call next-gen sample intake for malware / loaders / crackmes. Emits PE facts (timestamp, subsystem, admin manifest, PDB), unpack_assist packer score, capa-style capability list (inject/C2/crypto/anti-debug/HWID/license), and optional recover_hidden_strings when deep=true. Run this first on an unknown binary instead of ten separate tools",
+        annotations(read_only_hint = true)
+    )]
+    async fn sample_intake(
+        &self,
+        Parameters(p): Parameters<SampleIntake>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.get("sample_intake", p).await
+    }
+
+    #[tool(
+        description = "capa-style capability map from imports and defined strings: process_injection, c2_http/socket, crypto_*, anti_debug, hwid, license, persistence, privilege, keylog, dyn_api, self_mod, packet_divert. Each row is capability + confidence + evidence API/string. Use after sample_intake to see WHY a flag fired",
+        annotations(read_only_hint = true)
+    )]
+    async fn capability_map(
+        &self,
+        Parameters(p): Parameters<Page>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.get("capability_map", p).await
+    }
+
+    #[tool(
+        description = "Reconstruct crypto recipes per function from BCrypt/WinCrypt call order plus nearby strings (SHA256, ChainingModeGCM, HMAC, |drm-v1). kind=aes_gcm_decrypt|hmac|hash|symmetric|rng. address= one function or omit for a program scan. The tool that turns DeriveKey/DecryptGCM into a one-line recipe",
+        annotations(read_only_hint = true)
+    )]
+    async fn recover_crypto_recipe(
+        &self,
+        Parameters(p): Parameters<RecoverCryptoRecipe>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.get("recover_crypto_recipe", p).await
+    }
+
+    #[tool(
+        description = "Find license/crackme compare sites: strcmp/memcmp/lstrcmp against string literals, xrefs to subscription/serial/HWID/sessionSecret strings, and CMP/SUB with fat immediates (likely magic keys). Jump list for 'where does the check happen'",
+        annotations(read_only_hint = true)
+    )]
+    async fn find_secret_compares(
+        &self,
+        Parameters(p): Parameters<Page>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.get("find_secret_compares", p).await
+    }
+
+    #[tool(
+        description = "Export IOCs as a YARA rule (default) or a TSV/JSON table. Pulls hosts, /api/ paths, GUIDs, mutex names, unique defined strings, and the SplitMix64 golden constant. format=yara|tsv|json|csv. deep=true also folds in recover_hidden_strings. name= YARA rule identifier",
+        annotations(read_only_hint = true)
+    )]
+    async fn export_yara(
+        &self,
+        Parameters(p): Parameters<ExportYara>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.get("export_yara", p).await
+    }
+
+    #[tool(
+        description = "Apply a recovered keystream to a ciphertext blob in the image (does NOT run the sample). algo=splitmix (default, MortisEngine-style), rolling_xor, xor8. seed is hex (0xdeadaecb09bfb3e0). increment for rolling_xor (default 1). Returns ascii + hex. Pair with recover_hidden_strings: copy seed + blob address, decrypt a range you missed",
+        annotations(read_only_hint = true)
+    )]
+    async fn decode_keystream(
+        &self,
+        Parameters(p): Parameters<DecodeKeystream>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if p.address.trim().is_empty() {
+            return Err(ErrorData::invalid_params("address is required", None));
+        }
+        if p.seed.trim().is_empty() {
+            return Err(ErrorData::invalid_params("seed is required", None));
+        }
+        self.get("decode_keystream", p).await
+    }
+
+    #[tool(
+        description = "PE compile-time / overlay-adjacent facts: TimeDateStamp, subsystem (GUI/CUI), DllCharacteristics, requestedExecutionLevel (admin), PDB path, debug section. Faster than hunting the manifest XML by hand",
+        annotations(read_only_hint = true)
+    )]
+    async fn pe_facts(&self) -> Result<CallToolResult, ErrorData> {
+        self.get_bare("pe_facts").await
+    }
+
+    #[tool(
+        description = "Find defined data blobs whose length matches MD5 (16), SHA-1 (20), SHA-256 (32), SHA-384/512 — typical hardcoded expected hashes in license checks. Reports algo, address, hex preview, xref count. Skip all-zero / low-entropy pads",
+        annotations(read_only_hint = true)
+    )]
+    async fn find_hash_blobs(
+        &self,
+        Parameters(p): Parameters<Page>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.get("find_hash_blobs", p).await
+    }
+
+    #[tool(
+        description = "Find functions that VirtualProtect/NtProtectVirtualMemory and/or WriteProcessMemory — unpacker stubs, PE wipes, hook installers, manual-map. kind=protect+write is the hottest",
+        annotations(read_only_hint = true)
+    )]
+    async fn find_self_modify(
+        &self,
+        Parameters(p): Parameters<Page>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.get("find_self_modify", p).await
+    }
+
+    #[tool(
         description = "Scan executable sections for 32-bit immediates matching hashes of ~180 common Windows APIs. Instantly finds FNV-1a/djb2/CRC32-based API resolvers. algo=fnv1a|fnv1a_lower|djb2|crc32",
         annotations(read_only_hint = true)
     )]
@@ -3654,6 +4250,42 @@ impl GhidraServer {
     }
 
     #[tool(
+        description = "The Nebula3 class hierarchy AND every object size, recovered from Core::Rtti::Construct(name, fourcc, creator, parent, sizeof) — the static initialiser every __ImplementClass emits. Gives what factory_catalog cannot: the parent link (so the full inheritance chain) and sizeof(class), which bounds struct recovery so you know when a layout is complete instead of guessing. Also a superset of factory_catalog, since abstract bases have an Rtti but are never factory-registered. Cols: class,fourcc,size,parent,depth,rtti,creator. root=Core::RefCounted limits to a subtree; fmt=mermaid|dot draws the tree. No decompile — reads call-site operands, so it is fast",
+        annotations(read_only_hint = true)
+    )]
+    async fn nebula_class_graph(
+        &self,
+        Parameters(p): Parameters<NebulaClassGraph>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.get("nebula_class_graph", p).await
+    }
+
+    #[tool(
+        description = "Named, persistent live-memory reads. Working out a pointer chain and field layout is slow (pointer_scan, prove_offset); reading it afterwards should be one call. op=define saves a chain + schema under a name into the program database, so it survives restarts and travels with the .gdb; op=run resolves and reads it. Base may be an absolute live VA or tls:0x58 / teb:0x58 after live_attach (tls_singleton_map lists the slots). Offsets follow the read_pointer_path rule: deref then add, per offset. Use this instead of rebuilding a pointer path and schema by hand on every read",
+        annotations(read_only_hint = false, destructive_hint = false)
+    )]
+    async fn live_probe(
+        &self,
+        Parameters(p): Parameters<LiveProbe>,
+    ) -> Result<CallToolResult, ErrorData> {
+        match p.op.as_deref().unwrap_or("run") {
+            "define" | "set" if p.name.is_none() || p.base.is_none() || p.schema.is_none() => Err(
+                ErrorData::invalid_params("op=define needs name, base, and schema", None),
+            ),
+            "run" | "read" | "show" | "delete" | "remove" if p.name.is_none() => {
+                Err(ErrorData::invalid_params("this op needs name=", None))
+            }
+            "define" | "set" | "run" | "read" | "show" | "delete" | "remove" | "list" => {
+                self.post("live_probe", p).await
+            }
+            other => Err(ErrorData::invalid_params(
+                format!("op must be define, run, list, show, or delete (got {other:?})"),
+                None,
+            )),
+        }
+    }
+
+    #[tool(
         description = "Index every n_assert that names a field (this->foo). prove=false (default) is a fast defined-string table: assert,fields,str_addr,refs,sample. prove=true decompiles referencing functions and runs the prove_offset engine (page with offset/max). filter=currState or SkillManager. This is the struct database for Nebula debug builds",
         annotations(read_only_hint = true)
     )]
@@ -3722,6 +4354,17 @@ impl GhidraServer {
     )]
     async fn nebula_engine_survey(&self) -> Result<CallToolResult, ErrorData> {
         self.get_bare("nebula_engine_survey").await
+    }
+
+    #[tool(
+        description = "Run the whole Nebula3/DRO symbol-recovery chain: seed_nebula_helpers → name_from_signatures → (optional) name_from_n_assert mode=decompile → name_nebula_instances → derive_tls_singletons. Use this instead of the sequence nebula_engine_survey prints; it defaults sig_max to 50000 rather than 500, which is what a ~20k-candidate client needs. Runs as a BACKGROUND JOB because the chain takes minutes on a real client: op=start (default) waits `wait` seconds (25 by default) and, if it has not finished, returns a job id — then poll op=status job=<id> and read op=result job=<id>. Reports a per-step table (status, rows, ms) plus before/after named-function counts. Dry-run by default; apply=true commits. Each step is isolated, so one failure does not lose the others",
+        annotations(destructive_hint = true)
+    )]
+    async fn nebula_bootstrap(
+        &self,
+        Parameters(p): Parameters<NebulaBootstrap>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.post("nebula_bootstrap", p).await
     }
 
     #[tool(
@@ -4815,12 +5458,12 @@ impl GhidraServer {
     }
 
     #[tool(
-        description = "Extract indicators of compromise from defined strings: URLs, IPv4 addresses, emails, registry keys, Windows/UNC file paths, GUIDs, and crypto-wallet (BTC) addresses, each with its category and string address. Fast malware-triage convenience over the string table",
+        description = "Extract indicators of compromise: URLs, /api/ paths, Authorization: Bearer, JWTs, IPv4, emails, registry keys, Windows/UNC paths, GUIDs, BTC wallets. scope=defined (default, Ghidra string table), raw (scan .rdata/.data as ASCII+UTF-16LE — finds hosts that were never defined as strings), or both. Use scope=both on obfuscated loaders where the C2 is XOR'd in .rdata",
         annotations(read_only_hint = true)
     )]
     async fn extract_iocs(
         &self,
-        Parameters(p): Parameters<Page>,
+        Parameters(p): Parameters<ExtractIocs>,
     ) -> Result<CallToolResult, ErrorData> {
         self.get("extract_iocs", p).await
     }
@@ -5269,10 +5912,7 @@ pub struct AnalyzeFunctionArgs {
 }
 
 fn user_prompt(text: &str) -> Vec<PromptMessage> {
-    vec![PromptMessage::new_text(
-        PromptMessageRole::User,
-        text.to_owned(),
-    )]
+    vec![PromptMessage::new_text(Role::User, text.to_owned())]
 }
 
 #[prompt_router]
@@ -5288,7 +5928,7 @@ impl GhidraServer {
              2. list_imports and list_strings — flag URLs, file paths, registry keys, suspicious APIs.\n\
              3. list_entry_points, then decompile (clean=true) each entry.\n\
              4. high_entropy_regions — packed/encrypted zones.\n\
-             5. Capability triage: find_anti_debug, find_anti_vm, find_api_hashes, find_crypto_constants, find_syscalls.\n\
+             5. sample_intake then capability_map / recover_auth_surface / recover_hidden_strings / find_anti_debug.\n\
              6. find_undocumented, then function_summary_bundle on the worst-scored few.\n\
              Summarize: purpose, capabilities, IOCs, and the functions worth reversing next.",
         )
@@ -5323,10 +5963,11 @@ impl GhidraServer {
             "Triage this sample for malicious capabilities.\n\
              1. find_anti_debug + find_anti_vm — evasion; note what to neutralize.\n\
              2. find_api_hashes — resolve dynamically-imported APIs.\n\
-             3. find_encoded_strings + find_stack_strings — hidden strings/IOCs.\n\
-             4. find_crypto_constants — AES/SHA/MD5/CRC (ransomware/packer crypto).\n\
-             5. find_syscalls — direct-syscall / EDR evasion.\n\
-             6. high_entropy_regions + cfg_obfuscation_score on suspicious functions.\n\
+             3. sample_intake deep=true — PE facts + packer + capa map + hidden strings in one shot.\n\
+             4. capability_map / recover_auth_surface / recover_crypto_recipe / find_secret_compares.\n\
+             5. recover_hidden_strings + decode_keystream on leftover blobs.\n\
+             6. find_hash_blobs + find_self_modify + export_yara.\n\
+             7. function_behavior on Login / payload / anti-debug — do NOT dump 1500-line decompiles first.\n\
              Map findings to likely behavior (persistence, C2, encryption, injection) and list IOCs.",
         )
     }
@@ -5338,10 +5979,10 @@ impl GhidraServer {
     async fn solve_crackme(&self) -> Vec<PromptMessage> {
         user_prompt(
             "Find and solve the validation routine.\n\
-             1. find_check_function — locate the password/key check.\n\
-             2. function_summary_bundle on it; identify the comparison(s).\n\
-             3. extract_constraints — collect cmp/branch constraints toward the success path.\n\
-             4. find_magic_constants — embedded comparison values.\n\
+             1. find_secret_compares + find_check_function — strcmp/memcmp vs literals, license strings, fat immediates.\n\
+             2. find_hash_blobs — hardcoded MD5/SHA-256 expected digests.\n\
+             3. recover_crypto_recipe on the check function (HMAC / AES-GCM / hash).\n\
+             4. function_behavior then extract_constraints on the compare.\n\
              5. emulate the check with candidate input, or solve the constraints by hand.\n\
              Report the accepted input and the exact branch that gates success.",
         )
@@ -5426,9 +6067,9 @@ enum ResourceBody {
     StaticFn(fn() -> String),
 }
 
-type Resource = (&'static str, &'static str, ResourceBody);
+type CatalogEntry = (&'static str, &'static str, ResourceBody);
 
-const RESOURCES: &[Resource] = &[
+const RESOURCES: &[CatalogEntry] = &[
     (
         "ghidra://program/info",
         "Program info",
@@ -5533,6 +6174,34 @@ Local protocol is `Messaging::*` (see `messaging_catalog`); `NetworkCommandCreat
     .to_owned()
 }
 
+fn complete_resource_uris(prefix: &str) -> Vec<String> {
+    let needle = prefix.trim().to_ascii_lowercase();
+    RESOURCES
+        .iter()
+        .map(|(uri, ..)| (*uri).to_owned())
+        .filter(|uri| needle.is_empty() || uri.to_ascii_lowercase().contains(&needle))
+        .take(COMPLETE_LIMIT)
+        .collect()
+}
+
+fn complete_prompt_names(prefix: &str) -> Vec<String> {
+    let needle = prefix.trim().to_ascii_lowercase();
+    GhidraServer::prompt_router()
+        .list_all()
+        .into_iter()
+        .map(|p| p.name)
+        .filter(|name| needle.is_empty() || name.to_ascii_lowercase().contains(&needle))
+        .take(COMPLETE_LIMIT)
+        .collect()
+}
+
+fn complete_result(values: Vec<String>) -> Result<CompleteResult, ErrorData> {
+    let has_more = false;
+    let completion = CompletionInfo::with_pagination(values, None, has_more)
+        .map_err(|e| ErrorData::internal_error(e, None))?;
+    Ok(CompleteResult::new(completion))
+}
+
 #[tool_handler]
 #[prompt_handler]
 impl ServerHandler for GhidraServer {
@@ -5542,13 +6211,17 @@ impl ServerHandler for GhidraServer {
                 .enable_tools()
                 .enable_prompts()
                 .enable_resources()
+                .enable_completions()
                 .build(),
         )
+        .with_protocol_version(ProtocolVersion::V_2026_07_28)
         .with_server_info(Implementation::new("ghidra-mcp", env!("CARGO_PKG_VERSION")))
         .with_instructions(
-            "Rust-based MCP bridge to the GhidraMCP HTTP plugin. Tools decompile, disassemble, \
-             search, and annotate; prompts give guided RE workflows; resources expose live \
-             program and debugger state plus Nebula3/DSO domain knowledge.\n\n\
+            "Rust-based MCP bridge to the GhidraMCP HTTP plugin. Speaks MCP 2026-07-28 \
+             (server/discover, per-request _meta, cache hints, completions) and remains \
+             compatible with 2025-11-25 and earlier via initialize. Tools decompile, \
+             disassemble, search, and annotate; prompts give guided RE workflows; \
+             resources expose live program and debugger state plus Nebula3/DSO domain knowledge.\n\n\
              Addressing: tools take a full VA, an interior address (resolves to the enclosing \
              function), or an RVA. A small value that is not a mapped VA is auto-rebased to \
              image_base+value; force RVA interpretation with an `rva:` prefix (e.g. rva:0x2d202c). \
@@ -5574,6 +6247,33 @@ impl ServerHandler for GhidraServer {
         )
     }
 
+    fn supported_protocol_versions(&self) -> Cow<'static, [ProtocolVersion]> {
+        Cow::Borrowed(SUPPORTED_PROTOCOL_VERSIONS)
+    }
+
+    async fn discover(
+        &self,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<DiscoverResult, ErrorData> {
+        Ok(
+            DiscoverResult::from_server_info(SUPPORTED_PROTOCOL_VERSIONS.to_vec(), self.get_info())
+                .with_ttl_ms(CATALOG_TTL_MS)
+                .with_cache_scope(CacheScope::Public),
+        )
+    }
+
+    async fn list_tools(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListToolsResult, ErrorData> {
+        Ok(
+            ListToolsResult::with_all_items(Self::tool_router().list_all())
+                .with_ttl_ms(CATALOG_TTL_MS)
+                .with_cache_scope(CacheScope::Public),
+        )
+    }
+
     async fn list_resources(
         &self,
         _request: Option<PaginatedRequestParams>,
@@ -5581,31 +6281,106 @@ impl ServerHandler for GhidraServer {
     ) -> Result<ListResourcesResult, ErrorData> {
         let resources = RESOURCES
             .iter()
-            .map(|(uri, name, _)| RawResource::new(*uri, *name).no_annotation())
+            .map(|(uri, name, body)| {
+                let mime = match body {
+                    ResourceBody::StaticFn(_) => "text/markdown",
+                    ResourceBody::Http(_) => "text/plain",
+                };
+                Resource::new(*uri, *name).with_mime_type(mime)
+            })
             .collect();
-        Ok(ListResourcesResult::with_all_items(resources))
+        Ok(ListResourcesResult::with_all_items(resources)
+            .with_ttl_ms(CATALOG_TTL_MS)
+            .with_cache_scope(CacheScope::Public))
     }
 
     async fn read_resource(
         &self,
         request: ReadResourceRequestParams,
         _context: RequestContext<RoleServer>,
-    ) -> Result<ReadResourceResult, ErrorData> {
+    ) -> Result<ReadResourceResponse, ErrorData> {
         let Some((uri, _, body)) = RESOURCES.iter().find(|(uri, ..)| *uri == request.uri) else {
             return Err(ErrorData::resource_not_found(
                 format!("unknown resource: {}", request.uri),
                 None,
             ));
         };
-        let text = match body {
-            ResourceBody::Http(endpoint) => {
-                self.http.get(endpoint, NO_QUERY).await.map_err(map_err)?
-            }
-            ResourceBody::StaticFn(f) => f(),
+        let (text, ttl_ms, scope) = match body {
+            ResourceBody::Http(endpoint) => (
+                self.http
+                    .get(endpoint, NO_QUERY)
+                    .await
+                    .map_err(resource_err)?,
+                LIVE_RESOURCE_TTL_MS,
+                CacheScope::Private,
+            ),
+            ResourceBody::StaticFn(f) => (f(), STATIC_RESOURCE_TTL_MS, CacheScope::Public),
         };
-        Ok(ReadResourceResult::new(vec![ResourceContents::text(
-            text, *uri,
-        )]))
+        Ok(
+            ReadResourceResult::new(vec![ResourceContents::text(text, *uri)])
+                .with_ttl_ms(ttl_ms)
+                .with_cache_scope(scope)
+                .into(),
+        )
+    }
+
+    async fn complete(
+        &self,
+        request: CompleteRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<CompleteResult, ErrorData> {
+        let arg = request.argument.name.as_str();
+        let value = request.argument.value.as_str();
+        let values = match &request.r#ref {
+            Reference::Resource(resource) => {
+                let seed = if value.is_empty() {
+                    resource.uri.as_str()
+                } else {
+                    value
+                };
+                complete_resource_uris(seed)
+            }
+            Reference::Prompt(prompt)
+                if arg == "address"
+                    && matches!(
+                        prompt.name.as_str(),
+                        "analyze_function" | "analyze_raknet_handler"
+                    ) =>
+            {
+                self.complete_functions(value).await
+            }
+            Reference::Prompt(_) => complete_prompt_names(value),
+            _ => Vec::new(),
+        };
+        complete_result(values)
+    }
+}
+
+impl GhidraServer {
+    async fn complete_functions(&self, query: &str) -> Vec<String> {
+        let q = query.trim();
+        if q.is_empty() {
+            return Vec::new();
+        }
+        let params = [
+            ("query", q.to_owned()),
+            ("limit", COMPLETE_LIMIT.to_string()),
+        ];
+        let Ok(body) = self.http.get("search_functions", &params).await else {
+            return Vec::new();
+        };
+        body.lines()
+            .filter(|line| !line.starts_with('#') && !line.is_empty())
+            .filter_map(|line| {
+                let col = line.split('\t').next().unwrap_or(line).trim();
+                if col.is_empty() || col == "name" || col == "addr" {
+                    None
+                } else {
+                    Some(col.to_owned())
+                }
+            })
+            .take(COMPLETE_LIMIT)
+            .collect()
     }
 }
 
@@ -5679,6 +6454,7 @@ mod tests {
             limit: 9,
             fmt: None,
             program: None,
+            ..Default::default()
         };
         assert_eq!(
             p.into_params(),
@@ -5693,6 +6469,7 @@ mod tests {
             limit: 10,
             fmt: None,
             program: Some("variant_b.exe".to_owned()),
+            ..Default::default()
         };
         assert_eq!(
             p.into_params(),
@@ -5711,6 +6488,7 @@ mod tests {
             limit: 10,
             fmt: Some("json".to_owned()),
             program: None,
+            ..Default::default()
         };
         assert_eq!(
             p.into_params(),
@@ -5731,6 +6509,7 @@ mod tests {
                 limit: 50,
                 fmt: None,
                 program: None,
+                ..Default::default()
             },
         };
         assert_eq!(
@@ -5822,6 +6601,7 @@ mod tests {
                 limit: 100,
                 fmt: None,
                 program: None,
+                ..Default::default()
             },
         };
         assert_eq!(
@@ -5898,6 +6678,7 @@ mod tests {
                 limit: 100,
                 fmt: None,
                 program: None,
+                ..Default::default()
             },
         };
         assert_eq!(
@@ -5920,6 +6701,7 @@ mod tests {
                 limit: 50,
                 fmt: None,
                 program: None,
+                ..Default::default()
             },
         };
         assert_eq!(
@@ -5939,6 +6721,7 @@ mod tests {
                 limit: 100,
                 fmt: None,
                 program: None,
+                ..Default::default()
             },
         };
         assert_eq!(
@@ -6088,6 +6871,7 @@ mod tests {
                 limit: 100,
                 fmt: None,
                 program: None,
+                ..Default::default()
             },
         };
         assert_eq!(
@@ -6149,6 +6933,7 @@ mod tests {
                 limit: 100,
                 fmt: None,
                 program: None,
+                ..Default::default()
             },
         };
         assert_eq!(
@@ -6173,6 +6958,7 @@ mod tests {
                 limit: 100,
                 fmt: None,
                 program: None,
+                ..Default::default()
             },
         };
         assert_eq!(
@@ -6218,6 +7004,147 @@ mod tests {
                 ("capture_length", "32".to_owned()),
                 ("args", "0x10,42".to_owned()),
                 ("capture_addr", "0x40a000".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn recover_hidden_strings_emits_optional_fields() {
+        let p = RecoverHiddenStrings {
+            address: Some("0x140007df0".to_owned()),
+            algo: Some("splitmix".to_owned()),
+            min_len: Some(6),
+            apply: Some(true),
+            page: Page {
+                offset: 0,
+                limit: 50,
+                fmt: None,
+                program: None,
+                ..Default::default()
+            },
+        };
+        assert_eq!(
+            p.into_params(),
+            vec![
+                ("offset", "0".to_owned()),
+                ("limit", "50".to_owned()),
+                ("address", "0x140007df0".to_owned()),
+                ("algo", "splitmix".to_owned()),
+                ("min_len", "6".to_owned()),
+                ("apply", "1".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn function_behavior_emits_address_and_page() {
+        let p = FunctionBehavior {
+            address: "0x140007df0".to_owned(),
+            page: Page {
+                offset: 0,
+                limit: 100,
+                fmt: None,
+                program: None,
+                ..Default::default()
+            },
+        };
+        assert_eq!(
+            p.into_params(),
+            vec![
+                ("offset", "0".to_owned()),
+                ("limit", "100".to_owned()),
+                ("address", "0x140007df0".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn sample_intake_emits_deep() {
+        let p = SampleIntake {
+            deep: Some(true),
+            page: Page {
+                offset: 0,
+                limit: 50,
+                fmt: None,
+                program: None,
+                ..Default::default()
+            },
+        };
+        assert_eq!(
+            p.into_params(),
+            vec![
+                ("offset", "0".to_owned()),
+                ("limit", "50".to_owned()),
+                ("deep", "1".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn decode_keystream_emits_seed_and_algo() {
+        let p = DecodeKeystream {
+            address: "0x1401947f0".to_owned(),
+            length: 16,
+            seed: "0x79c692957d38084c".to_owned(),
+            algo: Some("splitmix".to_owned()),
+            increment: 1,
+        };
+        assert_eq!(
+            p.into_params(),
+            vec![
+                ("address", "0x1401947f0".to_owned()),
+                ("length", "16".to_owned()),
+                ("seed", "0x79c692957d38084c".to_owned()),
+                ("increment", "1".to_owned()),
+                ("algo", "splitmix".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn export_yara_emits_format_name_deep() {
+        let p = ExportYara {
+            format: Some("yara".to_owned()),
+            name: Some("Mortis".to_owned()),
+            deep: Some(true),
+            page: Page {
+                offset: 0,
+                limit: 100,
+                fmt: None,
+                program: None,
+                ..Default::default()
+            },
+        };
+        assert_eq!(
+            p.into_params(),
+            vec![
+                ("offset", "0".to_owned()),
+                ("limit", "100".to_owned()),
+                ("format", "yara".to_owned()),
+                ("name", "Mortis".to_owned()),
+                ("deep", "1".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn extract_iocs_emits_scope() {
+        let p = ExtractIocs {
+            scope: Some("both".to_owned()),
+            page: Page {
+                offset: 0,
+                limit: 50,
+                fmt: None,
+                program: None,
+                ..Default::default()
+            },
+        };
+        assert_eq!(
+            p.into_params(),
+            vec![
+                ("offset", "0".to_owned()),
+                ("limit", "50".to_owned()),
+                ("scope", "both".to_owned()),
             ]
         );
     }
@@ -6436,6 +7363,7 @@ mod tests {
                 limit: 20,
                 fmt: None,
                 program: None,
+                ..Default::default()
             },
         };
         assert_eq!(
@@ -6500,6 +7428,7 @@ mod tests {
                 limit: 20,
                 fmt: None,
                 program: None,
+                ..Default::default()
             },
         };
         assert_eq!(
@@ -6582,7 +7511,7 @@ mod tests {
     fn decompile_emits_clean_paging_grep_and_program() {
         let p = Decompile {
             target: "rva:0x2d202c".to_owned(),
-            clean: Some(true),
+            clean: Some("1".to_owned()),
             offset: Some(40),
             limit: Some(20),
             grep: Some("field_0x58".to_owned()),
@@ -6618,20 +7547,51 @@ mod tests {
     }
 
     #[test]
-    fn map_err_classifies_4xx_as_invalid_params() {
-        let client_err = map_err(BridgeError::Upstream {
+    fn tool_fail_is_a_visible_tool_error() {
+        let client_err = tool_fail(BridgeError::Upstream {
             status: 400,
             body: "bad".into(),
         });
-        let server_err = map_err(BridgeError::Upstream {
+        let server_err = tool_fail(BridgeError::Upstream {
             status: 500,
             body: "boom".into(),
         });
-        assert_eq!(client_err.code, ErrorData::invalid_params("bad", None).code);
-        assert_eq!(
-            server_err.code,
-            ErrorData::internal_error("boom", None).code
-        );
-        assert_ne!(client_err.code, server_err.code);
+        assert!(client_err.is_error.unwrap_or(false));
+        assert!(server_err.is_error.unwrap_or(false));
+        let client_text = format!("{client_err:?}");
+        let server_text = format!("{server_err:?}");
+        assert!(client_text.contains("bad"));
+        assert!(server_text.contains("boom"));
+    }
+
+    #[test]
+    fn advertises_2026_07_28_and_legacy_versions() {
+        let server = dummy_server();
+        let info = server.get_info();
+        assert_eq!(info.protocol_version, ProtocolVersion::V_2026_07_28);
+        let versions = server.supported_protocol_versions();
+        assert!(versions.contains(&ProtocolVersion::V_2026_07_28));
+        assert!(versions.contains(&ProtocolVersion::V_2025_11_25));
+        assert!(versions.contains(&ProtocolVersion::V_2024_11_05));
+        assert!(info.capabilities.completions.is_some());
+    }
+
+    #[test]
+    fn complete_resource_uris_filters_prefix() {
+        let hits = complete_resource_uris("ghidra://dro/");
+        assert!(hits.iter().any(|u| u == "ghidra://dro/nebula-playbook"));
+        assert!(hits.iter().all(|u| u.contains("ghidra://dro/")));
+        assert!(complete_resource_uris("no-such-uri").is_empty());
+    }
+
+    #[test]
+    fn complete_prompt_names_finds_workflows() {
+        let hits = complete_prompt_names("raknet");
+        assert!(hits.iter().any(|n| n == "analyze_raknet_handler"));
+        assert!(!complete_prompt_names("").is_empty());
+    }
+
+    fn dummy_server() -> GhidraServer {
+        GhidraServer::new(Url::parse("http://127.0.0.1:9/").unwrap(), 1, None).unwrap()
     }
 }
