@@ -123,8 +123,11 @@ public final class SdkExport {
                             proven.decompiled(), proven.classesScanned(),
                             proven.classesTotal(), proven.exhausted());
                 }
+                var slots = wantsVtables(q)
+                        ? vtableSlots(program, byClass)
+                        : Map.<String, Integer>of();
                 return header(byClass, meta, parentOf, methods.size(), classes.size(),
-                        skipped, scan);
+                        skipped, scan, slots);
             }
             return index(byClass, meta, parentOf, methods.size(), classes.size(), page, q);
         });
@@ -155,8 +158,62 @@ public final class SdkExport {
         return out;
     }
 
+    /**
+     * Bind each method to its vtable slot.
+     *
+     * <p>This engine registers classes through Nebula's own Rtti rather than
+     * MSVC RTTI, so vtables carry no class symbol and {@code vtable_scan} cannot
+     * name them. The method addresses recovered from signature strings supply
+     * the missing link: a pointer run is owned by whichever class contributes
+     * the most entries to it, and each method's index in that run is its slot.
+     *
+     * <p>Ties and inherited slots resolve naturally — a derived class's vtable
+     * repeats its base's entries, so the derived class wins on its own table by
+     * contributing the overrides.
+     *
+     * @return method entry address -> slot index
+     */
+    private static Map<String, Integer> vtableSlots(Program program,
+                                                    Map<String, List<Method>> byClass) {
+        var owner = new java.util.HashMap<String, String>();
+        for (var e : byClass.entrySet()) {
+            for (var m : e.getValue()) {
+                if (!m.addr().isEmpty()) owner.put(m.addr(), e.getKey());
+            }
+        }
+        if (owner.isEmpty()) return Map.of();
+
+        var slots = new java.util.HashMap<String, Integer>();
+        for (var table : VTableScan.tables(program)) {
+            var votes = new java.util.HashMap<String, Integer>();
+            for (var entry : table.entries()) {
+                var klass = owner.get(Responses.addr(entry));
+                if (klass != null) votes.merge(klass, 1, Integer::sum);
+            }
+            if (votes.isEmpty()) continue;
+            var best = votes.entrySet().stream()
+                    .max(Map.Entry.comparingByValue())
+                    .map(Map.Entry::getKey)
+                    .orElse(null);
+            if (best == null) continue;
+            var entries = table.entries();
+            for (int i = 0; i < entries.size(); i++) {
+                var addr = Responses.addr(entries.get(i));
+                if (!best.equals(owner.get(addr))) continue;
+                // First table wins: a base's own vtable is scanned before the
+                // derived tables that repeat its entries at shifted indices.
+                slots.putIfAbsent(addr, i);
+            }
+        }
+        return slots;
+    }
+
     private static boolean wantsFields(Map<String, String> q) {
         return flag(q, "fields_prove");
+    }
+
+    private static boolean wantsVtables(Map<String, String> q) {
+        return flag(q, "vtables");
     }
 
     private static boolean wantsInfer(Map<String, String> q) {
@@ -548,7 +605,7 @@ public final class SdkExport {
                                  Map<String, NebulaClassGraph.Entry> meta,
                                  Map<String, String> parentOf,
                                  int totalMethods, int totalClasses, int skipped,
-                                 FieldScan scan) {
+                                 FieldScan scan, Map<String, Integer> slots) {
         var fields = scan == null ? Map.<String, List<Field>>of() : scan.byClass();
         var sb = new StringBuilder(1 << 16);
         sb.append("// Reconstructed from dro_client64 debug metadata (__FUNCSIG__ + Core::Rtti::Construct).\n");
@@ -625,14 +682,17 @@ public final class SdkExport {
             }
             sb.append("public:\n");
             for (var m : e.getValue()) {
+                var slot = slots.get(m.addr());
                 sb.append("    ");
                 if (m.isStatic()) sb.append("static ");
+                else if (slot != null) sb.append("virtual ");
                 if (!m.ret().isEmpty()) sb.append(m.ret()).append(' ');
                 sb.append(m.name()).append('(').append(m.params()).append(')');
                 if (m.isConst()) sb.append(" const");
                 sb.append(';');
                 if (!m.addr().isEmpty()) {
                     sb.append("   // ").append(m.addr());
+                    if (slot != null) sb.append("  vtbl[").append(slot).append(']');
                 } else if (m.refs() > 1) {
                     sb.append("   // inlined/ambiguous, ").append(m.refs()).append(" refs");
                 }

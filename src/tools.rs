@@ -2450,6 +2450,17 @@ pub struct SdkExport {
     )]
     pub fields_infer: Option<bool>,
     #[schemars(
+        description = "Mark methods virtual and annotate their vtable slot. This engine uses \
+                       Nebula's own Rtti, so vtables carry no class symbol; ownership is decided \
+                       by which class contributes the most entries to a pointer run."
+    )]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "de_opt_bool"
+    )]
+    pub vtables: Option<bool>,
+    #[schemars(
         description = "Ceiling on functions decompiled for fields_prove (default 300). The reply \
                        reports how much of the budget was spent, and says so when it ran out."
     )]
@@ -2488,6 +2499,9 @@ impl ToParams for SdkExport {
         }
         if self.fields_infer == Some(true) {
             p.push(("fields_infer", "1".to_owned()));
+        }
+        if self.vtables == Some(true) {
+            p.push(("vtables", "1".to_owned()));
         }
         if let Some(n) = self.field_max {
             p.push(("field_max", n.to_string()));
