@@ -127,7 +127,7 @@ public final class SdkExport {
                         ? vtableSlots(program, byClass)
                         : Map.<String, Integer>of();
                 return header(byClass, meta, parentOf, methods.size(), classes.size(),
-                        skipped, scan, slots);
+                        skipped, scan, slots, flag(q, "flat"));
             }
             return index(byClass, meta, parentOf, methods.size(), classes.size(), page, q);
         });
@@ -605,7 +605,7 @@ public final class SdkExport {
                                  Map<String, NebulaClassGraph.Entry> meta,
                                  Map<String, String> parentOf,
                                  int totalMethods, int totalClasses, int skipped,
-                                 FieldScan scan, Map<String, Integer> slots) {
+                                 FieldScan scan, Map<String, Integer> slots, boolean flat) {
         var fields = scan == null ? Map.<String, List<Field>>of() : scan.byClass();
         var sb = new StringBuilder(1 << 16);
         sb.append("// Reconstructed from dro_client64 debug metadata (__FUNCSIG__ + Core::Rtti::Construct).\n");
@@ -614,6 +614,14 @@ public final class SdkExport {
           .append(" rtti_classes=").append(totalClasses).append('\n');
         sb.append("// Declarations only: offsets marked /* +0x.. */ are proven, sizes come from\n");
         sb.append("// the Rtti initialiser. Bodies are not recovered — bind by address.\n");
+        if (flat) {
+            sb.append("// flat=1: standalone structs with explicit padding and absolute offsets.\n");
+            sb.append("// This form lays out where the members really are; compile against it.\n");
+        } else {
+            sb.append("// Offsets are absolute from the start of the object, so this inheriting\n");
+            sb.append("// form is a reference, NOT a layout to compile: declaring a base class\n");
+            sb.append("// shifts every member after it. Pass flat=1 for a layout-correct struct.\n");
+        }
         if (scan != null) {
             sb.append("// Members are proven from the n_assert guarding each this->field; only\n");
             sb.append("// members some assert actually names appear, so a class is rarely complete.\n");
@@ -656,31 +664,25 @@ public final class SdkExport {
             }
 
             var simple = simpleName(klass);
-            sb.append("class ").append(simple);
-            if (!parent.isEmpty()) sb.append(" : public ").append(parent);
-            sb.append(" {\n");
+            var members = fields.getOrDefault(klass, List.of());
+            long ownSize = info != null ? info.size() : 0;
+            var parentInfo = parent.isEmpty() ? null : meta.get(parent);
+            long parentSize = parentInfo != null ? parentInfo.size() : 0;
 
-            var members = fields.get(klass);
-            if (members != null && !members.isEmpty()) {
-                long last = 0;
-                for (var f : members) {
-                    sb.append("    /* +0x").append(String.format("%04X", f.offset())).append(" */ ")
-                      .append(typeForWidth(f.width(), f.container(), f.confidence())).append(' ')
-                      .append(f.name()).append(';');
-                    sb.append("   // ").append(f.confidence());
-                    if (f.assertExpr() != null && !f.assertExpr().isBlank()) {
-                        sb.append(" — \"").append(f.assertExpr()).append('"');
-                    }
-                    sb.append('\n');
-                    last = Math.max(last, f.offset());
-                }
-                if (info != null && info.size() > last) {
-                    sb.append("    // ... unproven up to sizeof 0x")
-                      .append(Long.toHexString(info.size())).append('\n');
-                }
-                sb.append('\n');
+            if (flat) {
+                // Absolute offsets with explicit padding and no base class, so the
+                // declaration lays out exactly where the members really are.
+                sb.append("struct ").append(simple).append(" {\n");
+                emitFlatMembers(sb, members, ownSize);
+                sb.append("};\n");
+                sb.append("// methods:\n");
+            } else {
+                sb.append("class ").append(simple);
+                if (!parent.isEmpty()) sb.append(" : public ").append(parent);
+                sb.append(" {\n");
+                emitOwnMembers(sb, members, info, parent, parentSize);
+                sb.append("public:\n");
             }
-            sb.append("public:\n");
             for (var m : e.getValue()) {
                 var slot = slots.get(m.addr());
                 sb.append("    ");
@@ -698,13 +700,127 @@ public final class SdkExport {
                 }
                 sb.append('\n');
             }
-            sb.append("};\n\n");
+            sb.append(flat ? "\n" : "};\n\n");
         }
         if (skipped > 0) {
             sb.append("// ").append(skipped)
               .append(" template instantiation(s) omitted — pass templates=1 to include them.\n");
         }
         return sb.toString();
+    }
+
+    /**
+     * Members inside an inheriting declaration.
+     *
+     * <p>Recovered offsets are absolute, measured from the start of the object,
+     * so anything below {@code sizeof(parent)} is a member of the base and must
+     * not be redeclared here — writing it into the derived class would place it
+     * after the base subobject and put every offset in the wrong slot. Those are
+     * reported rather than dropped silently.
+     */
+    private static void emitOwnMembers(StringBuilder sb, List<Field> members,
+                                       NebulaClassGraph.Entry info, String parent, long parentSize) {
+        if (members.isEmpty()) return;
+        int inherited = 0;
+        long last = 0;
+        var own = new ArrayList<Field>();
+        for (var f : members) {
+            if (parentSize > 0 && f.offset() < parentSize) {
+                inherited++;
+                continue;
+            }
+            own.add(f);
+        }
+        if (inherited > 0) {
+            sb.append("    // ").append(inherited).append(" member(s) below sizeof(")
+              .append(parent).append(")=0x").append(Long.toHexString(parentSize))
+              .append(" belong to the base and are declared there.\n");
+        }
+        for (var f : own) {
+            sb.append("    /* +0x").append(String.format("%04X", f.offset())).append(" */ ")
+              .append(typeForWidth(f.width(), f.container(), f.confidence())).append(' ')
+              .append(f.name()).append(';');
+            sb.append("   // ").append(f.confidence());
+            if (f.assertExpr() != null && !f.assertExpr().isBlank()) {
+                sb.append(" — \"").append(f.assertExpr()).append('"');
+            }
+            sb.append('\n');
+            last = Math.max(last, f.offset());
+        }
+        if (info != null && info.size() > last && !own.isEmpty()) {
+            sb.append("    // ... unproven up to sizeof 0x")
+              .append(Long.toHexString(info.size())).append('\n');
+        }
+        if (!own.isEmpty() || inherited > 0) sb.append('\n');
+    }
+
+    /**
+     * A standalone struct whose layout is correct by construction: absolute
+     * offsets, explicit padding for every gap, and no base class to shift things.
+     * This is the form to compile against.
+     *
+     * <p>Where a member's width is unknown the gap to the next member bounds it,
+     * so a wrong guess can never overlap its neighbour.
+     */
+    private static void emitFlatMembers(StringBuilder sb, List<Field> members, long sizeOf) {
+        long cursor = 0;
+        for (int i = 0; i < members.size(); i++) {
+            var f = members.get(i);
+            if (f.offset() < cursor) {
+                sb.append("    // skipped ").append(f.name()).append(" at +0x")
+                  .append(Long.toHexString(f.offset()))
+                  .append(": overlaps the previous member\n");
+                continue;
+            }
+            if (f.offset() > cursor) {
+                sb.append("    char _pad_").append(Long.toHexString(cursor)).append('[')
+                  .append(f.offset() - cursor).append("];\n");
+            }
+            long next = i + 1 < members.size() ? members.get(i + 1).offset() : sizeOf;
+            long room = next > f.offset() ? next - f.offset() : 8;
+            int w = widthOf(f.width());
+            long use = w > 0 ? Math.min(w, room) : Math.min(8, room);
+            // Advance by the size of the type actually declared, never by the
+            // room available: a 3-byte gap emits a 2-byte field, and the leftover
+            // byte has to fall to the next iteration's padding.
+            long emitted = typeSize(use);
+            sb.append("    ").append(intType(emitted)).append(' ').append(f.name())
+              .append(";   // +0x").append(String.format("%04X", f.offset()))
+              .append(' ').append(f.confidence()).append('\n');
+            cursor = f.offset() + emitted;
+        }
+        if (sizeOf > cursor) {
+            sb.append("    char _pad_").append(Long.toHexString(cursor)).append('[')
+              .append(sizeOf - cursor).append("];\n");
+        }
+        if (sizeOf > 0) {
+            sb.append("    // sizeof = 0x").append(Long.toHexString(sizeOf)).append('\n');
+        }
+    }
+
+    private static int widthOf(String width) {
+        if (width == null || width.isBlank()) return 0;
+        try {
+            return Integer.parseInt(width.trim());
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    /** The largest integer type that fits in {@code n} bytes. */
+    private static String intType(long n) {
+        if (n >= 8) return "uint64_t";
+        if (n >= 4) return "uint32_t";
+        if (n >= 2) return "uint16_t";
+        return "uint8_t";
+    }
+
+    /** Size of the type {@link #intType} picks for {@code n} bytes. */
+    private static long typeSize(long n) {
+        if (n >= 8) return 8;
+        if (n >= 4) return 4;
+        if (n >= 2) return 2;
+        return 1;
     }
 
     /** {@code Game::Inventory} -> {@code Inventory}, keeping template arguments intact. */

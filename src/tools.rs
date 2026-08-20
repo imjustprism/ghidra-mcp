@@ -2461,6 +2461,18 @@ pub struct SdkExport {
     )]
     pub vtables: Option<bool>,
     #[schemars(
+        description = "Emit standalone structs with explicit padding and absolute offsets instead \
+                       of inheriting classes. Recovered offsets are absolute, so an inheriting \
+                       declaration is a reference only — declaring a base shifts every member \
+                       after it. This form is the one to compile against."
+    )]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "de_opt_bool"
+    )]
+    pub flat: Option<bool>,
+    #[schemars(
         description = "Ceiling on functions decompiled for fields_prove (default 300). The reply \
                        reports how much of the budget was spent, and says so when it ran out."
     )]
@@ -2502,6 +2514,9 @@ impl ToParams for SdkExport {
         }
         if self.vtables == Some(true) {
             p.push(("vtables", "1".to_owned()));
+        }
+        if self.flat == Some(true) {
+            p.push(("flat", "1".to_owned()));
         }
         if let Some(n) = self.field_max {
             p.push(("field_max", n.to_string()));
