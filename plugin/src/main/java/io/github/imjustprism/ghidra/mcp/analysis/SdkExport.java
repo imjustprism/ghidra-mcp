@@ -40,8 +40,11 @@ public final class SdkExport {
 
     private SdkExport() {}
 
-    /** Default ceiling on functions decompiled for {@code fields=1}. */
+    /** Default ceiling on functions decompiled for {@code fields_prove=1}. */
     public static final int DEFAULT_FIELD_MAX = 300;
+
+    /** Default ceiling per class, so a wide filter still reaches every class. */
+    public static final int DEFAULT_FIELD_PER_CLASS = 12;
 
     /**
      * One proven data member: the byte offset and width come from the compare
@@ -88,11 +91,12 @@ public final class SdkExport {
             var fmt = q == null ? null : q.get("fmt");
             if ("header".equalsIgnoreCase(fmt) || "cpp".equalsIgnoreCase(fmt)) {
                 boolean templates = q != null && "1".equals(q.get("templates"));
-                var fields = wantsFields(q)
-                        ? proveFields(program, byClass, fieldMax(q))
-                        : Map.<String, List<Field>>of();
+                var scan = wantsFields(q)
+                        ? proveFields(program, byClass, fieldMax(q),
+                                fieldPerClass(q, byClass.size()))
+                        : null;
                 return header(byClass, meta, parentOf, methods.size(), classes.size(),
-                        templates, fields, wantsFields(q));
+                        templates, scan);
             }
             return index(byClass, meta, parentOf, methods.size(), classes.size(), page, q);
         });
@@ -130,14 +134,29 @@ public final class SdkExport {
     }
 
     private static int fieldMax(Map<String, String> q) {
-        if (q == null) return DEFAULT_FIELD_MAX;
-        var raw = q.get("field_max");
-        if (raw == null || raw.isBlank()) return DEFAULT_FIELD_MAX;
+        return intParam(q, "field_max", DEFAULT_FIELD_MAX);
+    }
+
+    /**
+     * Per-class ceiling. The default only exists to stop one class eating a
+     * whole-program budget, so when the filter already picked out a handful of
+     * classes, spend the budget on them rather than rationing it.
+     */
+    private static int fieldPerClass(Map<String, String> q, int classCount) {
+        int explicit = intParam(q, "field_per_class", -1);
+        if (explicit > 0) return explicit;
+        return classCount <= 4 ? Integer.MAX_VALUE : DEFAULT_FIELD_PER_CLASS;
+    }
+
+    private static int intParam(Map<String, String> q, String key, int fallback) {
+        if (q == null) return fallback;
+        var raw = q.get(key);
+        if (raw == null || raw.isBlank()) return fallback;
         try {
             int n = Integer.parseInt(raw.trim());
-            return n <= 0 ? DEFAULT_FIELD_MAX : n;
+            return n <= 0 ? fallback : n;
         } catch (NumberFormatException e) {
-            return DEFAULT_FIELD_MAX;
+            return fallback;
         }
     }
 
@@ -152,20 +171,31 @@ public final class SdkExport {
      * <p>Decompilation is the expensive step, so this is opt-in and capped; the
      * caller is told how much of the budget was spent.
      */
-    private static Map<String, List<Field>> proveFields(Program program,
-                                                        Map<String, List<Method>> byClass,
-                                                        int budget) {
+    private static FieldScan proveFields(Program program,
+                                         Map<String, List<Method>> byClass,
+                                         int budget, int perClass) {
         var out = new LinkedHashMap<String, List<Field>>();
         int spent = 0;
+        int scanned = 0;
+        boolean exhausted = false;
         for (var e : byClass.entrySet()) {
-            if (spent >= budget) break;
+            if (spent >= budget) {
+                exhausted = true;
+                break;
+            }
             var klass = e.getKey();
+            scanned++;
+            // Spend the budget evenly: a class's members are normally asserted by
+            // its first handful of methods, so decompiling all 200 of one class
+            // starves every class after it.
+            int here = 0;
             // offset -> field, so repeated proofs of the same member collapse and
             // the better-supported one wins.
             var best = new TreeMap<Long, Field>();
             for (var m : e.getValue()) {
-                if (spent >= budget) break;
+                if (spent >= budget || here >= perClass) break;
                 if (m.addr().isEmpty()) continue;
+                here++;
                 var fn = Addresses.functionAtOrContaining(program,
                         Addresses.resolve(program, m.addr()));
                 if (fn == null) continue;
@@ -188,8 +218,15 @@ public final class SdkExport {
             }
             if (!best.isEmpty()) out.put(klass, new ArrayList<>(best.values()));
         }
-        return out;
+        return new FieldScan(out, spent, scanned, byClass.size(), exhausted);
     }
+
+    /**
+     * Outcome of a field pass. Carries the budget accounting so an exhausted
+     * budget is never mistaken for a class that genuinely has no proven members.
+     */
+    private record FieldScan(Map<String, List<Field>> byClass, int decompiled,
+                             int classesScanned, int classesTotal, boolean exhausted) {}
 
     /**
      * Keep a proof only when the assert attributes it to the class we are
@@ -392,7 +429,8 @@ public final class SdkExport {
                                  Map<String, NebulaClassGraph.Entry> meta,
                                  Map<String, String> parentOf,
                                  int totalMethods, int totalClasses, boolean templates,
-                                 Map<String, List<Field>> fields, boolean fieldsAsked) {
+                                 FieldScan scan) {
+        var fields = scan == null ? Map.<String, List<Field>>of() : scan.byClass();
         var sb = new StringBuilder(1 << 16);
         sb.append("// Reconstructed from dro_client64 debug metadata (__FUNCSIG__ + Core::Rtti::Construct).\n");
         sb.append("// methods=").append(totalMethods)
@@ -400,12 +438,21 @@ public final class SdkExport {
           .append(" rtti_classes=").append(totalClasses).append('\n');
         sb.append("// Declarations only: offsets marked /* +0x.. */ are proven, sizes come from\n");
         sb.append("// the Rtti initialiser. Bodies are not recovered — bind by address.\n");
-        if (fieldsAsked) {
+        if (scan != null) {
             sb.append("// Members are proven from the n_assert guarding each this->field; only\n");
             sb.append("// members some assert actually names appear, so a class is rarely complete.\n");
             sb.append("// Compare the last offset against sizeof to see what is still missing.\n");
             sb.append("// Member types are inferred from the width of the dereference, so an\n");
             sb.append("// integer type means \"read this many bytes here\", not a declared type.\n");
+            sb.append("// fields: decompiled ").append(scan.decompiled())
+              .append(" function(s) across ").append(scan.classesScanned())
+              .append(" of ").append(scan.classesTotal()).append(" class(es)");
+            if (scan.exhausted()) {
+                sb.append(" — BUDGET EXHAUSTED, later classes were not scanned; raise field_max");
+            }
+            sb.append(".\n");
+            sb.append("// A class with no members listed was scanned and proved none, unless the\n");
+            sb.append("// budget line above says it was never reached.\n");
         } else {
             sb.append("// Members omitted — pass fields_prove=1 to recover them (decompiles, slower).\n");
         }

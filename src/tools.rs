@@ -2438,7 +2438,7 @@ pub struct SdkExport {
     pub fields_prove: Option<bool>,
     #[schemars(
         description = "Ceiling on functions decompiled for fields_prove (default 300). The reply \
-                       reports how much of the budget was spent."
+                       reports how much of the budget was spent, and says so when it ran out."
     )]
     #[serde(
         default,
@@ -2446,6 +2446,17 @@ pub struct SdkExport {
         deserialize_with = "de_opt_u32"
     )]
     pub field_max: Option<u32>,
+    #[schemars(
+        description = "Ceiling per class for fields_prove (default 12). A class's members are \
+                       normally asserted by its first few methods, so this keeps one large class \
+                       from eating the whole budget."
+    )]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "de_opt_u32"
+    )]
+    pub field_per_class: Option<u32>,
     #[serde(flatten)]
     pub page: Page,
 }
@@ -2464,6 +2475,9 @@ impl ToParams for SdkExport {
         }
         if let Some(n) = self.field_max {
             p.push(("field_max", n.to_string()));
+        }
+        if let Some(n) = self.field_per_class {
+            p.push(("field_per_class", n.to_string()));
         }
         p
     }
