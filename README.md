@@ -216,7 +216,7 @@ Common conventions on most paginated read tools:
 | `obfuscation_profile` | one-call obfuscation verdict |
 | `detect_security_mitigations` | PE hardening (ASLR/DEP/CFG/SafeSEH/GS) |
 | `list_tls_callbacks` | PE TLS callbacks |
-| `tls_singleton_map` | TLS slot map (+ live ptrs after live_attach) |
+| `tls_singleton_map` | TLS slot map (+ live ptrs and owning tid after live_attach) |
 | `derive_tls_singletons` | derive TLS slots from "0 != Singleton" asserts |
 | `prove_offset` | prove a field offset from the n_assert that names it |
 | `address_context` | function start? mid-instruction? unshifted bytes |

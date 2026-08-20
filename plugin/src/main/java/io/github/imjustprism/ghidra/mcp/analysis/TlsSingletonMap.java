@@ -118,6 +118,9 @@ public final class TlsSingletonMap {
         int tid = 0;
         int tlsIndex = 0;
         boolean live = false;
+        // Every thread's TLS block, so a slot the game thread never constructed
+        // can still be found on the thread that owns it.
+        java.util.List<ProcessMemory.TlsHit> allTls = java.util.List.of();
         String note = "static Nebula3/dro slot map (TLS offsets into module TLS block)";
         if (wantLive) {
             try {
@@ -127,8 +130,9 @@ public final class TlsSingletonMap {
                     tlsBase = hit.tlsBase();
                     tid = hit.tid();
                     live = true;
+                    allTls = rpm.allThreadTls(livePid, tlsIndex);
                     note = "live tls_base=0x" + Long.toHexString(tlsBase) + " tid=" + tid
-                            + " _tls_index=" + tlsIndex;
+                            + " _tls_index=" + tlsIndex + " threads_with_tls=" + allTls.size();
                 } else {
                     note = "live pid=" + livePid + " but no thread with non-null TLS+0x58; static map only";
                 }
@@ -142,23 +146,43 @@ public final class TlsSingletonMap {
         var derived = loadDerived(ctx.currentProgram());
         var rows = mergeRows(derived);
         var cols = live
-                ? new String[]{"slot", "type", "role", "source", "ptr", "null"}
+                ? new String[]{"slot", "type", "role", "source", "ptr", "null", "owner_tid"}
                 : new String[]{"slot", "type", "role", "source"};
         var t = Responses.table(q, cols, rows.size());
         for (var row : rows) {
             long off = row.slot();
-            if (live) {
-                byte[] p = rpm.read(livePid, tlsBase + off, 8);
-                long ptr = p == null ? 0 : u64(p);
-                t.row(hex(off), row.type(), row.role(), row.source(),
-                        p == null ? "" : "0x" + Long.toHexString(ptr),
-                        p == null || ptr == 0 ? "1" : "0");
-            } else {
+            if (!live) {
                 t.row(hex(off), row.type(), row.role(), row.source());
+                continue;
             }
+            byte[] p = rpm.read(livePid, tlsBase + off, 8);
+            long ptr = p == null ? 0 : u64(p);
+            int owner = ptr != 0 ? tid : 0;
+            if (ptr == 0) {
+                // Not on the game thread — ask every other thread before calling
+                // the slot empty.
+                for (var other : allTls) {
+                    if (other.tid() == tid) continue;
+                    byte[] q2 = rpm.read(livePid, other.tlsBase() + off, 8);
+                    if (q2 == null) continue;
+                    long v = u64(q2);
+                    if (v != 0) {
+                        ptr = v;
+                        owner = other.tid();
+                        break;
+                    }
+                }
+            }
+            t.row(hex(off), row.type(), row.role(), row.source(),
+                    ptr == 0 ? "" : "0x" + Long.toHexString(ptr),
+                    ptr == 0 ? "1" : "0",
+                    owner == 0 ? "" : Integer.toString(owner));
         }
         return "# tls_singleton_map " + note + "\n"
                 + "# resolve: TEB+0x58 -> tls_array; tls_base = tls_array[_tls_index]\n"
+                + "# owner_tid is the thread whose TLS block holds the pointer: these are "
+                + "thread-local singletons, so render-side ones live on the render thread, "
+                + "not the game thread\n"
                 + "# use address tls:0x90 on live read tools after live_attach\n"
                 + "# source=static is the baked table; derived is persist from "
                 + "derive_tls_singletons apply=true\n"

@@ -265,6 +265,27 @@ public final class ProcessMemory {
         return le(slot, ptr);
     }
 
+    /**
+     * The module TLS block of every thread that has one.
+     *
+     * <p>Nebula puts its singletons in thread-local storage, so a singleton
+     * constructed on the render thread is simply absent from the game thread's
+     * block. Resolving one thread and reading all slots from it reports those as
+     * null; callers that care which thread owns a slot need the whole set.
+     */
+    public List<TlsHit> allThreadTls(int pid, int tlsIndex) {
+        var out = new ArrayList<TlsHit>();
+        if (!LOADED) return out;
+        for (int tid : threadIds(pid)) {
+            long teb = tebBase(pid, tid);
+            if (teb == 0) continue;
+            long base = tlsBase(pid, tid, tlsIndex);
+            if (base == 0) continue;
+            out.add(new TlsHit(tid, teb, base));
+        }
+        return out;
+    }
+
     public TlsHit findGameTls(int pid, int tlsIndex, long probeSlot) {
         if (!LOADED) return null;
         for (int tid : threadIds(pid)) {
