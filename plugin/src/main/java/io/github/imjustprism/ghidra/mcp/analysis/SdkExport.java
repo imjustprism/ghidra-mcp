@@ -315,6 +315,33 @@ public final class SdkExport {
     }
 
     /**
+     * Make member names unique within a class.
+     *
+     * <p>One name legitimately lands on several offsets: an assert on
+     * {@code this->attributes[MovementSpeed]} and one on
+     * {@code this->attributes[MovementBonusSpeed]} both name {@code attributes},
+     * but prove different element addresses. Emitting both verbatim produces a
+     * struct that will not compile, so every repeat after the first carries its
+     * offset.
+     */
+    private static List<Field> dedupeNames(List<Field> fields) {
+        var seen = new java.util.HashSet<String>();
+        var out = new ArrayList<Field>(fields.size());
+        for (var f : fields) {
+            var name = f.name();
+            if (!seen.add(name)) {
+                name = name + "_" + String.format("%X", f.offset());
+                // Pathological, but never emit a name twice.
+                while (!seen.add(name)) name = name + "_";
+            }
+            out.add(name.equals(f.name()) ? f
+                    : new Field(f.offset(), name, f.width(), f.container(),
+                            f.confidence(), f.assertExpr()));
+        }
+        return out;
+    }
+
+    /**
      * Outcome of a field pass. Carries the budget accounting so an exhausted
      * budget is never mistaken for a class that genuinely has no proven members.
      */
@@ -399,7 +426,7 @@ public final class SdkExport {
             var bySlot = new TreeMap<Long, Field>();
             for (var f : inferred.getOrDefault(klass, List.of())) bySlot.put(f.offset(), f);
             for (var f : proven.getOrDefault(klass, List.of())) bySlot.put(f.offset(), f);
-            out.put(klass, new ArrayList<>(bySlot.values()));
+            out.put(klass, dedupeNames(new ArrayList<>(bySlot.values())));
         }
         return out;
     }
@@ -410,7 +437,12 @@ public final class SdkExport {
      */
     private static Field toField(ProveOffset.Proof p, String klass) {
         if (p.offset() == null || p.offset().isBlank()) return null;
-        if (p.owner() == null || !sameClass(p.owner(), klass)) return null;
+        // The three-argument assert form carries no FUNCSIG, so there is no owner
+        // to check. We decompiled this class's own method to get here, so an
+        // unattributed proof belongs to it; only a proof naming a *different*
+        // class (an inlined callee's assert) is rejected.
+        var owner = p.owner();
+        if (owner != null && !owner.isBlank() && !sameClass(owner, klass)) return null;
         long off;
         try {
             var raw = p.offset().trim();
@@ -420,8 +452,19 @@ public final class SdkExport {
         } catch (NumberFormatException e) {
             return null;
         }
-        return new Field(off, p.field(), p.width(), p.container(),
-                p.confidence(), p.assertExpr());
+        // "this->IsValid()" is a call, not a member: the identifier before the
+        // paren is an inlined accessor, and the offset is whatever that accessor
+        // reads. Keep the offset, drop the misleading name.
+        var name = p.field();
+        var expr = p.assertExpr();
+        boolean isCall = name != null && expr != null
+                && expr.contains("this->" + name + "(");
+        if (isCall) {
+            return new Field(off, "field_" + String.format("%X", off), p.width(), p.container(),
+                    p.confidence(), "read by inlined " + name + "() — " + expr);
+        }
+        return new Field(off, name, p.width(), p.container(),
+                p.confidence(), expr);
     }
 
     private static boolean sameClass(String owner, String klass) {

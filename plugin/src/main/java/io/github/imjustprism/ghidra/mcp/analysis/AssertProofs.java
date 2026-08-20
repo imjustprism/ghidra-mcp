@@ -15,20 +15,26 @@ public final class AssertProofs {
     /**
      * An assert site, in either arity this engine emits.
      *
-     * <p>{@code n_assert} is {@code (expr, file, line, FUNCSIG)}, but {@code n_error}
-     * and {@code n_assert2} carry a human message first:
-     * {@code (expr, "Inventory has not been setup", file, line, FUNCSIG)}. The
-     * message group is therefore optional — pinning the file to argument two
-     * silently drops every five-argument assert, which is where a large share of
-     * the field guards live.
+     * <p>Three shapes occur, and only the expression, file and line are constant:
+     * <ul>
+     *   <li>{@code n_assert(expr, file, line, FUNCSIG)}</li>
+     *   <li>{@code n_error(expr, "Inventory has not been setup", file, line, FUNCSIG)}
+     *       — a human message ahead of the file</li>
+     *   <li>{@code n_assert2(expr, file, line)} — no signature at all, and the
+     *       decompiler also hoists the signature out of the call into a separate
+     *       assignment when it can</li>
+     * </ul>
+     * Both the message and the signature are therefore optional. Requiring
+     * either one silently drops whole families of asserts, and those are exactly
+     * where the field guards live.
      */
     private static final Pattern ASSERT_CALL = Pattern.compile(
             "(?:n_assert\\w*|n_verify\\w*|n_error\\w*|n_warning\\w*|FUN_[0-9a-fA-F]+)\\s*\\(\\s*"
                     + "\"((?:[^\"\\\\]|\\\\.)*)\"\\s*,\\s*"
                     + "(?:\"((?:[^\"\\\\]|\\\\.)*)\"\\s*,\\s*)?"
                     + "\"((?:[^\"\\\\]|\\\\.)*\\.(?:cc|cpp|cxx|c|h|hpp))\"\\s*,\\s*"
-                    + "(0x[0-9a-fA-F]+|[0-9]+)\\s*,\\s*"
-                    + "\"((?:[^\"\\\\]|\\\\.)*)\"",
+                    + "(0x[0-9a-fA-F]+|[0-9]+)"
+                    + "(?:\\s*,\\s*\"((?:[^\"\\\\]|\\\\.)*)\")?",
             Pattern.DOTALL);
 
     private static final Pattern THIS_FIELD = Pattern.compile("this->([A-Za-z_][A-Za-z0-9_]*)");
@@ -84,9 +90,11 @@ public final class AssertProofs {
         if (c == null || c.isEmpty()) return out;
         var m = ASSERT_CALL.matcher(c);
         while (m.find()) {
-            // group 2 is the optional human message; file/line/sig follow it.
+            // group 2 is the optional human message; file/line follow it, and the
+            // signature in group 5 is absent in the three-argument form.
+            var sig = m.group(5);
             out.add(new Site(m.group(1), normalizePath(m.group(3)), parseNum(m.group(4)),
-                    m.group(5), m.start(), m.end()));
+                    sig == null ? "" : sig, m.start(), m.end()));
         }
         return out;
     }
