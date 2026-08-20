@@ -715,7 +715,7 @@ public final class SdkExport {
             if (flat) {
                 // Absolute offsets with explicit padding and no base class, so the
                 // declaration lays out exactly where the members really are.
-                sb.append("struct ").append(simple).append(" {\n");
+                sb.append("struct ").append(flatName(klass)).append(" {\n");
                 emitFlatMembers(sb, members, ownSize);
                 sb.append("};\n");
                 sb.append("// methods:\n");
@@ -864,6 +864,24 @@ public final class SdkExport {
         if (n >= 4) return 4;
         if (n >= 2) return 2;
         return 1;
+    }
+
+    /**
+     * A unique C identifier for a class, for the flat form.
+     *
+     * <p>The simple name is not unique: {@code Game::Foo::Iterator} and
+     * {@code Game::Bar::Iterator} both shorten to {@code Iterator}, and flat
+     * structs have no namespace to keep them apart, so the file would not
+     * compile. Keep the whole qualified name instead.
+     */
+    private static String flatName(String qualified) {
+        var s = qualified.replace("::", "_");
+        var sb = new StringBuilder(s.length());
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            sb.append(Character.isLetterOrDigit(c) || c == '_' ? c : '_');
+        }
+        return sb.toString();
     }
 
     /** {@code Game::Inventory} -> {@code Inventory}, keeping template arguments intact. */
